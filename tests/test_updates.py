@@ -277,7 +277,7 @@ class PreparationTests(unittest.TestCase):
         def create(path):
             (path / 'bin').mkdir(parents=True, exist_ok=True)
             (path / 'bin/python').write_text('fixture interpreter')
-        reply = subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(version='0.12.1', protocol=1, install=str(ROOT))))
+        reply = subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(version='0.12.1', protocol=releases.PROTOCOL, install=str(ROOT))))
         with patch.object(updates.venv.EnvBuilder, 'create', side_effect=create), patch.object(updates.subprocess, 'run') as run:
             run.side_effect = subprocess.CalledProcessError(1, ['fixture-pip'])
             with self.assertRaises(subprocess.CalledProcessError):

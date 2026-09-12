@@ -11,8 +11,8 @@ import urllib.request
 from . import credentials
 from .relay_paths import PATHS
 
-VERSION = '0.12.0'
-PROTOCOL = 1
+VERSION = '0.12.1'
+PROTOCOL = 2
 REPOSITORY = 'StepanKukharskiy/task-relay'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases/'
 WEB = 'https://github.com/' + REPOSITORY + '/releases/'
@@ -159,7 +159,7 @@ def cached(data=PATHS.data):
 
 
 def tick(state, telegram):
-    data = state.media_dir.parent
+    data = state.media_dir.parent.resolve()
     if not preferences(data)['notifications'] or state.get('chat_id') is None:
         return
     store = Store(data)

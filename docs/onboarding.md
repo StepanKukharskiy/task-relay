@@ -104,4 +104,6 @@ and the one-time bootstrap from older installations.
 While the bot is running, daily stable-release checks and Telegram notices are on
 by default. `task-relay update notifications off` disables both. Downloads and
 installation require an explicit `update apply --version VERSION` command.
-Explicit data migration and separate Messages deployment updates remain open.
+Version 0.12.1 adds explicit additive-schema migration plans and guarded reversal;
+see the controller bootstrap instructions before upgrading from 0.12.0. Destructive
+data conversions and separate Messages deployment updates remain outside this scope.

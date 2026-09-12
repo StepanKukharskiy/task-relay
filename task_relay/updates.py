@@ -1,7 +1,7 @@
 """Explicit release installation, guarded service activation and code rollback."""
 import argparse
 import base64
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager, ExitStack, closing
 import hashlib
 import json
 import os
@@ -11,12 +11,13 @@ import sqlite3
 import subprocess
 import sys
 import time
+import tempfile
 import urllib.request
 from urllib.parse import urlsplit
 import venv
 import zipfile
 
-from . import credentials, releases
+from . import credentials, releases, migrations
 from .filesystem import FILES, Grant
 from .host import HOST
 from .host_updates import Service
@@ -85,7 +86,7 @@ def current(paths=PATHS):
 
 
 def verify_target(target):
-    if target['protocol'] != releases.PROTOCOL or not Path(target['python']).is_file():
+    if target['protocol'] not in (1, releases.PROTOCOL) or not Path(target['python']).is_file():
         raise ValueError('This installation cannot be switched by this updater.')
     if code_hash(target['install']) != target['code_hash']:
         raise ValueError('Retained runtime files changed; automatic switching was refused.')
@@ -139,6 +140,8 @@ def prepare(release, paths=PATHS, downloader=download):
         if target.get('wheel_sha256') != release['sha256']:
             raise ValueError('Prepared release identity differs; it was preserved.')
         verify_target(target)
+        if target['protocol'] != releases.PROTOCOL:
+            raise ValueError('Prepared release uses another update protocol; use a matching controller.')
         return target
     marker = folder / 'preparing.json'
     if folder.exists():
@@ -198,15 +201,18 @@ def content(db):
     return hashlib.sha256('\n'.join(db.iterdump()).encode()).hexdigest()
 
 
-def compatible(target, snapshot, paths):
-    # Run initialization only on a disposable snapshot. Exact logical contents must survive.
-    test = snapshot.with_name('probe.sqlite')
-    source = sqlite3.connect(snapshot)
-    dest = sqlite3.connect(test)
-    source.backup(dest)
-    before = content(dest)
-    dest.close(); source.close()
-    probe_data = test.parent / 'probe-data'
+def snapshot(source, destination):
+    with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+        with closing(sqlite3.connect(destination)) as dest:
+            src.backup(dest)
+            migrations.check(dest)
+    os.chmod(destination, 0o600)
+
+
+def probe(target, source, paths, folder):
+    test = folder / 'probe.sqlite'
+    snapshot(source, test)
+    probe_data = folder / 'probe-data'
     probe_data.mkdir(exist_ok=True)
     code = ('import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
             'from task_relay.bridge import State; s=State(Path(sys.argv[2])); s.db.close()')
@@ -215,12 +221,73 @@ def compatible(target, snapshot, paths):
                             env=env, capture_output=True, timeout=30)
     if result.returncode:
         raise ValueError('Candidate cannot reopen the snapshot; live data was preserved.')
-    check = sqlite3.connect(test)
-    try:
-        if before != content(check):
-            raise ValueError('This release changes stored data/schema. An explicit migration is required; live data was preserved.')
-    finally:
-        check.close()
+    return test
+
+
+def compatible(target, source, paths):
+    with tempfile.TemporaryDirectory(dir=source.parent, prefix='compatibility-') as tmp:
+        test = probe(target, source, paths, Path(tmp))
+        with closing(sqlite3.connect(source)) as before, closing(sqlite3.connect(test)) as after:
+            migrations.check(after)
+            if migrations.fingerprint(before) != migrations.fingerprint(after):
+                raise ValueError('This release changes stored data/schema. An explicit migration is required; live data was preserved.')
+
+
+def migration_plan(target, paths=PATHS):
+    HOST.require_posix('Migration planning')
+    if not paths.state.is_file():
+        raise ValueError('Initialize an installation before planning its data migration.')
+    if paths.messages.exists():
+        raise ValueError('Migration currently supports Telegram-only installations.')
+    with lock(paths.data / 'updates/update.lock'):
+        record = load(activation_path(paths))
+        if record and (record['phase'] != 'active' or record['bindings'] != paths.environment()):
+            raise ValueError('Recover the current activation and retain its path bindings before planning.')
+        previous = record['target'] if record else current(paths)
+        verify_target(previous); verify_target(target)
+        if previous['protocol'] != releases.PROTOCOL or target['protocol'] != releases.PROTOCOL:
+            raise ValueError('First activate migration-aware code without schema changes; legacy recovery cannot reverse migrations.')
+        with tempfile.TemporaryDirectory(dir=paths.data, prefix='migration-plan-') as tmp:
+            folder = Path(tmp)
+            source = folder / 'source.sqlite'
+            snapshot(paths.state, source)
+            candidate = probe(target, source, paths, folder)
+            with closing(sqlite3.connect(source)) as before, closing(sqlite3.connect(candidate)) as after:
+                spec = migrations.derive(before, after)
+            plan = dict(spec, previous=previous, target=target, bindings=paths.environment())
+        plan['id'] = migrations.digest(plan)
+        credentials.save(migrations.path(paths, plan['id']), plan)
+        return plan
+
+
+def migration_selection(identifier, previous, target, paths):
+    plan = migrations.read(paths, identifier)
+    if previous['protocol'] != releases.PROTOCOL or target['protocol'] != releases.PROTOCOL:
+        raise ValueError('Migrations require migration-aware code on both sides of the switch.')
+    if plan['previous'] == previous and plan['target'] == target:
+        direction = 'up'
+    elif plan['target'] == previous and plan['previous'] == target:
+        direction = 'down'
+    else:
+        raise ValueError('The migration plan belongs to different retained code versions.')
+    return plan, direction
+
+
+def prove_migration(plan, direction, source, target, paths):
+    # Revalidate against current rows under the updater's write lock; a reviewed
+    # schema plan does not authorize a new initializer to rewrite intervening data.
+    with tempfile.TemporaryDirectory(dir=source.parent, prefix='migration-proof-') as tmp:
+        folder = Path(tmp)
+        trial = folder / 'migration.sqlite'
+        snapshot(source, trial)
+        with closing(sqlite3.connect(trial)) as db, db:
+            migrations.transform(db, plan, direction)
+        if direction == 'up':
+            candidate = probe(target, source, paths, folder)
+            with closing(sqlite3.connect(candidate)) as a, closing(sqlite3.connect(trial)) as b:
+                if migrations.fingerprint(a) != migrations.fingerprint(b):
+                    raise ValueError('Candidate initialization now changes data beyond the reviewed migration.')
+        compatible(target, trial, paths)
 
 
 def wait_ready(record, paths, timeout=30):
@@ -242,25 +309,53 @@ def activation_path(paths):
 
 
 def restore(record, service, paths, waiter=wait_ready):
+    # Retain the original transaction identity across interrupted restoration.
+    record = record.get('recovery_source', record)
     candidate = base64.b64decode(record['candidate']) if record['candidate'] else None
     service.verify(record['service'], candidate)
     service.stop(record['service'])
     verify_target(record['previous'])
-    # Preserve the interrupted transaction separately before returning to its previous code.
     credentials.save(paths.data / 'updates' / ('failed-' + record['nonce'] + '.json'), record)
-    old = base64.b64decode(record['service']['raw']) if record['service']['raw'] else None
-    service.write(old)
-    restored = dict(record, target=record['previous'], previous=record.get('fallback_previous', record['previous']), nonce=secrets.token_hex(16), phase='starting')
-    credentials.save(activation_path(paths), restored)
+    credentials.save(activation_path(paths), dict(record, phase='restoring'))
+    with ExitStack() as recovery_locks:
+        if record.get('migration'):
+            recovery_locks.enter_context(lock(paths.data / 'bridge.lock', timeout=30))
+            recovery_locks.enter_context(lock(paths.data / 'setup.lock'))
+            if not paths.state.is_file():
+                raise ValueError('Migration database is missing; recovery needs the original data.')
+            db = sqlite3.connect(paths.state, timeout=5)
+            try:
+                db.execute('BEGIN IMMEDIATE')
+                if unfinished(db):
+                    raise ValueError('Unfinished work blocks migration recovery; no task was replayed.')
+                with tempfile.TemporaryDirectory(dir=paths.data, prefix='migration-recovery-') as tmp:
+                    trial = Path(tmp) / 'state.sqlite'
+                    snapshot(paths.state, trial)
+                    with closing(sqlite3.connect(trial)) as check, check:
+                        check.execute('BEGIN IMMEDIATE')
+                        migrations.undo(check, record)
+                    compatible(record['previous'], trial, paths)
+                migrations.undo(db, record)
+                db.commit()
+            finally:
+                db.close()
+        old = base64.b64decode(record['service']['raw']) if record['service']['raw'] else None
+        service.verify(record['service'], candidate)
+        service.write(old)
+        restored = dict(record, target=record['previous'], previous=record.get('fallback_previous', record['previous']),
+                        migration=record.get('fallback_migration'), nonce=record['nonce'] + '-restore',
+                        recovery_source=record, phase='starting')
+        credentials.save(activation_path(paths), restored)
     service.start(record['service'])
     if record['service']['active']:
         waiter(restored, paths)
     restored['phase'] = 'active'
+    restored.pop('recovery_source')
     credentials.save(activation_path(paths), restored)
     return restored
 
 
-def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready):
+def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready, migration=None):
     HOST.require_posix('Release activation')
     path = activation_path(paths)
     with lock(path.parent / 'update.lock'):
@@ -281,6 +376,14 @@ def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready):
         verify_target(previous); verify_target(target)
         if previous == target:
             return record
+        selected = migration_selection(migration, previous, target, paths) if migration else None
+        if record and record.get('migration') and target == record['previous'] and not selected:
+            raise ValueError('Rollback needs --migration-plan ' + record['migration']['plan'] + ' to authorize schema reversal.')
+        if selected and selected[1] == 'down':
+            with closing(sqlite3.connect(paths.state.as_uri() + '?mode=ro', uri=True)) as preflight:
+                if migrations.schema(preflight) != selected[0]['after']:
+                    raise ValueError('Database schema changed since the reviewed migration plan.')
+                migrations.require_unused(preflight, selected[0])
         service = service_factory(paths, previous['install'])
         prior = service.capture()
         candidate = service.candidate(prior, target)
@@ -289,6 +392,8 @@ def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready):
             raise ValueError('This updater supports Telegram-only installations; the separate Messages deployment was preserved.')
         receipt = dict(phase='prepared', nonce=secrets.token_hex(16), previous=previous, target=target,
                        fallback_previous=record['previous'] if record else previous,
+                       fallback_migration=record.get('migration') if record else None,
+                       migration={'plan': selected[0]['id'], 'direction': selected[1]} if selected else None,
                        service=prior, candidate=base64.b64encode(candidate).decode() if candidate else None,
                        bindings=paths.environment())
         credentials.save(path, receipt)
@@ -310,15 +415,19 @@ def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready):
                     backup_dir = path.parent / ('backup-' + receipt['nonce'])
                     backup_dir.mkdir(mode=0o700)
                     backup = backup_dir / 'state.sqlite'
-                    source = sqlite3.connect(paths.state)
-                    dest = sqlite3.connect(backup)
-                    try:
-                        source.backup(dest)
-                    finally:
-                        source.close(); dest.close()
-                    os.chmod(backup, 0o600)
-                    compatible(target, backup, paths)
+                    snapshot(paths.state, backup)
                     receipt['backup'] = str(backup)
+                    if selected:
+                        plan, direction = selected
+                        prove_migration(plan, direction, backup, target, paths)
+                        # Persist intent before the atomic schema + receipt commit.
+                        receipt['phase'] = 'migrating'; credentials.save(path, receipt)
+                        migrations.transition(db, plan, direction, receipt['nonce'])
+                        db.commit()
+                    else:
+                        compatible(target, backup, paths)
+                elif selected:
+                    raise ValueError('The reviewed database is missing; migration was refused.')
                 service.verify(prior, candidate)
                 service.write(candidate)
                 receipt['phase'] = 'starting'; credentials.save(path, receipt)
@@ -350,7 +459,8 @@ def recover(paths=PATHS):
             raise ValueError('There is no incomplete activation to recover.')
         if record['bindings'] != paths.environment():
             raise ValueError('Recovery requires the original data/project/output bindings.')
-        return restore(record, Service(paths, record['previous']['install']), paths)
+        original = record.get('recovery_source', record)
+        return restore(original, Service(paths, original['previous']['install']), paths)
 
 
 def redirect(argv):
@@ -376,7 +486,11 @@ def main():
     sub.add_parser('status', help='Read cached metadata and activation state')
     apply = sub.add_parser('apply', help='Download and activate one explicit stable release')
     apply.add_argument('--version', required=True)
-    sub.add_parser('rollback', help='Switch to retained previous code without restoring old data')
+    apply.add_argument('--migration-plan', help='Exact reviewed migration ID from update plan')
+    plan = sub.add_parser('plan', help='Prepare a selected release and preview its additive data migration')
+    plan.add_argument('--version', required=True)
+    rollback = sub.add_parser('rollback', help='Switch to retained previous code without restoring old data')
+    rollback.add_argument('--migration-plan', help='Explicitly reverse the selected migration if no newer data is lost')
     sub.add_parser('recover', help='Recover an interrupted service activation')
     prefs = sub.add_parser('notifications', help='Control daily checks and Telegram notices')
     prefs.add_argument('mode', choices=('on', 'off'))
@@ -395,13 +509,14 @@ def main():
         elif args.command == 'status':
             record = load(activation_path(PATHS))
             public = ({'phase': record['phase'], 'current_version': record['target']['version'],
-                       'previous_version': record['previous']['version']} if record else None)
+                       'previous_version': record['previous']['version'],
+                       'migration': record.get('migration')} if record else None)
             print(json.dumps(dict(cache=releases.cached(), activation=public,
                                   notifications=releases.preferences()['notifications']), indent=2))
         elif args.command == 'notifications':
             credentials.save(PATHS.data / 'update-preferences.json', {'notifications': args.mode == 'on'})
             print('Release checks and notifications ' + args.mode + '.')
-        elif args.command == 'apply':
+        elif args.command in ('apply', 'plan'):
             release = releases.fetch(args.version)
             if not release:
                 raise ValueError('That stable release is not published.')
@@ -412,13 +527,20 @@ def main():
             # Serialize preparation too, independently of activation's service lock.
             with lock(PATHS.data / 'updates' / 'prepare.lock'):
                 target = prepare(release)
-            result = activate(target)
+            if args.command == 'plan':
+                plan = migration_plan(target)
+                print(json.dumps({'id': plan['id'], 'version': target['version'],
+                                  'forward': plan['forward'], 'reverse': plan['backward'],
+                                  'reversal': 'Refused while new tables or added columns contain data.',
+                                  'apply': 'task-relay update apply --version ' + target['version'] + ' --migration-plan ' + plan['id']}, indent=2))
+                return
+            result = activate(target, migration=args.migration_plan)
             print('Selected Task Relay ' + result['target']['version'] + '. Previous code retained; task history preserved.')
         elif args.command == 'rollback':
             record = load(activation_path(PATHS))
             if not record or record['phase'] != 'active':
                 raise ValueError('No completed update is available to roll back.')
-            result = activate(record['previous'])
+            result = activate(record['previous'], migration=args.migration_plan)
             print('Selected previous code ' + result['target']['version'] + '; current task data retained.')
         elif args.command == 'recover':
             recover()

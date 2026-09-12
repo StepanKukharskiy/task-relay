@@ -65,10 +65,25 @@ reviewable draft releases. Controlled macOS fixture-service checks cover success
 switch, rollback and failed-start restoration; Linux adapter checks remain controlled.
 See [updates](docs/updates.md) for the conservative compatibility boundary.
 
-**Next implementation: explicit reversible data migration.** Native Linux service
-switching, separate Messages deployment updates, fresh-install provider execution
-and Telegram delivery remain open qualification or adapter work. Current controlled
-checks do not establish those gates. O13 remains incomplete.
+Implemented migration slice: explicit plans for additive SQLite schema changes,
+application bound to reviewed code/schema/path identities, atomic migration receipts,
+and guarded reversal that preserves newer records. Recovery distinguishes committed
+from uncommitted migrations. Populated added fields/tables block reversal; arbitrary
+record rewrites, destructive conversions and cross-database consolidation need their
+own explicit transformations. Channel-storage consolidation has a separate
+offline scope.
+
+**Next planned implementation within O13: desktop launcher.** Provide a separate
+visual entry point for installation and setup, installed version/update status,
+provider/channel/project configuration, and connected tool/application availability.
+Reuse the CLI/host services and report missing capabilities explicitly. Completion
+requires working setup/status controls and interrupted-setup recovery; a catalog or
+mockup alone is insufficient. Provider calls, application probes and message sends
+remain explicit actions. The launcher is planned, not implemented.
+
+Native Linux service switching, separate Messages deployment updates, fresh-install
+provider execution and Telegram delivery remain open qualification or adapter work.
+Controlled migration checks do not establish those gates. O13 remains incomplete.
 
 ## O12 remaining platform work
 

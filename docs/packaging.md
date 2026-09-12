@@ -42,7 +42,7 @@ An installed package provides `task-relay`. From a checkout, use
 
 | Command | Operation |
 | --- | --- |
-| `update` | Check published releases, explicitly apply a version, roll back code or recover a switch |
+| `update` | Check releases, review/apply additive migration plans, roll back or recover a switch |
 | `setup` | Resume guided API-provider, Telegram and first-project setup |
 | `doctor` / `doctor --json` | Check local configuration without network calls or state initialization |
 | `paths` | Inspect resolved data/project/output paths without creating state |

@@ -842,6 +842,10 @@ class Tests(unittest.TestCase):
             self.assertLess(duration, 1.0)
             self.assertEqual(self.state.get('offset'), 902)
             self.assertIsNotNone(self.state.get('health:commands'))
+            deadline = time.monotonic() + 2
+            while self.state.get('health:updates') is None and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertIsNotNone(self.state.get('health:updates'))
             self.assertFalse(release.is_set())
         finally:
             release.set()

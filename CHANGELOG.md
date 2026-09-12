@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.1 — unreleased
+
+- Added explicit additive-schema migration plans, atomic application receipts and
+  guarded reversal during release rollback. Newer data is retained; populated added
+  fields/tables, record rewrites and destructive schema changes are refused.
+- Recovery preserves the original migration identity across interrupted service
+  restoration and checks whether the database transaction actually committed.
+- Migration-aware updates use protocol 2; the 0.12.0 controller must be bootstrapped
+  before selecting these releases. Separate Messages migration remains outside this
+  updater. The desktop launcher is explicitly planned within O13, not implemented.
+
 ## 0.12.0 — installation and release updates
 
 - Added explicit release checks, separate-environment wheel installation, owned
@@ -19,7 +30,8 @@
   `task-relay doctor`. Setup preserves saved credentials/pairing and prepares a
   first-task command without dispatching work. The source installer refuses
   unrelated environments and changed-source upgrades. The macOS setup launcher
-  uses this flow without requiring Codex desktop. Compatible releases now use the update controller; explicit data migration remains open.
+  uses this flow without requiring Codex desktop. Compatible releases use the
+  update controller. Version 0.12.1 adds an explicit additive-schema migration path.
 - Published product documentation, portable setup instructions and an explicit
   source/distribution inventory. Personal research, installation records and
   one-time migration/replay programs are kept outside the public repository.
