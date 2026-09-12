@@ -36,7 +36,8 @@ TERMINAL_EXTRAS = {
     'incoming_files': {'attached'}, 'codex_inputs': {'ready', 'used', 'forgotten'},
     'production_uploads': {'ready', 'used', 'replaced'},
     'production_revisions': {'applied'}, 'production_continuations': {'registered'},
-    'reference_packs': {'ready'}, 'production_plans': {'started', 'discarded'},
+    'reference_packs': {'ready'}, 'production_plans': {'started', 'discarded', 'blocked'},
+    'production_attempts': {'blocked'},
     'task_routes': {'submitted'}, 'workflow_dispatches': {'submitted'},
     'backend_jobs': {'stopped', 'incomplete'}, 'internal_jobs': {'stopped'},
 }
@@ -185,7 +186,9 @@ def unfinished(db):
             if column in columns:
                 terminal = SAFE_STATES | TERMINAL_EXTRAS.get(table, set())
                 placeholders = ','.join('?' for _ in terminal)
-                count = db.execute(f'SELECT count(*) FROM {quoted} WHERE "{column}" IS NULL OR "{column}" NOT IN ({placeholders})', tuple(terminal)).fetchone()[0]
+                inactive_parent = (" AND run NOT IN (SELECT id FROM production_runs WHERE status IN ('completed','cancelled','failed'))"
+                                   if table == 'production_tasks' else '')
+                count = db.execute(f'SELECT count(*) FROM {quoted} WHERE ( "{column}" IS NULL OR "{column}" NOT IN ({placeholders})){inactive_parent}', tuple(terminal)).fetchone()[0]
                 if count:
                     blockers[table] = count
     return blockers

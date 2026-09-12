@@ -139,6 +139,19 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(self.service.raw, b'old definition')
         self.assertEqual(self.state.db.execute('SELECT status FROM incoming WHERE id=99').fetchone()[0], 'queued')
 
+    def test_cancelled_run_keeps_failed_attempt_history_without_blocking_updates(self):
+        with self.state.db:
+            self.state.db.execute("INSERT INTO production_runs VALUES ('fixture-run','{}','cancelled')")
+            self.state.db.execute("INSERT INTO production_tasks VALUES ('fixture-run','fixture-task','fixture-assignment','blocked',1,'fixture-attempt')")
+            self.state.db.execute("INSERT INTO production_attempts VALUES ('fixture-attempt','fixture-run','fixture-task','fixture-assignment','blocked',NULL,'{}','fixture-session','{}','Fixture failure')")
+        before = updates.content(self.state.db)
+        self.activate()
+        self.assertEqual(updates.content(self.state.db), before)
+        with self.state.db:
+            self.state.db.execute("UPDATE production_attempts SET state='uncertain'")
+        with self.assertRaisesRegex(ValueError, 'production_attempts'):
+            self.activate()
+
     def test_schema_change_is_detected_on_copy_and_original_is_untouched(self):
         module = Path(self.target['install']) / 'task_relay/bridge.py'
         module.write_text('import sqlite3\nclass State:\n def __init__(self,p):\n  self.db=sqlite3.connect(p)\n  self.db.execute("CREATE TABLE incompatible_schema(x)")\n  self.db.commit()\n')
