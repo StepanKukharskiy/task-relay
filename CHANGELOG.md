@@ -2,6 +2,12 @@
 
 ## Unreleased — public product baseline
 
+- Added a source installer, resumable `task-relay setup` for local API-provider,
+  model, Telegram and first-project configuration, and a network-free general
+  `task-relay doctor`. Setup preserves saved credentials/pairing and prepares a
+  first-task command without dispatching work. The source installer refuses
+  unrelated environments and changed-source upgrades. The macOS setup launcher
+  uses this flow without requiring Codex desktop. Upgrades/migration remain open.
 - Published product documentation, portable setup instructions and an explicit
   source/distribution inventory. Personal research, installation records and
   one-time migration/replay programs are kept outside the public repository.

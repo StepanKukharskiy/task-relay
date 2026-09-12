@@ -7,21 +7,28 @@ installing the package alone does not establish that every host feature works.
 
 ## Install from source
 
-On macOS or Linux:
+For guided setup on macOS or Linux:
 
 ```sh
 git clone https://github.com/StepanKukharskiy/task-relay.git
 cd task-relay
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install .
+sh install.sh
+export PATH="$PWD/.venv-relay/bin:$PATH"
 task-relay --help
 ```
 
-This installs code and the CLI in the selected environment. Configure the channel
-and providers separately, following the [quick start](../README.md#get-started).
-Keep that environment available for any service installed from it. After changing
-source code, reinstall the package to update an ordinary installation.
+The installer checks Python 3.11+, creates an owned environment, installs the
+package and runs `task-relay setup`. Use `sh install.sh --no-setup` to install code
+only, or `--venv /absolute/new/environment` to choose another location. Existing
+unrelated environments are refused. An interrupted installation of the same source
+can be retried. Changed source is refused for an existing environment: this is an
+initial installer, not an automatic upgrade command.
+
+For a manual install, create a virtual environment with `python3 -m venv .venv`,
+activate it, then run `python -m pip install .` and `task-relay setup`. Keep that
+environment available for any service installed from it. An ordinary package
+installation does not follow subsequent source edits. See
+[onboarding](onboarding.md) for setup recovery and current upgrade limitations.
 
 For source development, run `python3 -m task_relay` from the checkout. Root Python
 scripts are compatibility entry points for the corresponding `task_relay` modules.
@@ -35,6 +42,8 @@ An installed package provides `task-relay`. From a checkout, use
 
 | Command | Operation |
 | --- | --- |
+| `setup` | Resume guided API-provider, Telegram and first-project setup |
+| `doctor` / `doctor --json` | Check local configuration without network calls or state initialization |
 | `paths` | Inspect resolved data/project/output paths without creating state |
 | `host` | Inspect available host mechanisms and qualification boundaries |
 | `credentials PROVIDER` | Inspect credential availability without displaying secrets |
@@ -78,7 +87,8 @@ applications and development logs.
 
 Icons and native Swift sources are packaged under `task_relay/assets/`. Installing
 a wheel does not build, install or grant permissions to a native Messages app.
-One-command onboarding, upgrade and data migration are tracked separately in
+The checkout installer is not included in a wheel or source archive; installed
+packages expose `setup` directly. Automatic upgrades and data migration remain in
 [the roadmap](../ROADMAP.md).
 
 ## Development checks

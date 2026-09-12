@@ -60,6 +60,7 @@
       "release": false,
       "patterns": [
         "scripts/*.py",
+        "install.sh",
         "source_inventory.json",
         ".gitignore",
         "pyproject.toml",
@@ -94,6 +95,7 @@
         "docs/new-pipeline-planning.md",
         "docs/orchestrator-web.md",
         "docs/packaging.md",
+        "docs/onboarding.md",
         "docs/path-configuration.md",
         "docs/platform-architecture.md",
         "docs/production-selections.md",

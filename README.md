@@ -43,21 +43,32 @@ provider account or API key for the work you want to run. Install from source:
 ```sh
 git clone https://github.com/StepanKukharskiy/task-relay.git
 cd task-relay
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install .
+sh install.sh
+export PATH="$PWD/.venv-relay/bin:$PATH"
 ```
 
-Create a bot with Telegram's **@BotFather**, then configure and run the relay:
+The installer creates a dedicated Python environment and opens guided setup. It
+asks for an API provider, a model, an existing project folder, and a dedicated
+Telegram bot token from **@BotFather**. API keys are entered locally with hidden
+input. Choose `later` to configure providers separately or use existing Codex tasks.
+
+Setup checks the provider's model catalog and Telegram bot metadata. It prints a
+pairing link and a first-task command; it does not send messages or run a model.
+Start the relay:
 
 ```sh
-task-relay telegram configure
 task-relay telegram run
 ```
 
-Configuration prompts for the bot token and prints a pairing link. With the service
-running, open that link in Telegram and tap **Start**. Send `/providers` to connect
-an available provider and select its models.
+With the service running, open the pairing link in Telegram and tap **Start**.
+Send the `/new` command printed by setup, then your first instruction. This
+instruction starts provider work and may incur provider charges. A returned reply
+confirms that task's provider and Telegram path. `/providers` manages connections
+and models.
+
+If interrupted, run `task-relay setup` again. Saved credentials and existing pairing
+are retained. `task-relay doctor` checks local configuration and reports remaining
+steps without making network calls. See [setup and troubleshooting](docs/onboarding.md).
 
 Keep the foreground process running while using the bot. To run it in the
 background, stop the foreground process first, then use:
@@ -69,8 +80,9 @@ task-relay telegram install
 On macOS this installs a login service. On Linux it requires a working systemd
 user manager; otherwise use the foreground command under your chosen supervisor.
 Use `task-relay telegram uninstall` to remove the service while retaining saved
-configuration and task records. A packaged one-command onboarding flow is still
-planned; see [package and CLI instructions](docs/packaging.md).
+configuration and task records. Keep `.venv-relay` in place while the service uses
+it. Automatic upgrades and data migration remain planned; see
+[package and CLI instructions](docs/packaging.md).
 
 ## Working from Telegram
 

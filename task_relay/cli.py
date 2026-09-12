@@ -5,6 +5,8 @@ import sys
 
 
 COMMANDS = {
+    'setup': 'task_relay.onboarding',
+    'doctor': 'task_relay.diagnostics',
     'host': 'task_relay.host',
     'credentials': 'task_relay.credentials',
     'telegram': 'task_relay.bridge',

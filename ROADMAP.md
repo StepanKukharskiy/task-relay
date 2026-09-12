@@ -44,11 +44,25 @@ private trials do not establish general product acceptance.
 
 | Order | Milestone | Status | Completion gate |
 | --- | --- | --- | --- |
-| 1 | **O12 — native Windows/Linux qualification** | **In progress** | Native process ownership, locking, access enforcement, service recovery, an authorized provider text task and Telegram delivery on each host. |
-| 2 | **O13 — installation and onboarding** | Planned after O12 | Clean installation, channel/provider/project setup, interrupted-setup recovery, safe upgrades and explicit reversible data migration. |
+| 1 | **O13 — installation and onboarding** | **In progress; prioritized for product onboarding** | Clean installation, channel/provider/project setup, interrupted-setup recovery, safe upgrades and explicit reversible data migration. |
+| 2 | **O12 — native Windows/Linux qualification** | Partial; resume after current onboarding work | Native process ownership, locking, access enforcement, service recovery, an authorized provider text task and Telegram delivery on each host. |
 | — | O08 — reusable procedures | Parked | Resume when a repeated operation demonstrates a measurable benefit over a simple reusable-script baseline. |
 
-## Next build: O12
+## Current build: O13
+
+Implemented: a source installer with a dedicated environment and interrupted-install
+retry; guided local API-provider/model, Telegram and first-project setup; saved
+credential/pairing retention; and local diagnostics independent of Codex desktop.
+The installer refuses unrelated environments and changed-source upgrades. Setup
+prints a first-task command; it does not dispatch a task or infer live acceptance.
+See [onboarding](docs/onboarding.md).
+
+**Next implementation: safe upgrades and rollback**, followed by explicit reversible
+data migration. Fresh-install provider execution and Telegram delivery still need
+an authorized live check. Current controlled setup checks do not establish those
+gates or native Linux installer acceptance. O13 remains incomplete.
+
+## O12 remaining platform work
 
 **Next implementation: Windows process-tree ownership and recovery.** Then implement
 native locking, junction/reparse-point file grants, credential ACL enforcement and
