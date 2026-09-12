@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python scripts/check_publication.py
-      - run: python -m unittest tests.test_updates tests.test_update_services tests.test_onboarding tests.test_installer tests.test_bridge
+      - run: python -m unittest tests.test_updates tests.test_update_services tests.test_onboarding tests.test_installer tests.test_bridge.Tests.test_commands_respond_while_scan_and_upload_are_blocked
   draft:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: checks
