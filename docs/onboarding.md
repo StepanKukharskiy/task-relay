@@ -93,10 +93,15 @@ service and retains application data.
 
 ## Upgrades and migration
 
-Automatic upgrade, rollback and data migration are not implemented. The source
-installer refuses changed source in an environment it previously installed. This
-prevents an install retry from silently replacing code used by a running service.
-Keep the existing installation and data intact. A separate `--venv` can be used to
-inspect new code; do not run two relays against the same data or Telegram bot.
-Switching data directories is not a migration. Safe upgrade and migration tooling
-is the next O13 implementation step.
+The source installer resumes installation of the same source and refuses changed
+source in its existing environment. Starting with 0.12.0, use `task-relay update`
+for published compatible core releases. It prepares a separate environment,
+checks unfinished work and storage compatibility, then switches the owned Telegram
+service with a startup gate and recovery receipts. `task-relay update rollback`
+retains newer task history. See [update instructions](updates.md) for limitations
+and the one-time bootstrap from older installations.
+
+While the bot is running, daily stable-release checks and Telegram notices are on
+by default. `task-relay update notifications off` disables both. Downloads and
+installation require an explicit `update apply --version VERSION` command.
+Explicit data migration and separate Messages deployment updates remain open.

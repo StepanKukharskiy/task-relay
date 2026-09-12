@@ -126,6 +126,10 @@ def verify_support(frozen):
 HOST=Host()
 
 
-if __name__=='__main__':
+def main():
     import json
     print(json.dumps(HOST.describe(),indent=2))
+
+
+if __name__ == '__main__':
+    main()

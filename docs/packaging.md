@@ -21,8 +21,8 @@ The installer checks Python 3.11+, creates an owned environment, installs the
 package and runs `task-relay setup`. Use `sh install.sh --no-setup` to install code
 only, or `--venv /absolute/new/environment` to choose another location. Existing
 unrelated environments are refused. An interrupted installation of the same source
-can be retried. Changed source is refused for an existing environment: this is an
-initial installer, not an automatic upgrade command.
+can be retried. Changed source is refused for an existing environment: use the installed `task-relay update` controller for published compatible
+releases, or choose a separate environment for source development.
 
 For a manual install, create a virtual environment with `python3 -m venv .venv`,
 activate it, then run `python -m pip install .` and `task-relay setup`. Keep that
@@ -42,6 +42,7 @@ An installed package provides `task-relay`. From a checkout, use
 
 | Command | Operation |
 | --- | --- |
+| `update` | Check published releases, explicitly apply a version, roll back code or recover a switch |
 | `setup` | Resume guided API-provider, Telegram and first-project setup |
 | `doctor` / `doctor --json` | Check local configuration without network calls or state initialization |
 | `paths` | Inspect resolved data/project/output paths without creating state |
@@ -88,8 +89,8 @@ applications and development logs.
 Icons and native Swift sources are packaged under `task_relay/assets/`. Installing
 a wheel does not build, install or grant permissions to a native Messages app.
 The checkout installer is not included in a wheel or source archive; installed
-packages expose `setup` directly. Automatic upgrades and data migration remain in
-[the roadmap](../ROADMAP.md).
+packages expose `setup` directly. Compatible core releases use the explicit [update controller](updates.md).
+Data migration remains in [the roadmap](../ROADMAP.md).
 
 ## Development checks
 

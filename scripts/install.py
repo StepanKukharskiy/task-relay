@@ -41,7 +41,7 @@ def install(target):
         except (ValueError, OSError):
             raise ValueError('Installation receipt is unreadable. Preserve this directory and select a new --venv.') from None
         if any(old.get(k) != v for k, v in identity.items()):
-            raise ValueError('Source changed since installation. Use a new --venv; automatic upgrades are not implemented. Existing code and data were preserved.')
+            raise ValueError('Source changed since installation. Use the installed task-relay update command for published releases, or choose a new --venv. Existing code and data were preserved.')
     else:
         target.mkdir(parents=True, mode=0o700)
         marker.write_text(json.dumps({**identity, 'status': 'installing'}))

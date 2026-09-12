@@ -1,13 +1,25 @@
 # Changelog
 
-## Unreleased — public product baseline
+## 0.12.0 — installation and release updates
+
+- Added explicit release checks, separate-environment wheel installation, owned
+  Telegram service switching, compatible-code rollback and interrupted-activation
+  recovery. Candidate workers wait for activation commit. Schema/data changes,
+  unfinished work and changed service bindings block switching.
+- Added daily stable-release checks and at-most-once Telegram notices with an
+  opt-out. Checks send no task content or credentials; installation remains explicit.
+- Added a tag-driven draft-release workflow and update/bootstrap instructions.
+  Controlled macOS fixture services verified update, rollback and failed-start
+  restoration. Native Linux switching and live provider/delivery remain open.
+
+## Earlier public product baseline
 
 - Added a source installer, resumable `task-relay setup` for local API-provider,
   model, Telegram and first-project configuration, and a network-free general
   `task-relay doctor`. Setup preserves saved credentials/pairing and prepares a
   first-task command without dispatching work. The source installer refuses
   unrelated environments and changed-source upgrades. The macOS setup launcher
-  uses this flow without requiring Codex desktop. Upgrades/migration remain open.
+  uses this flow without requiring Codex desktop. Compatible releases now use the update controller; explicit data migration remains open.
 - Published product documentation, portable setup instructions and an explicit
   source/distribution inventory. Personal research, installation records and
   one-time migration/replay programs are kept outside the public repository.

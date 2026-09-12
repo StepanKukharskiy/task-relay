@@ -810,6 +810,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(DesktopFake.starts[-1][0], tid)
 
     def test_commands_respond_while_scan_and_upload_are_blocked(self):
+        self.enterContext(patch('task_relay.releases.fetch', return_value=None))
         self.ready_image()
         self.bridge.flush(include_media=False)
         release = threading.Event()

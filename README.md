@@ -81,8 +81,11 @@ On macOS this installs a login service. On Linux it requires a working systemd
 user manager; otherwise use the foreground command under your chosen supervisor.
 Use `task-relay telegram uninstall` to remove the service while retaining saved
 configuration and task records. Keep `.venv-relay` in place while the service uses
-it. Automatic upgrades and data migration remain planned; see
-[package and CLI instructions](docs/packaging.md).
+it. For future releases, use `task-relay update check` and select a version with
+`task-relay update apply --version VERSION`. The running bot checks daily and sends
+one notice per newer release; disable this with `task-relay update notifications off`.
+See [updates and rollback](docs/updates.md) for scope, recovery and first-upgrade
+instructions. Explicit data migration remains planned.
 
 ## Working from Telegram
 

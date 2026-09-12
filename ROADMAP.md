@@ -57,10 +57,18 @@ The installer refuses unrelated environments and changed-source upgrades. Setup
 prints a first-task command; it does not dispatch a task or infer live acceptance.
 See [onboarding](docs/onboarding.md).
 
-**Next implementation: safe upgrades and rollback**, followed by explicit reversible
-data migration. Fresh-install provider execution and Telegram delivery still need
-an authorized live check. Current controlled setup checks do not establish those
-gates or native Linux installer acceptance. O13 remains incomplete.
+Implemented next: explicit stable-release installation in a separate environment,
+owned Telegram service switching with a startup gate, compatible-code rollback
+that retains newer history, and recovery receipts. Daily release checks produce
+at-most-once Telegram notices and can be disabled. The release workflow prepares
+reviewable draft releases. Controlled macOS fixture-service checks cover successful
+switch, rollback and failed-start restoration; Linux adapter checks remain controlled.
+See [updates](docs/updates.md) for the conservative compatibility boundary.
+
+**Next implementation: explicit reversible data migration.** Native Linux service
+switching, separate Messages deployment updates, fresh-install provider execution
+and Telegram delivery remain open qualification or adapter work. Current controlled
+checks do not establish those gates. O13 remains incomplete.
 
 ## O12 remaining platform work
 

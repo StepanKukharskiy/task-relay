@@ -67,8 +67,12 @@ def resolve(environ=None,install=INSTALL):
 
 PATHS=resolve()
 
-if __name__=='__main__':
+def main():
     import argparse
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--field',choices=tuple(PATHS.describe()))
     args=parser.parse_args()
     print(PATHS.describe()[args.field] if args.field else json.dumps(PATHS.describe(),indent=2))
+
+
+if __name__ == '__main__':
+    main()

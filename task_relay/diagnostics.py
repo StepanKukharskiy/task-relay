@@ -76,6 +76,18 @@ def inspect(paths=PATHS, host=HOST):
                 add('project', 'warn', 'Run setup to select a first project, or supply its folder with /new in Telegram.')
         except (ValueError, OSError, TypeError):
             add('project', 'fail', 'Saved setup/project is invalid or unavailable; restore the directory or select another through setup.')
+    from . import releases
+    try:
+        update = releases.cached(paths.data)
+        latest = update.get('release')
+        if latest and releases.version(latest['version']) > releases.version(releases.VERSION):
+            add('update', 'info', 'Task Relay ' + latest['version'] + ' is available: ' + latest['url'])
+        else:
+            add('update', 'info', 'No newer release in the local cache. Run task-relay update check to contact GitHub.')
+        if update.get('error'):
+            add('update-check', 'warn', update['error'])
+    except (ValueError, sqlite3.Error, OSError):
+        add('update-check', 'warn', 'Release cache is unreadable; task-relay update check can diagnose connectivity.')
     add('service', 'info', 'Runtime health and delivery are unchecked. Use telegram run for foreground logs; telegram install manages the supported background service.')
     return dict(ok=not any(c['status'] == 'fail' for c in checks), checks=checks,
                 scope='Local configuration only; no network, messages, generation or service changes.')

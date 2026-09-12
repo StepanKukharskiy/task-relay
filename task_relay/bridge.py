@@ -1354,7 +1354,7 @@ class BackgroundWorkers:
         self.threads = []
 
     def start(self):
-        for name, interval in [('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
+        for name, interval in [('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
             thread = threading.Thread(target=self.work, args=(name, interval),
                                       name=f'bridge-{name}', daemon=True)
             self.threads.append(thread)
@@ -1367,7 +1367,9 @@ class BackgroundWorkers:
         backend_worker = backends.BackendWorker(state, backend='claude' if name == 'backends' else name) if name in ('backends', 'gemini', *api.SPECS) else None
         provider_worker = providers.Worker(state, telegram=bridge.telegram) if name == 'providers' else None
         production_worker = production_control.Worker(state, telegram=bridge.telegram) if name == 'production' else None
-        job = {'scan': watcher.scan,
+        from . import releases
+        job = {'updates': lambda: releases.tick(state, bridge.telegram),
+               'scan': watcher.scan,
                'reference-packs': reference_packs.Worker(state).tick,
                'task-routing': task_routing.Worker(state, Desktop).tick,
                'production': production_worker.tick if production_worker else None,
@@ -1442,6 +1444,8 @@ def run():
         HOST.lock(lock)
     except BlockingIOError:
         raise BridgeError('The bridge is already running.') from None
+    from .update_gate import startup
+    startup()
     state = State(DATA / 'state.sqlite')
     pacer = SendPacer()
     bridge = Bridge(state, Telegram(config['token'], pacer), config)

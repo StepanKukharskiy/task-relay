@@ -97,7 +97,7 @@ def status(path,secret='api_key'):
     except CredentialError as exc:return {'available':False,'blocker':str(exc)}
 
 
-if __name__=='__main__':
+def main():
     import argparse
     from .relay_paths import PATHS
     parser=argparse.ArgumentParser(description='Inspect configured credential availability without displaying secrets')
@@ -105,3 +105,7 @@ if __name__=='__main__':
     args=parser.parse_args()
     print(json.dumps(status(PATHS.data/('config.json' if args.provider=='telegram' else args.provider+'.json'),
                             'token' if args.provider=='telegram' else 'api_key'),indent=2))
+
+
+if __name__ == '__main__':
+    main()
