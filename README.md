@@ -132,6 +132,13 @@ tools, declared-file workers and shell workers have different boundaries. Approv
 applies to the recorded action, and cancellation does not undo work already done.
 See [host and access boundaries](docs/host-adapters.md).
 
+## License
+
+Copyright 2026 Stepan Kukharskiy.
+
+Task Relay is licensed under the [Apache License, Version 2.0](LICENSE).
+Third-party dependencies retain their respective licenses.
+
 ## Development
 
 Application code lives in `task_relay/`, the execution runtime in `orchestrator/`,

@@ -2,6 +2,11 @@
   "version": 2,
   "groups": [
     {
+      "kind": "license",
+      "release": true,
+      "patterns": ["LICENSE"]
+    },
+    {
       "kind": "application",
       "release": true,
       "patterns": [

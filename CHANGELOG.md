@@ -2,6 +2,9 @@
 
 ## 0.12.1 — unreleased
 
+- Licensed Task Relay under Apache-2.0, with the full license in the source
+  distribution and Python wheel, and matching Python package metadata.
+
 - Added explicit additive-schema migration plans, atomic application receipts and
   guarded reversal during release rollback. Newer data is retained; populated added
   fields/tables, record rewrites and destructive schema changes are refused.

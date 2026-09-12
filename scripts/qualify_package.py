@@ -38,13 +38,21 @@ def main():
         assert runtime == expected, (runtime-expected, expected-runtime)
         metadata = set(archive.namelist())-runtime
         prefix = 'task_relay-'+spec['project']['version']+'.dist-info/'
-        assert metadata == {prefix+n for n in ('METADATA','WHEEL','RECORD','entry_points.txt','top_level.txt')}, metadata
+        assert metadata == {prefix+n for n in ('METADATA','WHEEL','RECORD','entry_points.txt','top_level.txt','licenses/LICENSE')}, metadata
+        assert archive.read(prefix+'licenses/LICENSE') == (ROOT/'LICENSE').read_bytes()
+        from email.parser import BytesParser
+        package_metadata = BytesParser().parsebytes(archive.read(prefix+'METADATA'))
+        assert package_metadata['License-Expression'] == 'Apache-2.0'
+        assert package_metadata.get_all('License-File') == ['LICENSE']
         for name in expected:
             assert archive.read(name) == (ROOT/name).read_bytes(), name
     with tarfile.open(args.sdist) as archive:
         contents = {'/'.join(m.name.split('/')[1:]) for m in archive.getmembers() if m.isfile()}
         # setuptools adds generated PKG-INFO/setup.cfg and build metadata.
-        extras = contents-expected-{'pyproject.toml','MANIFEST.in','README.md','PKG-INFO','setup.cfg'}
+        extras = contents-expected-{'pyproject.toml','MANIFEST.in','README.md','LICENSE','PKG-INFO','setup.cfg'}
+        license_members = [m for m in archive.getmembers() if m.isfile() and '/'.join(m.name.split('/')[1:]) == 'LICENSE']
+        assert len(license_members) == 1
+        assert archive.extractfile(license_members[0]).read() == (ROOT/'LICENSE').read_bytes()
         allowed = {'task_relay.egg-info/'+n for n in
                    ('PKG-INFO','SOURCES.txt','dependency_links.txt','entry_points.txt','requires.txt','top_level.txt')}
         assert extras <= allowed, extras

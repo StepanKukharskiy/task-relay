@@ -33,7 +33,7 @@ an ambiguous response or replay an uncertain external operation.
 | O07 | Shared-runtime evaluation | Bounded preparation/recovery coverage across three workflow types; no general efficiency or quality advantage established. |
 | O04 | Second execution provider | Gemini declared UTF-8 file workers with fixed provider choice and bounded requests; shell/media execution is outside this worker profile. |
 | O09 | Source boundaries and paths | Central resolver, explicit overrides and preserved data bindings; changing a path is not migration. |
-| O10 | Python packaging | Runtime packages, CLI, tests and maintained assets have explicit distribution boundaries. |
+| O10 | Python packaging | Runtime packages, CLI, tests and maintained assets have explicit distribution boundaries. Apache-2.0 license text and package metadata are included. |
 | O11 | Host and access adapters | macOS lifecycle, POSIX process groups/locks, credential sources and file grants; shell workers retain their separately declared boundaries. |
 
 O03–O07 have controlled planning, handoff, decision and recovery coverage. Live
