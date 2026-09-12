@@ -10,7 +10,16 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/releases.yml'
   push:
+    branches: [main, 'codex/**']
     tags: ['v*.*.*']
+    paths:
+      - 'task_relay/**'
+      - 'tests/test_updates.py'
+      - 'tests/test_update_services.py'
+      - 'tests/test_onboarding.py'
+      - 'tests/test_installer.py'
+      - 'pyproject.toml'
+      - '.github/workflows/releases.yml'
   workflow_dispatch:
 permissions:
   contents: read
