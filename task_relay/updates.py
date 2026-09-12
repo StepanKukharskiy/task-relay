@@ -26,6 +26,21 @@ SAFE_STATES = frozenset(('done', 'completed', 'failed', 'cancelled', 'canceled',
                         'resolved', 'sent', 'ignored', 'expired', 'disabled', 'idle', 'closed', 'handled',
                         'delivered', 'superseded', 'skipped', 'approved', 'consumed', 'succeeded', 'finished'))
 
+# Saved buttons/key prompts are metadata, not running assignments. Their owning
+# job/task tables remain authoritative for unfinished or uncertain execution.
+METADATA_STATES = frozenset(('tool_requests', 'codex_approvals', 'provider_key_sessions',
+    'provider_deletions', 'production_replacement_cards', 'production_selection_cards',
+    'production_control_cards', 'orchestrator_guide_choices', 'orchestrator_proposals'))
+TERMINAL_EXTRAS = {
+    'incoming': {'submitted', 'attached', 'stopped', 'incomplete'},
+    'incoming_files': {'attached'}, 'codex_inputs': {'ready', 'used', 'forgotten'},
+    'production_uploads': {'ready', 'used', 'replaced'},
+    'production_revisions': {'applied'}, 'production_continuations': {'registered'},
+    'reference_packs': {'ready'}, 'production_plans': {'started', 'discarded'},
+    'task_routes': {'submitted'}, 'workflow_dispatches': {'submitted'},
+    'backend_jobs': {'stopped', 'incomplete'}, 'internal_jobs': {'stopped'},
+}
+
 
 def load(path):
     return credentials.private_json(path) if path.exists() or path.is_symlink() else None
@@ -154,12 +169,23 @@ def prepare(release, paths=PATHS, downloader=download):
 def unfinished(db):
     blockers = {}
     for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+        if table in METADATA_STATES:
+            continue
+        if table == 'workflows':
+            for (raw,) in db.execute('SELECT data FROM workflows'):
+                if json.loads(raw).get('status') not in SAFE_STATES | {'stopped'}:
+                    blockers[table] = blockers.get(table, 0) + 1
         quoted = '"' + table.replace('"', '""') + '"'
         columns = {r[1] for r in db.execute('PRAGMA table_info(' + quoted + ')')}
+        if table in ('outbox', 'outbox_parts'):
+            count = db.execute('SELECT count(*) FROM ' + quoted + ' WHERE sent=0').fetchone()[0]
+            if count:
+                blockers[table] = count
         for column in ('status', 'state'):
             if column in columns:
-                placeholders = ','.join('?' for _ in SAFE_STATES)
-                count = db.execute(f'SELECT count(*) FROM {quoted} WHERE "{column}" IS NULL OR "{column}" NOT IN ({placeholders})', tuple(SAFE_STATES)).fetchone()[0]
+                terminal = SAFE_STATES | TERMINAL_EXTRAS.get(table, set())
+                placeholders = ','.join('?' for _ in terminal)
+                count = db.execute(f'SELECT count(*) FROM {quoted} WHERE "{column}" IS NULL OR "{column}" NOT IN ({placeholders})', tuple(terminal)).fetchone()[0]
                 if count:
                     blockers[table] = count
     return blockers

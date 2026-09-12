@@ -51,8 +51,9 @@ This command explicitly authorizes downloading and activating that release. Rela
    remains intact. Core dependencies must remain empty; optional integrations keep
    their separate runtime requirements.
 2. Checks the update compatibility protocol, unchanged retained runtime files,
-   data/project/output bindings and unfinished or uncertain records. It refuses
-   unknown nonterminal states. Resolve those records through normal task controls;
+   data/project/output bindings, unfinished or uncertain execution and pending
+   delivery. Saved buttons and completed upload/dispatch receipts stay unchanged
+   and do not count as running work. Unknown execution states are refused. Resolve those records through normal task controls;
    never edit their database status to bypass the check.
 3. Stops the owned Telegram service, acquires relay/setup locks and checks again
    for work that arrived during preparation. It takes a consistent SQLite backup

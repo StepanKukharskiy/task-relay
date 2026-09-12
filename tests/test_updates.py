@@ -93,6 +93,52 @@ class UpdateTests(unittest.TestCase):
         self.assertIsNone(updates.load(updates.activation_path(self.paths)))
         self.assertEqual(self.service.starts, 0)
 
+    def test_finished_receipts_and_unused_buttons_do_not_block_or_become_accepted(self):
+        with self.state.db:
+            self.state.db.execute("INSERT INTO provider_key_sessions VALUES ('fixture-key-prompt','openai',NULL,'waiting',0)")
+            self.state.db.execute("INSERT INTO workflow_dispatches VALUES ('fixture-marker','fixture-workflow','fixture-task','Exact old request','submitted',0)")
+            self.state.db.execute("INSERT INTO incoming_files(update_id,thread_id,file_id,filename,status) VALUES (42,'fixture-task','fixture-file','note.txt','attached')")
+            self.state.db.execute("INSERT INTO production_control_cards(token,event_id,run,verb,epoch,digest,status) VALUES ('fixture-token','fixture-event','fixture-run','pause',0,'fixture-digest','pending')")
+        before = updates.content(self.state.db)
+        self.activate()
+        self.assertEqual(updates.content(self.state.db), before)
+        self.assertEqual(self.state.db.execute('SELECT status FROM production_control_cards').fetchone()[0], 'pending')
+
+    def test_linked_workflow_between_dispatches_blocks_until_stopped(self):
+        with self.state.db:
+            self.state.db.execute('INSERT INTO workflows(name,data) VALUES (?,?)', ('fixture-linked', json.dumps({'status':'active','phase':'execute_ready'})))
+        with self.assertRaisesRegex(ValueError, 'workflows'):
+            self.activate()
+        self.assertEqual(self.service.starts, 0)
+        with self.state.db:
+            self.state.db.execute('UPDATE workflows SET data=?', (json.dumps({'status':'stopped','phase':'execute_ready'}),))
+        self.activate()
+
+    def test_pending_delivery_blocks_until_every_part_is_confirmed(self):
+        with self.state.db:
+            self.state.db.execute("INSERT INTO outbox(id,text) VALUES ('fixture-event','Exact result')")
+            self.state.db.execute("INSERT INTO outbox_parts(event_id,part,text) VALUES ('fixture-event',0,'Exact result')")
+        with self.assertRaisesRegex(ValueError, 'outbox'):
+            self.activate()
+        self.assertEqual(self.service.starts, 0)
+        with self.state.db:
+            self.state.db.execute('UPDATE outbox SET sent=1')
+        with self.assertRaisesRegex(ValueError, 'outbox_parts'):
+            self.activate()
+        with self.state.db:
+            self.state.db.execute('UPDATE outbox_parts SET sent=1')
+        self.activate()
+
+    def test_work_arriving_during_stop_is_caught_by_second_check(self):
+        def late_arrival(prior):
+            with self.state.db:
+                self.state.db.execute("INSERT OR IGNORE INTO incoming(id,status) VALUES (99,'queued')")
+        with patch.object(self.service, 'stop', side_effect=late_arrival):
+            with self.assertRaisesRegex(ValueError, 'Unfinished or uncertain'):
+                self.activate()
+        self.assertEqual(self.service.raw, b'old definition')
+        self.assertEqual(self.state.db.execute('SELECT status FROM incoming WHERE id=99').fetchone()[0], 'queued')
+
     def test_schema_change_is_detected_on_copy_and_original_is_untouched(self):
         module = Path(self.target['install']) / 'task_relay/bridge.py'
         module.write_text('import sqlite3\nclass State:\n def __init__(self,p):\n  self.db=sqlite3.connect(p)\n  self.db.execute("CREATE TABLE incompatible_schema(x)")\n  self.db.commit()\n')
