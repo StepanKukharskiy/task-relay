@@ -1,0 +1,129 @@
+{
+  "version": 2,
+  "groups": [
+    {
+      "kind": "application",
+      "release": true,
+      "patterns": [
+        "*.py",
+        "task_relay/*.py",
+        "orchestrator/*.py"
+      ],
+      "exclude": [
+        "test_*.py"
+      ]
+    },
+    {
+      "kind": "optional-macos",
+      "release": false,
+      "patterns": [
+        "*.command",
+        "messages_service/*.swift"
+      ]
+    },
+    {
+      "kind": "packaged-assets",
+      "release": true,
+      "patterns": [
+        "task_relay/assets/*.png",
+        "task_relay/assets/*.txt",
+        "task_relay/assets/macos/*.swift"
+      ]
+    },
+    {
+      "kind": "dependencies",
+      "release": true,
+      "patterns": [
+        "requirements-claude.txt",
+        "requirements-claude-lock.txt"
+      ]
+    },
+    {
+      "kind": "tests",
+      "release": false,
+      "patterns": [
+        "tests/*.py",
+        "tests/fixtures/*.sql"
+      ]
+    },
+    {
+      "kind": "research-code",
+      "release": false,
+      "patterns": [
+        "learning/*.py",
+        "experiments/o08/*.py",
+        "experiments/proposal_review/*.py"
+      ]
+    },
+    {
+      "kind": "maintenance",
+      "release": false,
+      "patterns": [
+        "scripts/*.py",
+        "source_inventory.json",
+        ".gitignore",
+        "pyproject.toml",
+        "MANIFEST.in",
+        ".gitattributes",
+        ".github/workflows/*.yml"
+      ]
+    },
+    {
+      "kind": "documentation",
+      "release": false,
+      "patterns": [
+        "AGENTS.md",
+        "README.md",
+        "ROADMAP.md",
+        "CHANGELOG.md",
+        "docs/artifact-dependencies.md",
+        "docs/artifact-replacements.md",
+        "docs/blender-animation.md",
+        "docs/capability-registry.md",
+        "docs/continuity-experiment.md",
+        "docs/conversation-handoffs.md",
+        "docs/execution-providers.md",
+        "docs/host-adapters.md",
+        "docs/linked-workflows.md",
+        "docs/llm-orchestration.md",
+        "docs/local-applications.md",
+        "docs/messages-pilot.md",
+        "docs/mixed-execution.md",
+        "docs/native-qualification.md",
+        "docs/natural-language-routing.md",
+        "docs/new-pipeline-planning.md",
+        "docs/orchestrator-web.md",
+        "docs/packaging.md",
+        "docs/path-configuration.md",
+        "docs/platform-architecture.md",
+        "docs/production-selections.md",
+        "docs/project-structure.md",
+        "docs/reference-collection.md",
+        "docs/shared-storage.md",
+        "docs/usage-tracking.md",
+        "docs/worker-runtime.md",
+        "docs/workflow-observer.md",
+        "docs/publication.md",
+        "experiments/proposal_review/README.md"
+      ]
+    }
+  ],
+  "excluded_roots": [
+    ".git",
+    ".agents",
+    ".codex",
+    "private",
+    "projects",
+    "generated",
+    "outputs",
+    "output",
+    "Messages Relay.app",
+    "__pycache__",
+    ".venv",
+    "node_modules",
+    "dist",
+    "build"
+  ],
+  "maintained_exceptions": [],
+  "release_note": "Wheel and source archive contain only the explicit runtime packages, compatibility modules and bundled assets defined in pyproject.toml and MANIFEST.in. Tests, research, operational data and build evidence remain outside distributions."
+}

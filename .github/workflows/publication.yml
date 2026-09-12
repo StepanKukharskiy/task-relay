@@ -1,0 +1,16 @@
+name: Public source boundary
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  publication:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: python scripts/check_publication.py
+      - run: python -m unittest tests.test_publication

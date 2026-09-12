@@ -1,0 +1,404 @@
+"""Shared capability descriptions and adapters over existing execution receipts.
+
+The catalog describes configured execution paths, not inferred model powers.
+Native workers still enforce their own permissions and record actual execution.
+"""
+import copy
+import hashlib
+import json
+from pathlib import Path
+import secrets
+import time
+
+from task_relay import file_tools
+
+READ = ('file_list', 'file_read', 'file_search')
+WORKER_CAPABILITIES = (*READ, 'file_write', 'shell', 'web_search', 'web_fetch')
+CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebSearch', 'WebFetch']
+EXECUTION_ROUTING = '''Execution routing check before your final response:
+For an existing Blender scene, blender.inspect can inventory its objects, materials,
+cameras and dependencies. Select the exact .blend artifact_ids in plan_production
+and step_capabilities=["blender.inspect"], or ask which scene if the version is
+missing. Inspection is not editing. To edit, first prepare and independently review
+edit.py and edit-checks.json using the blender.run_python checks schema, then stop.
+Once exact scene/script/checks artifacts exist, propose a separate stage with
+step_capabilities=["blender.run_python"] and those artifact_ids. It executes only
+after an explicit delivered plan-card approval of that exact host Python, with
+normal host filesystem/network permissions (no OS isolation). No future-script
+approval or script execution through the restricted agent shell. The v1 route
+preserves other objects/cameras/materials and supports self-contained scenes,
+candidate save/reopen, bounded dimension checks and matching-camera previews.
+For selected assets, blender.import_asset can append exact named meshes from a
+registered .blend library and pack PNG/JPEG dependencies into a portable candidate.
+First prepare/review an asset manifest using its catalog schema if none exists.
+Then select the exact manifest/scene/library/image artifact_ids and use
+step_capabilities=["blender.import_asset"]. The manifest preserves relative layout,
+hashes, supplied provenance and explicit import choices. No downloads, persistent
+links or unknown future inputs. The user reviews/selects the candidate after bundle
+relocation verification. Numeric animation and rendering use blender.animate with an
+exact manifest; other object additions/removals, simulation and UI remain deferred.
+
+For Blender startup use plan_production with step_capabilities=["blender.startup"].
+For primitive-based modeling (including a twisting tower), use step_capabilities=
+["blender.scene"] with a scene-data producer and review. These host operations
+are in snapshot.capabilities.graph_operations and avoid the restricted worker-shell
+startup failure without changing agent permissions. Do not use that failed shell
+path again. For unfamiliar shapes (gyroids, custom surfaces, generated topology), choose
+step_capabilities=["blender.mesh_scene"]. An agent writes code in its sandbox to
+compute numeric vertices/faces and scene JSON; the reusable host operation builds
+and renders that exact geometry. Do not translate unknown shapes into primitives
+or reject them merely because blender.scene is primitive-only.
+Arbitrary host Blender scripts/imported scenes are outside this bounded
+capability; use a suitable existing desktop task with its approval flow instead.
+
+An explicit request to run a command, execute a script, or perform a diagnostic is
+work to delegate. Direct conversation tools being read-only is not a reason to
+send the user to Terminal when a compatible worker is available. Inspect the
+current target and graph executor catalog. Use delegate_task for a relevant idle
+task, or plan_production with template="custom", project=null and an available
+files/shell executor for a standalone bounded diagnosis. Preserve explicit project
+and provider choices; never route to an unrelated task. If neither path exists,
+identify that exact unavailable path rather than claiming the whole system cannot
+execute. An informational "how do I" question can still be answered without action.
+For a startup check, scope the new plan to the requested probe, recorded exit code,
+stdout/stderr and environment evidence. Do not generate/render an artifact, alter
+permissions, reinstall software, or retry the previous exhausted production.
+Terminal success does not qualify a different worker environment. Do not infer a
+GPU cache, driver or permissions root cause from a crash location alone. A startup
+failure in that environment is a valid diagnostic finding, not permission to fix
+the host. Use the existing plan approval; do not claim execution before receipts.
+'''
+IMMEDIATE = ('generate_image', 'continue_production', 'collect_references',
+             'route_task', 'choose_task', 'create_production_folder',
+             'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
+GATED = ('plan', 'run', 'pause', 'resume', 'stop', 'start_production', 'revise_production')
+
+
+class CapabilityError(ValueError):
+    """A concrete unavailable execution path, safe to explain to the user."""
+
+
+DELEGATE_SCHEMA = {
+    'type':'object','additionalProperties':False,
+    'required':['kind','task_id','provider','required_capabilities'],
+    'properties':{
+        'kind':{'const':'delegate_task'},
+        'task_id':{'type':'string'},
+        'provider':{'enum':['codex','claude','gemini','openai','qwen','deepseek','openrouter']},
+        'artifact_ids':{'type':'array','minItems':0,'maxItems':10,'uniqueItems':True,'items':{'type':'string'}},
+        'research_ids':{'type':'array','minItems':0,'maxItems':10,'uniqueItems':True,'items':{'type':'integer'}},
+        'required_capabilities':{'type':'array','minItems':1,'uniqueItems':True,
+                                 'items':{'enum':list(WORKER_CAPABILITIES)}}}}
+
+INSTRUCTIONS = '''Use snapshot.capabilities as the current capability and executor catalog.
+For an explicit request to replace a selected version, return
+{"kind":"replace_selection","old_decision":"exact saved decision ID","new_decision":"exact saved decision ID"}.
+Use production_runs.selections and artifact_replacements; never infer replacements
+from names, dates or matching hashes. Both versions must already have saved selections
+in the same recorded job and exact decision purpose. Ask which versions if ambiguous.
+This action prepares a concrete replacement card; the user confirms that card. It
+does not start workers. Existing decisions remain historical; outdated outputs are
+conservative dependency flags, not proof of semantic use or permission to rebuild.
+After an explicit request to update affected outputs, use plan_production with exact
+current versions and a bounded scope. Include affected outputs/replacement decisions
+as context. Preserve job identity through previous_run when eligible; do not bypass
+stage eligibility or mutate old assignments. Never promise an automatic rebuild.
+Distinguish direct tools from delegated worker capabilities. Missing direct shell/web
+tools does not mean the whole system cannot help: inspect the eligible worker targets.
+For an explicit request to do work in an EXISTING suitable task, you may return
+{"kind":"delegate_task","task_id":"exact target id","provider":"exact provider",
+ "required_capabilities":["web_search","web_fetch"]}.
+Choose only capabilities actually needed and a target in the same relevant project.
+Honor the user's explicit provider choice; do not silently fall back to another provider.
+For multiple plausible tasks ask which one; never choose by capability alone. Prefer
+existing workflow/production controls for work belonging to those stages. Never route
+production feedback to an unrelated worker or bypass a frozen stage's bounds.
+The original user message is sent verbatim, not a model-generated execution prompt.
+Capability availability is configuration evidence, not proof of authentication or
+success; queue receipts prove queueing only. Actual status comes from worker records.
+Focused production snapshots include artifact_lineage: exact registered inputs supplied
+to recorded attempts and their outputs, with saved selection purposes. Use these
+IDs/hashes when explaining which sources produced a draft. Declared context may not
+have been used semantically. Respect truncation/gaps; do not infer that equal names or
+hashes mean the same selection, or that a newer candidate supersedes an older choice.
+Lineage does not authorize replacements or downstream rebuilds.
+blender.animate supports bounded transform/camera keyframes and rendering of selected
+native animation. A registered manifest fixes frames, FPS, preview/final quality and
+tracks. Prepare missing manifests with an agent first, then propose the exact render
+stage. It returns a native candidate, MP4, preview and frame/checkpoint receipts.
+Continuation needs an exact checkpoint from a confirmed stopped attempt with the same
+manifest; uncertain frame work is never silently replayed. Simulation/UI work remains unsupported.
+plan_production can propose a bounded producer/reviewer stage using graph_executors
+and the optional executor field. Honor exact provider choice; unavailable or
+unsupported work is blocked without fallback. Gemini supports declared text file
+tools only; its availability requires a recent connection/model metadata check.
+It can also propose explicitly
+requested mixed text steps using graph_operations and step_capabilities. API steps
+require the exact plan approval and have no agent tools.
+Arbitrary tool installation and arbitrary graph steps are not exposed. If no eligible target exists, explain the specific missing path.
+General questions about capabilities require action null, not a worker dispatch.
+snapshot.capabilities.host_applications lists detected local applications. They
+have registered host operations as well as agent task routes. The mesh operation
+accepts geometry computed by a files/shell agent; the agent need not launch Blender. For a new standalone application job use plan_production with project=null,
+template=custom and an available Codex executor when no relevant existing task
+exists. Include the actual native file and preview as declared outputs. Follow
+the existing plan authorization; do not invent a missing-destination blocker when
+a standalone production is available. Execution receipts establish completion.
+Read execution_environments separately. agent_shell historical failures apply only
+to that shell, never to registered_host. Use registered_host startup_status and
+latest_check for host evidence. Unverified means no matching current receipt; it
+is not a failure. Never describe an old sandbox crash as a host startup blocker.
+A reported failure warrants recovery only for its actual execution environment. Do not expand permissions or repeat spent attempts.
+Requests to create an artifact in an application (for example, model a tower in
+Blender) are execution requests. Inspect suitable worker/project paths before
+substituting a script for the user to run. A code-only answer does not complete
+such a request. If no suitable execution destination is available, explain the
+specific missing path and ask for the destination; do not select an unrelated
+task, claim execution, or invent an application adapter.
+'''
+
+
+def initialize(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS capability_dispatches (
+      job_id INTEGER PRIMARY KEY, action TEXT NOT NULL, executor TEXT NOT NULL,
+      receipt_id TEXT, result TEXT NOT NULL, thread_id TEXT, created REAL NOT NULL)''')
+
+
+def file_definitions(roots):
+    result = copy.deepcopy(file_tools.DEFINITIONS)
+    for definition in result:
+        params = definition['parameters']
+        params['properties']['project'] = {'type':'string', 'enum':sorted(roots),
+                                           'description':'Exact known project folder.'}
+        params['required'].append('project')
+    return result
+
+
+def read(roots, call):
+    from task_relay import gemini
+    try:
+        args = json.loads(call['arguments'])
+        if not isinstance(args, dict):
+            raise ValueError()
+        project = args.pop('project', None)
+        if project not in roots:
+            return {'ok':False, 'error':'Choose a known project from the offered tool schema.'}
+        return file_tools.execute(project, call['name'], json.dumps(args), (gemini.DATA,))
+    except (TypeError, ValueError):
+        return {'ok':False, 'error':'Invalid file-tool arguments.'}
+
+
+def backend_targets(state):
+    from task_relay import backends
+    from task_relay import api_providers as api
+    from task_relay import gemini
+    from task_relay import task_routing
+    result=[]
+    for row in state.db.execute('''SELECT b.*,w.title,w.status FROM backend_tasks b
+            JOIN watched w ON w.id=b.id ORDER BY w.updated_at DESC,b.id LIMIT 51'''):
+        if len(result)==50:
+            break
+        provider=row['backend']
+        if provider=='claude':
+            configured=bool(backends.claude_config() and backends.CLAUDE_PYTHON.is_file())
+            caps=list(WORKER_CAPABILITIES)
+            limits={'turns':100,'seconds':3600}
+        elif provider=='gemini' or provider in api.SPECS:
+            configured=bool(gemini.read_config() if provider=='gemini' else api.read_config(provider))
+            caps=list(READ)
+            limits={'tool_rounds':8,'tool_calls':24}
+        else:
+            continue
+        blocker=(None if configured else 'Provider setup is missing.')
+        if not Path(row['cwd']).is_dir():
+            blocker='Project folder is missing.'
+        if row['status']!='idle':
+            blocker='Task is '+row['status']+'; inspect its current job before dispatch.'
+        blocker=task_routing.task_conflict(state,row['id']) or blocker
+        identity={k:row[k] for k in ('id','backend','cwd','model','session_id','initialized')}
+        result.append(dict(id=row['id'],provider=provider,title=row['title'],cwd=row['cwd'],
+            capabilities=caps,available=not blocker,blocker=blocker,limits=limits,
+            fingerprint=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest(),
+            permissions='Native worker permissions; no approval is granted by routing.',
+            verification='Configured locally; authentication and model tool support verified during execution.'))
+    return result
+
+
+def catalog(state, snapshot):
+    from task_relay import gemini
+    enabled=bool(state.get('orchestrator_routing_enabled',False))
+    targets=[]
+    if enabled:
+        for task in snapshot.get('codex_tasks',[]):
+            if not all(k in task for k in ('id','title','cwd','status','fingerprint')):
+                continue
+            targets.append(dict(id=task['id'],provider='codex',title=task['title'],cwd=task['cwd'],
+                capabilities=[*READ,'file_write','shell'],
+                available=task['status']=='idle' and not task.get('routing_blocker'),
+                blocker=task.get('routing_blocker') or (None if task['status']=='idle' else task['status']),
+                fingerprint=task['fingerprint'],permissions='Existing desktop task permissions and approvals.',
+                limits='Existing task configuration; this routes one turn, not a bounded production assignment.',
+                verification='Desktop task observed; web/plugins are not assumed.'))
+        targets.extend(backend_targets(state))
+    specs=[]
+    for d in file_tools.DEFINITIONS:
+        specs.append(dict(id=d['name'],executor='relay.files',input_schema=d['parameters'],
+            permissions='Read-only known project folders; file policy enforced on every call.',
+            limits={'file_bytes':file_tools.MAX_FILE_BYTES,'response_chars':file_tools.MAX_CHARS},
+            evidence='Read result, path/offset and private tool-call journal.'))
+    from task_relay import orchestrator_web
+    for definition in (orchestrator_web.FETCH,orchestrator_web.SEARCH):
+        specs.append(dict(id=definition['name'],executor='relay.web',input_schema=definition['parameters'],
+            available=definition['name']=='web_fetch' or bool(gemini.read_config()),
+            permissions='Public read-only web research; no private network or authenticated sessions.',
+            limits={'search_requests':2,'page_downloads':6,'page_bytes':1000000},
+            evidence='Timestamped source URLs, page hashes and saved research receipts.'))
+    for kind in (*IMMEDIATE,*GATED):
+        specs.append(dict(id=kind,executor='relay.'+kind,
+            inputs=('task_id, provider, required_capabilities' if kind=='delegate_task' else
+                    'template, project, reference_pack_id, research_ids, planning_only; optional parent_id or previous_run' if kind=='plan_production' else
+                    'plan_id' if kind=='authorize_production_plan' else
+                    'old_decision, new_decision' if kind=='replace_selection' else
+                    'reference_ids' if kind=='generate_image' else 'project' if kind=='collect_references' else
+                    'task_id/task_ids, optional reference_pack_id' if kind in ('route_task','choose_task') else
+                    'workflow, items, direction'),
+            permissions='Existing action card and scope checks.' if kind in GATED else 'Explicit user request; existing adapter checks.',
+            limits='Existing adapter budgets and destination state checks.',
+            evidence='Durable queue/control receipt; consult the underlying worker for completion.'))
+        if kind=='delegate_task':
+            specs[-1]['input_schema']=copy.deepcopy(DELEGATE_SCHEMA)
+        if kind=='replace_selection':
+            from task_relay.production_replacements import SCHEMA
+            specs[-1]['input_schema']=copy.deepcopy(SCHEMA)
+    specs.append(dict(id='discover_guides',executor='relay.guides',
+        input_schema={'type':'object','properties':{'kind':{'const':'discover_guides'},
+                      'query':{'type':'string','minLength':1,'maxLength':2000}},
+                      'required':['kind'],'additionalProperties':False},
+        permissions='Read-only discovery; user chooses saved guides before use.',
+        limits='One search per request, at most 20 known project folders and six guide matches.',
+        evidence='Saved search result and guide selection receipt.'))
+    receipts=[]
+    for row in state.db.execute('SELECT job_id,executor,receipt_id,thread_id,created FROM capability_dispatches ORDER BY created DESC LIMIT 5'):
+        entry=dict(row)
+        if row['executor'] in ('backend_jobs','task_routes','production_continuations','production_plans'):
+            record=state.db.execute('SELECT status FROM '+row['executor']+' WHERE id=?',(row['receipt_id'],)).fetchone()
+            entry['status']=record['status'] if record else 'receipt target missing'
+        else:
+            entry['status']='dispatched; inspect the corresponding action records'
+        receipts.append(entry)
+    from orchestrator.execution import catalog as graph_catalog
+    from orchestrator.executors import catalog as executor_catalog
+    from task_relay.host_apps import catalog as app_catalog
+    return dict(version=1,operations=specs,graph_operations=graph_catalog(),graph_executors=executor_catalog(state),targets=targets,routing_enabled=enabled,dispatches=receipts,
+        host_applications=app_catalog(state),
+        backend_catalog_limit=50,backend_catalog_truncated=enabled and state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0]>50,
+        image_configured=bool(gemini.read_config()),
+        direct_unavailable=['shell','file_write']+([] if gemini.read_config() else ['web_search']),
+        web={'web_fetch':'Public HTTPS text reader; no login/JavaScript/PDF.',
+             'web_search':'Gemini/Google Search; configured' if gemini.read_config() else 'Connect Gemini to enable search.'},
+        production_worker='Graph agents use their frozen executor profile: Codex files/shell or Gemini declared text files. They are not free routing targets.')
+
+
+def validate_delegate(action, snapshot):
+    if set(action)-{'research_ids','artifact_ids'}!={'kind','task_id','provider','required_capabilities'}:
+        raise CapabilityError('Delegation requires an exact task, provider and required capabilities.')
+    caps=action['required_capabilities']
+    if not isinstance(caps,list) or not caps or any(not isinstance(c,str) or c not in WORKER_CAPABILITIES for c in caps) or len(set(caps))!=len(caps):
+        raise CapabilityError('Choose distinct supported worker capabilities.')
+    target=next((t for t in snapshot.get('capabilities',{}).get('targets',[]) if t['id']==action['task_id']),None)
+    if not target or not target['available']:
+        raise CapabilityError('The selected worker is unavailable'+(': '+str(target['blocker']) if target else '.'))
+    if target['provider']!=action['provider']:
+        raise CapabilityError('The selected worker does not match the requested provider.')
+    missing=set(caps)-set(target['capabilities'])
+    if missing:
+        raise CapabilityError('The selected worker cannot provide: '+', '.join(sorted(missing)))
+    if 'research_ids' in action:
+        from task_relay import routing_inputs
+        if target['provider']!='codex':raise CapabilityError('Registered research handoff currently requires a Codex task.')
+        routing_inputs.validate_ids(action['research_ids'],snapshot.get('research_documents',[]))
+    if target['provider']=='codex' and snapshot.get('production_artifacts') and 'artifact_ids' not in action:
+        raise CapabilityError('Select generated artifact_ids, or [] for none; no handoff was queued.')
+    if 'artifact_ids' in action:
+        from task_relay import routing_inputs
+        if target['provider']!='codex':raise CapabilityError('Generated artifact handoff currently requires a Codex task.')
+        routing_inputs.validate_artifact_ids(action['artifact_ids'],snapshot.get('production_artifacts',[]))
+    return target
+
+
+def delegate(state, job, action, snapshot):
+    from task_relay import task_routing
+    from task_relay import backends
+    target=validate_delegate(action,snapshot)
+    if not state.get('orchestrator_routing_enabled',False):
+        raise CapabilityError('Task routing has been disabled.')
+    if target['provider']=='codex':
+        candidate=next(t for t in snapshot['codex_tasks'] if t['id']==target['id'])
+        text=task_routing.register(state,job,[candidate],False,research_ids=action.get('research_ids'),artifact_ids=action.get('artifact_ids'))
+        return text,target['id'],'task_routes',str(job['id'])
+    current=next((t for t in backend_targets(state) if t['id']==target['id']),None)
+    if not current or not current['available'] or current['fingerprint']!=target['fingerprint']:
+        raise CapabilityError('The worker changed or became unavailable; no job was queued.')
+    # Distinct from Telegram update IDs and other internal analytical/media jobs.
+    internal_id=-secrets.randbits(62)-1
+    from task_relay import orchestrator_guides
+    ident=backends.enqueue(state,target['id'],job['prompt']+orchestrator_guides.handoff(state,job),internal_id,'text',transaction=False)
+    return ('Queued for '+target['provider'].capitalize()+': '+target['title']+
+            '\nYour complete original request was sent to this existing task. '+
+            'Native tool permissions still apply.'),target['id'],'backend_jobs',ident
+
+
+def dispatch(state, job, action, snapshot):
+    """Immediate adapters only; card-gated operations stay in the control path.
+
+    Caller owns one transaction for the queue, receipt and user-facing answer.
+    An uncertain native submission is never retried or switched to another provider.
+    """
+    if not action or action['kind'] not in IMMEDIATE:
+        return None
+    if not state.db.in_transaction:
+        raise ValueError('Capability dispatch requires an outer transaction.')
+    old=state.db.execute('SELECT * FROM capability_dispatches WHERE job_id=?',(job['id'],)).fetchone()
+    if old:
+        if json.loads(old['action'])!=action:
+            raise ValueError('This request already dispatched a different action.')
+        return old['result'],old['thread_id']
+    from task_relay import production_continuations; from task_relay import production_folders; from task_relay import reference_packs; from task_relay import task_routing; from task_relay import orchestrator_images
+    kind=action['kind'];tid=None;receipt=str(job['id']);executor=kind
+    if kind=='delegate_task':
+        text,tid,executor,receipt=delegate(state,job,action,snapshot)
+    elif kind=='plan_production':
+        from task_relay import production_planning
+        text=production_planning.enqueue(state,job,action,snapshot)
+        executor='production_plans';receipt='plan-'+str(job['id'])
+    elif kind=='replace_selection':
+        from task_relay import production_replacements
+        text=production_replacements.propose(state,job,action)
+        executor='production_replacement_cards';receipt=str(job['id'])
+    elif kind=='authorize_production_plan':
+        from task_relay import production_planning
+        text=production_planning.authorize(state,job,action['plan_id'])
+        executor='production_plans';receipt=action['plan_id']
+    elif kind=='generate_image':
+        tid,text=orchestrator_images.queue(state,job,action['reference_ids'])
+        executor='orchestrator_image_requests'
+    elif kind=='continue_production':
+        from task_relay import orchestrator_guides
+        orchestrator_guides.production_inputs(state,job['id'],action['workflow'])
+        text=production_continuations.enqueue(state,job,action['workflow'])
+        executor='production_continuations'
+    elif kind=='collect_references':
+        text=reference_packs.enqueue(state,job,action['project'])
+    elif kind in ('route_task','choose_task'):
+        ids=[action['task_id']] if kind=='route_task' else action['task_ids']
+        candidates=[next(t for t in snapshot['codex_tasks'] if t['id']==i) for i in ids]
+        text=task_routing.register(state,job,candidates,kind=='choose_task',reference_pack_id=action.get('reference_pack_id'),research_ids=action.get('research_ids'),artifact_ids=action.get('artifact_ids'))
+        executor='task_routes'
+    else:
+        operation=production_folders.create if kind=='create_production_folder' else production_folders.import_research
+        text=operation(state,action['workflow'])
+    if kind in ('continue_production','create_production_folder','import_production_research'):
+        state.db.execute('UPDATE orchestrator_chats SET focus=? WHERE id=?',(action['workflow'],job['id']))
+    state.db.execute('INSERT INTO capability_dispatches VALUES (?,?,?,?,?,?,?)',
+        (job['id'],json.dumps(action),executor,receipt,text,tid,time.time()))
+    return text,tid

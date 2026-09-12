@@ -1,0 +1,33 @@
+# Operational data, credentials and user work are never application source.
+/private/
+/projects/
+/generated/
+/outputs/
+/output/
+/Messages Relay.app/
+/.agents/
+/.codex/
+# Local environments, caches and builds.
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv*/
+node_modules/
+/dist/
+/build/
+*.egg-info/
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.log
+
+# Personal research and one-off installation/replay records remain private.
+/docs/analysis/
+/docs/history/
+/docs/experiments/
+/experiments/*.py
+/POSITIONING.md
+/GEMINI_PLAN.md

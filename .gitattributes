@@ -1,0 +1,3 @@
+# Frozen assignments and source hashes must not depend on checkout newline conversion.
+* text=auto eol=lf
+*.png binary

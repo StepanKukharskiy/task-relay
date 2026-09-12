@@ -1,0 +1,11 @@
+# A source archive has the same runtime boundary as the wheel. Tests, research,
+# operational data and development evidence stay in the checkout.
+global-exclude *
+include pyproject.toml MANIFEST.in README.md
+include *.py
+recursive-include task_relay *.py
+include task_relay/assets/*.png
+include task_relay/assets/requirements-claude*.txt
+include task_relay/assets/macos/*.swift
+include orchestrator/*.py
+global-exclude *.pyc

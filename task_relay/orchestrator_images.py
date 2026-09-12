@@ -1,0 +1,69 @@
+"""Natural-language image jobs using the existing managed Gemini image backend."""
+import json
+from pathlib import Path
+import secrets
+import shlex
+
+UPLOAD_SCOPE = '@orchestrator'
+
+
+def initialize(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS orchestrator_image_requests (
+      job_id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, backend_job_id TEXT NOT NULL,
+      reference_ids TEXT NOT NULL)''')
+
+
+def files(state, focus=None):
+    scopes=[UPLOAD_SCOPE] + ([focus] if focus else [])
+    return [dict(r) for r in state.db.execute(
+        'SELECT id,filename,caption,status,bytes,sha256 FROM production_uploads WHERE run IN ('+
+        ','.join('?' for _ in scopes)+") AND status IN ('pending','ready','failed') ORDER BY rowid", scopes)]
+
+
+def queue(state, job, reference_ids):
+    from task_relay import backends
+    from task_relay import gemini
+    from task_relay import production_control as pc
+    from orchestrator.runtime import safe_file, file_hash
+    existing=state.db.execute('SELECT * FROM orchestrator_image_requests WHERE job_id=?',(job['id'],)).fetchone()
+    if existing:
+        return existing['task_id'], 'This image request is already queued or handled. No duplicate generation was started.'
+    if not state.db.in_transaction:
+        raise ValueError('Image queueing requires an outer transaction.')
+    available={f['id']:f for f in files(state,job['focus'])}
+    references=[]
+    for ident in reference_ids:
+        if ident not in available or available[ident]['status']!='ready':
+            raise ValueError('A selected reference is unavailable or still downloading. Wait for “Attached” before asking again.')
+        row=state.db.execute('SELECT * FROM production_uploads WHERE id=?',(ident,)).fetchone()
+        path=safe_file(pc.root(state).parent/'production-guides',str(ident)+'/'+row['filename'])
+        if str(path.resolve())!=row['path'] or path.stat().st_size!=row['bytes'] or file_hash(path)!=row['sha256']:
+            raise ValueError('The uploaded reference changed. Please upload it again.')
+        mime=gemini.validate_input(path,row['filename'])
+        references.append((row,path,mime))
+    if sum(r[0]['bytes'] for r in references)>11_000_000:
+        raise ValueError('Image references exceed 11 MB total.')
+    config=gemini.read_config()
+    if not config:
+        raise ValueError('Connect Gemini through /providers to generate images.')
+    folder=backends.WORKSPACES;folder.mkdir(parents=True,exist_ok=True)
+    internal_id=-secrets.randbits(62)-1
+    mode=state.get('orchestrator_mode',False)
+    title='Image: '+' '.join(job['prompt'].split())[:100]
+    tid,_,_=backends.create_task(state,shlex.join(['gemini',str(folder),title]),internal_id,
+        record_incoming=False,transaction=False)
+    for row,path,mime in references:
+        gemini.artifact(state,tid,None,'input',path,row['filename'],mime)
+    from task_relay import orchestrator_guides
+    prompt=job['prompt']+orchestrator_guides.handoff(state,job)
+    captions=[r['filename']+': '+r['caption'] for r,_,_ in references if r['caption']]
+    if captions:
+        prompt+='\n\nUser-supplied reference captions:\n'+'\n'.join(captions)
+    backend_job=backends.enqueue(state,tid,prompt,internal_id,'image',transaction=False)
+    state.db.execute('INSERT INTO orchestrator_image_requests VALUES (?,?,?,?)',(job['id'],tid,backend_job,json.dumps(reference_ids)))
+    for row,_,_ in references:
+        if row['run']==UPLOAD_SCOPE:
+            state.db.execute("UPDATE production_uploads SET status='used' WHERE id=?",(row['id'],))
+    state.put('orchestrator_mode',mode)
+    return tid, ('Image generation queued with Gemini.\nReferences: '+(', '.join(r['filename'] for r,_,_ in references) or 'none')+
+                 '\nYour original request was sent. The image will arrive on this task; reply normally with your changes to edit the image. Use /gemini for text-only discussion.')
