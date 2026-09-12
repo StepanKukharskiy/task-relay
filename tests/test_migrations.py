@@ -7,7 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from task_relay import credentials, migrations, updates
-from tests import test_updates
+try:
+    from tests import test_updates
+except ModuleNotFoundError as exc:
+    if exc.name != 'tests':
+        raise
+    import test_updates  # unittest discover -s tests with an isolated installed Python
 
 
 class MigrationTests(unittest.TestCase):
