@@ -24,9 +24,15 @@ def validate_selection(action, snapshot):
     from task_relay import routing_inputs
     refs=action.get('reference_ids');artifacts=action.get('artifact_ids',[])
     available={f['id'] for f in snapshot.get('uploaded_files',[]) if f['status']=='ready'}
-    if (set(action)-{'artifact_ids'}!={'kind','reference_ids'} or not isinstance(refs,list)
+    if (set(action)-{'artifact_ids','provider','model'}!={'kind','reference_ids'} or not isinstance(refs,list)
             or any(type(i) is not int or i not in available for i in refs) or len(set(refs))!=len(refs)):
         raise ValueError('Choose ready uploaded references and exact production artifact IDs.')
+    preferred = snapshot.get('capabilities', {}).get('model_defaults', {}).get('image', {}).get('provider', 'gemini')
+    if action.get('provider', 'gemini' if snapshot.get('media_reply') else preferred)!='gemini':
+        raise ValueError('This immediate image action supports Gemini. Use an available provider-specific production image operation; no fallback was made.')
+    if 'model' in action:
+        from task_relay import gemini
+        gemini.model_name(action['model'])
     routing_inputs.validate_artifact_ids(artifacts,snapshot.get('production_artifacts',[]))
     if len(refs)+len(artifacts)>6:raise ValueError('Choose at most six image references in total.')
     known={a['id']:a for a in snapshot.get('production_artifacts',[])}
@@ -34,7 +40,7 @@ def validate_selection(action, snapshot):
         raise ValueError('Image generation needs an image artifact, not a Blender scene or report.')
 
 
-def queue(state, job, reference_ids, artifact_ids=None):
+def queue(state, job, reference_ids, artifact_ids=None, provider='gemini', model=None):
     from task_relay import backends
     from task_relay import gemini
     from task_relay import production_control as pc
@@ -46,7 +52,8 @@ def queue(state, job, reference_ids, artifact_ids=None):
         raise ValueError('Image queueing requires an outer transaction.')
     from task_relay import routing_inputs
     artifact_ids=[] if artifact_ids is None else artifact_ids
-    validate_selection({'kind':'generate_image','reference_ids':reference_ids,'artifact_ids':artifact_ids},
+    validate_selection({'kind':'generate_image','reference_ids':reference_ids,'artifact_ids':artifact_ids,'provider':provider,
+        **({'model':model} if model is not None else {})},
         {'uploaded_files':files(state,job['focus']),'production_artifacts':routing_inputs.artifact_catalog(state)})
     available={f['id']:f for f in files(state,job['focus'])}
     references=[]
@@ -64,8 +71,7 @@ def queue(state, job, reference_ids, artifact_ids=None):
         raise ValueError('Image references exceed 11 MB total.')
     frozen=routing_inputs.freeze_artifacts(state,job,artifact_ids)
     for record in frozen:
-        artifact=dict(state.db.execute('SELECT * FROM production_artifacts WHERE id=?',(record['artifact_id'],)).fetchone())
-        path=Path(record['path']);filename=pc.artifact_filename(state,artifact)
+        path=Path(record['path']);filename=catalog[record['artifact_id']]['display_name']
         mime=gemini.validate_input(path,filename)
         references.append((dict(id=record['artifact_id'],filename=filename,bytes=record['bytes'],run=record['run'],
             caption='',sha256=record['sha256']),path,mime))
@@ -74,14 +80,26 @@ def queue(state, job, reference_ids, artifact_ids=None):
     config=gemini.read_config()
     if not config:
         raise ValueError('Connect Gemini through /providers to generate images.')
+    selected_model=gemini.model_name(model or config.get('models',{}).get('image',gemini.DEFAULT_MODELS['image']))
     folder=backends.WORKSPACES;folder.mkdir(parents=True,exist_ok=True)
     internal_id=-secrets.randbits(62)-1
     mode=state.get('orchestrator_mode',False)
     title='Image: '+' '.join(job['prompt'].split())[:100]
-    tid,_,_=backends.create_task(state,shlex.join(['gemini',str(folder),title]),internal_id,
-        record_incoming=False,transaction=False)
-    for row,path,mime in references:
-        gemini.artifact(state,tid,None,'input',path,row['filename'],mime)
+    source=state.get('orchestrator-media-reply:'+str(job['id']))
+    latest=state.db.execute("SELECT j.id,r.model FROM backend_jobs j JOIN gemini_runs r ON r.job_id=j.id WHERE j.thread_id=? AND j.status='completed' AND r.capability='image' ORDER BY j.created_at DESC LIMIT 1",(source,)).fetchone() if source else None
+    current={a['id'] for a in catalog.values() if a['run']==source and latest and a['attempt']==latest['id'] and a.get('media_type','').startswith('image/')}
+    if latest and model is None and set(artifact_ids)==current and not reference_ids:
+        override=state.db.execute("SELECT model FROM gemini_models WHERE thread_id=? AND capability='image'",(source,)).fetchone()
+        selected_model=override[0] if override else latest['model']
+    reuse=bool(current and set(artifact_ids)==current and not reference_ids and latest['model']==selected_model)
+    if reuse:
+        tid=source  # Native history includes these exact current candidate pixels.
+    else:
+        tid,_,_=backends.create_task(state,shlex.join(['gemini',str(folder),title]),internal_id,
+            record_incoming=False,transaction=False)
+        for row,path,mime in references:
+            gemini.artifact(state,tid,None,'input',path,row['filename'],mime)
+    state.db.execute('INSERT OR REPLACE INTO gemini_models VALUES (?,?,?)',(tid,'image',selected_model))
     from task_relay import orchestrator_guides
     prompt=job['prompt']+orchestrator_guides.handoff(state,job)
     captions=[r['filename']+': '+r['caption'] for r,_,_ in references if r['caption']]
@@ -94,5 +112,5 @@ def queue(state, job, reference_ids, artifact_ids=None):
         if row['run']==UPLOAD_SCOPE:
             state.db.execute("UPDATE production_uploads SET status='used' WHERE id=?",(row['id'],))
     state.put('orchestrator_mode',mode)
-    return tid, ('Image generation queued with Gemini.\nReferences: '+(', '.join(r['filename'] for r,_,_ in references) or 'none')+
+    return tid, ('Image generation queued with Gemini · '+selected_model+'.\nReferences: '+(', '.join(r['filename'] for r,_,_ in references) or 'none')+
                  '\nYour original request was sent. The image will arrive on this task; reply normally with your changes to edit the image. Use /gemini for text-only discussion.')

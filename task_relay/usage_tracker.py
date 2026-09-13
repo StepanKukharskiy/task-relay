@@ -127,7 +127,11 @@ def collect_relay(db,source_path):
                 frozen=unpack(row['frozen'],{});receipt=unpack(row['receipt'],{})
                 backend=frozen.get('backend',{});execution=frozen.get('execution',{})
                 if execution.get('kind')=='procedure' or execution.get('capability')=='text.bundle':continue
-                provider='gemini' if backend.get('type') in ('gemini-agent','gemini-browser') or execution.get('capability')=='gemini.text' else 'codex'
+                operation=execution.get('capability','')
+                provider=('qwen' if backend.get('type')=='qwen-browser' else 'openrouter' if operation=='openrouter.image' else 'openai' if operation=='openai.image' or backend.get('type')=='openai-browser' else 'gemini' if
+                    backend.get('type') in ('gemini-agent','gemini-browser') or operation in ('gemini.text','gemini.image') else 'codex')
+                from orchestrator.cloud_media import KINDS as CLOUD_MEDIA
+                if operation in CLOUD_MEDIA: provider=operation.split('.')[0]
                 usage=receipt.get('usage') or [{}]
                 if isinstance(usage,dict):usage=[usage]
                 for n,u in enumerate(usage):

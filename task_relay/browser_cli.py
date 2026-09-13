@@ -17,7 +17,7 @@ from .relay_paths import PATHS
 def prepare(runtime,ident,request,backend,policy):
     """Register the exact request and return a plan; no model/browser dispatch."""
     validate(policy);c.label(ident);executors.validate(backend)
-    if backend['type']!='gemini-browser':raise ValueError('Select the browser executor')
+    if backend['type'] not in executors.BROWSER_TYPES:raise ValueError('Select the browser executor')
     if policy['uploads'] or policy['downloads']:raise ValueError('Use an authored graph with registered artifacts for file transfers')
     raw=Path(request).read_bytes()
     if len(raw)>24000:raise ValueError('Request exceeds 24000 bytes')
@@ -52,6 +52,7 @@ def main(argv=None):
     p=sub.add_parser('prepare');p.add_argument('--profile',required=True);p.add_argument('--origin',action='append',required=True)
     p.add_argument('--interaction-scope',default='');p.add_argument('--request-file',type=Path,required=True)
     p.add_argument('--id',required=True);p.add_argument('--model',required=True);p.add_argument('--out',type=Path,required=True)
+    p.add_argument('--provider',choices=['gemini','openai','qwen'],default='gemini')
     p.add_argument('--root',type=Path,default=PATHS.runtime)
     args=parser.parse_args(argv);os.umask(0o077)
     try:
@@ -61,7 +62,7 @@ def main(argv=None):
             policy=dict(profile=args.profile,origins=args.origin,interaction_scope=args.interaction_scope,
                         max_tabs=3,max_actions=20,uploads=[],downloads=[])
             runtime=Runtime(args.root)
-            try:plan=prepare(runtime,args.id,args.request_file,{'type':'gemini-browser','model':args.model},policy)
+            try:plan=prepare(runtime,args.id,args.request_file,{'type':args.provider+'-browser','model':args.model},policy)
             finally:runtime.db.close()
             with args.out.open('x') as f:json.dump(plan,f,ensure_ascii=False,indent=2)
             result={'plan':str(args.out.resolve()),'status':'prepared; inspect before create/run','workers_started':False}

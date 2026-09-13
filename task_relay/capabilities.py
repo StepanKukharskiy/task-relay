@@ -28,6 +28,58 @@ conversational; ask a concrete scope question when intent is ambiguous. Do not e
 an actionable request with a generic offer to act later. History helps resolve
 references but does not supply new authorization. General questions remain answers.
 
+Desktop browser routing: the Codex files/shell catalog is a baseline, not a complete
+inventory of the desktop task's installed plugins. Unverified Browser or Computer
+Use support is not evidence that those tools are absent. For an explicit request
+to use a named existing Codex task for website interaction, use route_task after
+checking that exact destination's status. The destination must inspect its current
+tools and permissions before acting and report a concrete blocker if unavailable.
+Do not require gemini-browser or a Relay-managed account profile for a request to
+use that desktop task's own signed-in browser. Do not advertise plugin availability
+or successful browser execution from the baseline catalog alone.
+Honor the requested website: research IN Perplexity means submitting the research
+there and returning its answer and conversation URL. Do not silently replace that
+with your own web search or a manual copy/paste task. Resolve the research question
+from the user/context; if missing, ask for it before dispatch. Existing login or
+verification blockers require user help only when actually encountered by the
+selected browser worker. Questions about browser capabilities still have action=null.
+
+For an explicit request to research in Perplexity, first inspect the browser_research
+operation. When available, use {"kind":"browser_research","site":"perplexity","query":"the research question for the website"}.
+It uses the app-managed Chrome profile without gemini-browser/openai-browser/qwen-browser,
+an extension or Codex. Their stale checks and browser_account_sites verification
+belong to a different profile and do not block this operation. The worker checks
+actual login and website verification before submitting once. Do not claim sign-in
+or universal website compatibility from Browser use being enabled.
+Write query as a self-contained research task addressed to the website. Remove
+Relay/browser routing language such as "use browser", "search Perplexity for", and
+"send the result back". For "use browser and search perplexity for rebar contractors",
+query is "Find rebar contractors." Do not ask the website how to operate Perplexity.
+Preserve all substantive requirements: topic, named entities, geography, dates,
+exclusions, language, requested output and source requirements. Do not invent a
+location, budget, deadline, result count, or new research goal. A general search
+without a location stays general; an optional preference is not a prerequisite.
+Resolve references only from unambiguous user-provided conversation context. If
+essential scope is missing or conflicting, ask with action=null. Do not send a
+bare "do it", invent context, or re-run earlier work merely to answer a status
+question. Questions actually ABOUT using Perplexity keep that meaning; the example
+above is not a rule to remove Perplexity as a genuine research subject.
+Relay retains the original message unchanged alongside the frozen query and
+receipt, and submits the query exactly once. Rephrasing is scope-preserving task
+translation, not permission to expand work. Honor provider choices. Capability and
+status questions have action=null; inspect recent_requests. Other sites still use
+their supported browser executors.
+
+Editable presentation creation uses plan_production with step_capabilities=["pptx.create"]
+when the operation catalog reports it available. An agent prepares a bounded slide
+JSON specification, independent review checks it, then the local operation creates
+native editable PPTX text, shapes, tables, charts and selected PNG/JPEG images.
+Use a separate reviewer for the actual deck and a user selection gate. This needs
+no Google login or PowerPoint installation. PPTX can be opened in Keynote, but
+creation/reopen checks do not establish Keynote import fidelity or visual layout.
+Native .key output, arbitrary existing-template editing and PDF/previews are not
+outputs of this operation; preserve those requirements as explicit separate work.
+
 Direct Rhino support uses rhino.startup, rhino.inspect and rhino.run_python.
 Select exact .3dm artifacts for inspection. For modeling, first prepare/review
 interpreter-compatible model.py (IronPython 2.7 for Rhino 7, CPython 3 for Rhino 8) and checks JSON using the rhino.run_python catalog schema.
@@ -92,9 +144,14 @@ GPU cache, driver or permissions root cause from a crash location alone. A start
 failure in that environment is a valid diagnostic finding, not permission to fix
 the host. Use the existing plan approval; do not claim execution before receipts.
 '''
-IMMEDIATE = ('generate_image', 'continue_production', 'collect_references',
+from orchestrator.browser_contract import WEBSITE_TASK_INSTRUCTIONS
+EXECUTION_ROUTING += '\n'+WEBSITE_TASK_INSTRUCTIONS
+from .capability_defaults import INSTRUCTIONS as MODEL_DEFAULT_INSTRUCTIONS
+EXECUTION_ROUTING += '\n' + MODEL_DEFAULT_INSTRUCTIONS
+
+IMMEDIATE = ('browser_research', 'generate_image', 'continue_production', 'collect_references',
              'resume_production',
-             'route_task', 'choose_task', 'create_production_folder',
+             'route_task', 'choose_task', 'create_codex_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
 GATED = ('plan', 'run', 'pause', 'resume', 'stop', 'start_production', 'revise_production')
 
@@ -140,7 +197,8 @@ Honor the user's explicit provider choice; do not silently fall back to another 
 For multiple plausible tasks ask which one; never choose by capability alone. Prefer
 existing workflow/production controls for work belonging to those stages. Never route
 production feedback to an unrelated worker or bypass a frozen stage's bounds.
-The original user message is sent verbatim, not a model-generated execution prompt.
+For delegate_task, the original user message is sent verbatim, not a model-generated
+execution prompt. browser_research instead uses its separately frozen research query.
 Capability availability is configuration evidence, not proof of authentication or
 success; queue receipts prove queueing only. Actual status comes from worker records.
 Focused production snapshots include artifact_lineage: exact registered inputs supplied
@@ -158,11 +216,14 @@ manifest; uncertain frame work is never silently replayed. Simulation/UI work re
 plan_production can propose a bounded producer/reviewer stage using graph_executors
 and the optional executor field. Honor exact provider choice; unavailable or
 unsupported work is blocked without fallback. gemini-agent supports declared text file
-tools only; gemini-browser adds general website tools under an exact approved
-profile, origin list, interaction scope and file-transfer grants. Use gemini-browser
-for requested control of other websites when available. Login is performed by the
-user locally; no universal site compatibility is implied. Both Gemini profiles
-require a recent connection/model metadata check.
+tools only; gemini-browser, openai-browser and qwen-browser add the same general
+website tools under an exact approved profile, origin list, interaction scope and
+file-transfer grants. Honor the requested provider and use its available browser
+executor for website control. An OpenAI/Qwen browser executor does not need Gemini
+or Codex. Never switch providers when the requested one is disconnected. Login is performed by the
+user locally; no universal site compatibility is implied. API executor profiles
+require a recent connection/model metadata check; listing a model does not prove
+its tool-calling behavior has been qualified.
 It can also propose explicitly
 requested mixed text steps using graph_operations and step_capabilities. API steps
 require the exact plan approval and have no agent tools.
@@ -269,7 +330,7 @@ def catalog(state, snapshot):
                 blocker=task.get('routing_blocker') or (None if task['status']=='idle' else task['status']),
                 fingerprint=task['fingerprint'],permissions='Existing desktop task permissions and approvals.',
                 limits='Existing task configuration; this routes one turn, not a bounded production assignment.',
-                verification='Desktop task observed; web/plugins are not assumed.'))
+                verification='Desktop task observed. Listed capabilities are the baseline; installed Browser/Computer Use plugins are unverified, not known absent. An explicitly requested desktop task can check its own tools through route_task.'))
         targets.extend(backend_targets(state))
     specs=[]
     for d in file_tools.DEFINITIONS:
@@ -284,7 +345,10 @@ def catalog(state, snapshot):
             permissions='Public read-only web research; no private network or authenticated sessions.',
             limits={'search_requests':2,'page_downloads':6,'page_bytes':1000000},
             evidence='Timestamped source URLs, page hashes and saved research receipts.'))
+    from . import browser_research
+    specs.append(browser_research.catalog(state))
     for kind in (*IMMEDIATE,*GATED):
+        if kind=='browser_research':continue
         specs.append(dict(id=kind,executor='relay.'+kind,
             inputs=('task_id, provider, required_capabilities' if kind=='delegate_task' else
                     'template, project, reference_pack_id, research_ids, planning_only; optional parent_id or previous_run' if kind=='plan_production' else
@@ -298,6 +362,18 @@ def catalog(state, snapshot):
             evidence='Durable queue/control receipt; consult the underlying worker for completion.'))
         if kind=='delegate_task':
             specs[-1]['input_schema']=copy.deepcopy(DELEGATE_SCHEMA)
+        if kind=='create_codex_task':
+            from .task_creation import SCHEMA
+            from .host import HOST
+            specs[-1]['input_schema']=copy.deepcopy(SCHEMA)
+            specs[-1]['inputs']='project, title, start_work, research_ids, artifact_ids'
+            try:
+                HOST.require_posix('Codex task creation'); HOST.codex()
+                blocker=None if enabled else 'Task routing is disabled.'
+            except (OSError,ValueError,RuntimeError) as exc:
+                blocker=str(exc)
+            specs[-1].update(available=not blocker,blocker=blocker,
+                limits='One local task; optionally one first turn. No implicit worktree, model override or retry.')
         if kind=='replace_selection':
             from task_relay.production_replacements import SCHEMA
             specs[-1]['input_schema']=copy.deepcopy(SCHEMA)
@@ -311,7 +387,7 @@ def catalog(state, snapshot):
     receipts=[]
     for row in state.db.execute('SELECT job_id,executor,receipt_id,thread_id,created FROM capability_dispatches ORDER BY created DESC LIMIT 5'):
         entry=dict(row)
-        if row['executor'] in ('backend_jobs','task_routes','production_continuations','production_plans'):
+        if row['executor'] in ('backend_jobs','task_routes','task_creations','production_continuations','production_plans'):
             record=state.db.execute('SELECT status FROM '+row['executor']+' WHERE id=?',(row['receipt_id'],)).fetchone()
             entry['status']=record['status'] if record else 'receipt target missing'
         else:
@@ -320,7 +396,11 @@ def catalog(state, snapshot):
     from orchestrator.execution import catalog as graph_catalog
     from orchestrator.executors import catalog as executor_catalog
     from task_relay.host_apps import catalog as app_catalog
+    from task_relay.browser_sites import catalog as site_catalog
+    from .capability_defaults import read as model_defaults
     return dict(version=1,operations=specs,graph_operations=graph_catalog(),graph_executors=executor_catalog(state),targets=targets,routing_enabled=enabled,dispatches=receipts,
+        model_defaults=model_defaults(state.db)['choices'],
+        browser_account_sites=site_catalog(state.db),
         host_applications=app_catalog(state),
         backend_catalog_limit=50,backend_catalog_truncated=enabled and state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0]>50,
         image_configured=bool(gemini.read_config()),
@@ -397,8 +477,17 @@ def dispatch(state, job, action, snapshot):
         return old['result'],old['thread_id']
     from task_relay import production_continuations; from task_relay import production_folders; from task_relay import reference_packs; from task_relay import task_routing; from task_relay import orchestrator_images
     kind=action['kind'];tid=None;receipt=str(job['id']);executor=kind
-    if kind=='delegate_task':
+    if kind=='browser_research':
+        from . import browser_research
+        try:text,receipt=browser_research.dispatch(state,job,action)
+        except ValueError as exc:raise CapabilityError(str(exc)) from exc
+        executor='browser_research_requests'
+    elif kind=='delegate_task':
         text,tid,executor,receipt=delegate(state,job,action,snapshot)
+    elif kind=='create_codex_task':
+        from . import task_creation
+        text=task_creation.enqueue(state,job,action,snapshot)
+        executor='task_creations'
     elif kind=='resume_production':
         from task_relay import production_control
         text=production_control.resume_review(state,action['workflow'],legacy=True)
@@ -416,7 +505,7 @@ def dispatch(state, job, action, snapshot):
         text=production_planning.authorize(state,job,action['plan_id'])
         executor='production_plans';receipt=action['plan_id']
     elif kind=='generate_image':
-        tid,text=orchestrator_images.queue(state,job,action['reference_ids'],action.get('artifact_ids',[]))
+        tid,text=orchestrator_images.queue(state,job,action['reference_ids'],action.get('artifact_ids',[]),action.get('provider','gemini'),action.get('model'))
         executor='orchestrator_image_requests'
     elif kind=='continue_production':
         from task_relay import orchestrator_guides

@@ -11,14 +11,15 @@ from .host import HOST
 from .relay_paths import PATHS
 
 LABEL = 'com.personal.taskrelay.messages'
-OWNER = 'task-relay-companion-messages-v1'
+OWNER = 'task-relay-app-messages-v2'
 
 
 class MessagesService(DesktopService):
     def __init__(self, runtime=None, paths=PATHS, host=HOST, home=None, clock=time.time, sleep=time.sleep):
         super().__init__(runtime, paths, host, home, clock, sleep)
         self.path = Path(home or Path.home()) / 'Library/LaunchAgents' / (LABEL + '.plist')
-        self.helper = self.runtime / 'helpers/Messages Relay.app/Contents/MacOS/MessagesRelay'
+        self.helper = self.runtime.parent.parent.parent / 'MacOS/task-relay-desktop'
+        self.permission_app = self.runtime.parent.parent.parent.parent
         # launchd opens these before the helper can request Documents access.
         self.logs = Path(home or Path.home()) / 'Library/Logs/Task Relay Messages'
 
@@ -27,18 +28,18 @@ class MessagesService(DesktopService):
 
     def _spec(self):
         return {'Label': LABEL, 'TaskRelayDesktopOwner': OWNER,
-                'ProgramArguments': [str(self.helper)], 'WorkingDirectory': str(self.app),
+                'ProgramArguments': [str(self.helper), '--messages-service'], 'WorkingDirectory': str(self.app),
                 'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 20, 'ExitTimeOut': 12,
-                'LimitLoadToSessionType': 'Aqua', 'Umask': 0o077,
+                'AssociatedBundleIdentifiers': ['com.taskrelay.desktop'], 'LimitLoadToSessionType': 'Aqua', 'Umask': 0o077,
                 'EnvironmentVariables': {**self.paths.environment(), 'TASK_RELAY_COMPANION_RUNTIME': str(self.runtime),
-                                         'TASK_RELAY_COMPANION': '1', 'PYTHONDONTWRITEBYTECODE': '1'},
+                                         'TASK_RELAY_COMPANION': '1', 'TASK_RELAY_MESSAGES_OWNER': 'task-relay-app', 'PYTHONDONTWRITEBYTECODE': '1'},
                 'StandardOutPath': str(self.logs / 'service.log'),
                 'StandardErrorPath': str(self.logs / 'service-error.log')}
 
     def _ensure_runtime(self):
         super()._ensure_runtime()
         if not self.helper.is_file() or not os.access(self.helper, os.X_OK):
-            raise DesktopServiceError('The packaged Messages helper is unavailable. Rebuild or reinstall Task Relay.')
+            raise DesktopServiceError('The Task Relay service executable is unavailable. Rebuild or reinstall Task Relay.')
         if not shutil.which('imsg') and not Path('/opt/homebrew/bin/imsg').is_file():
             raise DesktopServiceError('The optional Messages connection needs the imsg utility. Existing pairing was retained.')
 
@@ -54,13 +55,15 @@ class MessagesService(DesktopService):
         managed = owner == 'desktop'
         detail = ('Messages is connected through Task Relay.' if managed and healthy else
                   'The existing Messages helper is connected. Review a handoff to manage it here.' if healthy else
-                  'Messages needs attention; inspect its permissions and recovery records.' if loaded and shared else
+                  ('Task Relay’s bundled Messages connection needs attention. '+state.get('health_detail','')) if loaded and shared else
                   'Messages is stopped; your pairing is retained.' if managed else
                   'An existing Messages helper uses this installation.' if shared else
                   'Another Messages installation was found and is preserved.' if owner != 'none' else
                   'No Messages helper is installed. Telegram is ready for the complete setup flow.')
         return {**state, 'owner': owner, 'loaded': loaded, 'healthy': healthy, 'managed': managed,
                 'shared_data': shared, 'detail': detail,
+                'component': 'Task Relay Messages service' if managed else 'External Messages installation',
+                'permission_app': str(self.permission_app) if managed else None,
                 'handoff_available': bool(shared and not managed and state['paired'] and not state['error'])}
 
     def start(self, timeout=25):
@@ -105,7 +108,7 @@ class MessagesService(DesktopService):
         attempt = str(uuid.uuid4())
         self._receipt(attempt, 'messages-stop', 'intent', 'Stopping the owned Messages transport, not its already dispatched work.')
         self._command(['bootout', f'gui/{os.getuid()}/{LABEL}'])
-        if self._loaded():
+        if not self._wait_unloaded():
             self._receipt(attempt, 'messages-stop', 'uncertain', 'macOS still reports the helper loaded.')
             raise DesktopServiceError('Messages is still loaded. Inspect the helper before retrying.')
         self._receipt(attempt, 'messages-stop', 'stopped', 'Messages helper unloaded; pairing retained.')

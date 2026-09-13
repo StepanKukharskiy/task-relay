@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Task Relay — Perplexity Search",
+  "version": "0.1.0",
+  "description": "Run research requests from Task Relay in your signed-in Perplexity browser. Click the toolbar button to connect or disconnect.",
+  "browser_specific_settings": {"gecko": {"id": "perplexity@task-relay.local", "strict_min_version": "109.0"}},
+  "permissions": ["nativeMessaging", "storage", "https://www.perplexity.ai/*", "https://perplexity.ai/*"],
+  "background": {"scripts": ["background.js"], "persistent": true},
+  "browser_action": {"default_title": "Connect Task Relay to Perplexity Search"},
+  "content_security_policy": "script-src 'self'; object-src 'none'"
+}

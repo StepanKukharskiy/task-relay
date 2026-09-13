@@ -27,6 +27,21 @@ h2 { font-size: 1.7rem; line-height: 1.22; font-weight: 570; letter-spacing: -.0
 .section-content p:last-child { margin-bottom: 0; }
 h3 { font-size: 1rem; font-weight: 650; margin: 0 0 .35rem; letter-spacing: -.01em; }
 .tool-list article { margin-bottom: 1.5rem; }
+.format-section { border-top: 1px solid var(--line); padding: 3rem 0 3.5rem; }
+.formats-intro { max-width: 48rem; color: var(--muted); margin: 1.4rem 0; }
+.format-table-wrap { overflow-x: auto; }
+.format-table-wrap:focus-visible { outline: 3px solid var(--blue); outline-offset: 4px; }
+.format-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .95rem; }
+.format-table caption { text-align: left; color: var(--muted); font-size: .875rem; padding: 0 0 .8rem; }
+.format-table th, .format-table td { padding: 1rem 1rem 1rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.format-table thead th { border-top: 1px solid var(--line); color: var(--blue); font-weight: 600; }
+.format-table tbody th { width: 24%; font-weight: 600; }
+.format-table td { width: 38%; color: var(--muted); }
+.format-table td:last-child, .format-table th:last-child { padding-right: 0; }
+.format-table code, .format-notes code { white-space: nowrap; }
+.format-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; margin: 2rem 0 1.5rem; }
+.format-notes p { color: var(--muted); margin: 0; font-size: .95rem; }
+.format-section > .note { color: var(--muted); }
 .note { font-size: .875rem; line-height: 1.6; }
 code { background: #f1f4fb; color: var(--ink); border-radius: 3px; padding: .12em .25em; font-size: .9em; }
 .workflows { list-style: none; padding: 0; margin: 1.5rem 0; counter-reset: workflow; }
@@ -57,6 +72,9 @@ footer div { display: flex; flex-wrap: wrap; gap: 1.3rem; }
   .intro .eyebrow { font-size: .75rem; }
   .lede { font-size: 1.2rem; }
   .section { grid-template-columns: 1fr; gap: 1.5rem; padding: 2.5rem 0; }
+  .format-section { padding: 2.5rem 0; }
+  .format-table { min-width: 620px; }
+  .format-notes { grid-template-columns: 1fr; gap: 1.5rem; }
   .section-label h2 br { display: none; }
   h2 { max-width: 26rem; }
   .downloads { flex-direction: column; gap: 1.5rem; }

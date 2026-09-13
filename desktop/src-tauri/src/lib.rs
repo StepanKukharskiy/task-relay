@@ -9,6 +9,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
 const ACTIONS: &[&str] = &["status", "project", "provider", "telegram", "update-check",
+    "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider",
     "channel-update", "channel-status",
     "companion-status", "conversation", "approval-detail", "messages-start", "messages-stop",
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",
@@ -76,7 +77,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
     });
     // Lifecycle operations journal their intent and wait for a fresh heartbeat.
     // Do not kill them at the ordinary read deadline while they are restoring a service.
-    let seconds = if matches!(path, "service-start" | "messages-start" | "handoff-apply" | "handoff-restore") { 90 } else { 15 };
+    let seconds = if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 } else { 15 };
     let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
         if child.try_wait().map_err(|_| "Task Relay runtime did not finish.")?.is_some() {
@@ -139,6 +140,20 @@ async fn companion_open(app: tauri::AppHandle, target: String) -> Result<(), Str
             result["url"].as_str().ok_or("Connect Telegram in Settings first.")?.to_owned()
         },
         "messages" => "sms:".to_owned(),
+        "messages-permissions" => {
+            let root = if cfg!(debug_assertions) {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/runtime")
+            } else {
+                app.path().resource_dir().map_err(|_| "Bundled runtime unavailable.")?.join("resources/runtime")
+            };
+            let bundle = root.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).and_then(|p| p.parent())
+                .ok_or("Task Relay app location unavailable.")?;
+            if !bundle.join("Contents/MacOS/task-relay-desktop").is_file() {
+                return Err("The installed Task Relay app is missing.".into());
+            }
+            app.opener().reveal_item_in_dir(bundle).map_err(|_| "Could not reveal Task Relay.app.")?;
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles".to_owned()
+        },
         "permissions" => "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles".to_owned(),
         _ => return Err("Unknown companion destination.".into()),
     };

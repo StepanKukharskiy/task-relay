@@ -133,7 +133,7 @@ def plan(value):
     label(p['id'])
     nonempty(p.get('brief'), 'brief')
     backend = p.get('backend', {})
-    from .executors import validate, GEMINI_LIMITS
+    from .executors import validate, GEMINI_LIMITS, API_TYPES
     profile=validate(backend)
     if not isinstance(p.get('tasks'), list) or not 1 <= len(p['tasks']) <= 30:
         raise ValueError('Workflow permits 1–30 tasks')
@@ -141,10 +141,10 @@ def plan(value):
     for a in p['tasks']:
         if a.get('execution'):continue
         if a['tools']!=profile:raise ValueError('Assignment tools do not match the selected execution provider.')
-        if backend['type'] in ('gemini-agent','gemini-browser'):
-            if any(a['limits'][k]>v for k,v in GEMINI_LIMITS.items()):raise ValueError('Gemini assignment exceeds its bounded file-executor limits.')
+        if backend['type'] in API_TYPES:
+            if any(a['limits'][k]>v for k,v in GEMINI_LIMITS.items()):raise ValueError('API assignment exceeds its bounded executor limits.')
             if any(o.get('media_type','text/plain') not in ('text/plain','text/markdown','application/json') for o in a['outputs']):
-                raise ValueError('Gemini file executor produces UTF-8 text only.')
+                raise ValueError('API file executor produces UTF-8 text only.')
     tasks = {a['id']: a for a in p['tasks']}
     if len(tasks) != len(p['tasks']):
         raise ValueError('Duplicate task ID')

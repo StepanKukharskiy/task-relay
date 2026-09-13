@@ -88,6 +88,13 @@ def notice(state, name, key, text):
                          ('production:' + name + ':' + key, state.channel))
 
 
+def pending_execution_text(view):
+    if not view.get('deferred_operations'):return ''
+    pending=[v['description'] for v in view.get('pending_deliverables',{}).values()]
+    return ('\nNot generated yet: '+('; '.join(pending) or ', '.join(view['deferred_operations']))+
+        '\nThis stage prepares inputs only. After selecting the reviewed set, use Plan execution to prepare the remaining work. Start approves its exact script and limits.')
+
+
 def root(state):
     return state.media_dir.parent / 'orchestrator'
 
@@ -129,6 +136,8 @@ def inspect(state, focus=None, include_files=True):
                     'feedback_files': uploads, 'feedback_requests': [dict(p) for p in pending],
                     'task_state': tasks,
                     'brief': json.loads(row['plan'])['brief'],
+                    'deferred_operations': json.loads(row['plan']).get('deferred_operations',{}),
+                    'pending_deliverables': {k:v for k,v in json.loads(row['plan']).get('deliverables',{}).items() if v.get('deferred_operation')},
                     'tasks': [{**{k: t[k] for k in ('id', 'status', 'attempts')},
                                **{k: a.get(k) for k in ('role', 'objective', 'instruction', 'limits', 'max_attempts', 'user_gate', 'review_of', 'execution')}, **p}
                               for t, a, p in zip(tasks, specs, progress)]}
@@ -423,6 +432,8 @@ class Worker:
                 self.state.put('production-enabled:' + name, False)
                 # One terminal notification; no per-poll or per-tool chatter.
                 status = 'Ready for your review' if result['status'] == 'awaiting_user' else result['status']
+                if current['deferred_operations'] and result['status'] in ('awaiting_user','completed'):
+                    status = 'Preparation ready; execution pending'
                 if any(a['state'] in ('launching','running','cancelling','uncertain') for a in result['attempts']):return
                 version = hashlib.sha256(json.dumps([result['status'],summary]).encode()).hexdigest()[:16]
                 event = 'production:' + name + ':result:' + version
@@ -440,7 +451,7 @@ class Worker:
                           if result['status']=='blocked' else
                           '\nSaved outputs follow as documents. Use a Select button for the exact file or declared file set, or reply with feedback to request a revision. You can also attach guides and then send your instructions. A revision card shows what will run. No next stage starts automatically.')
                 self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n' +
-                    '\n'.join(details) + ending))
+                    '\n'.join(details) + pending_execution_text(current) + ending))
                 current_outputs = {t['id'] for t in current['tasks'] if t['output_is_current']}
                 for task in result['tasks']:
                     if task['id'] not in current_outputs:

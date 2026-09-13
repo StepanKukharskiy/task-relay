@@ -72,7 +72,9 @@ const historyNode=document.querySelector('#history');
 const turns=JSON.parse(localStorage.getItem(location.pathname)||'[]');
 function show(){historyNode.replaceChildren(); for(const t of turns){
  const p=document.createElement('p');p.textContent=t;historyNode.append(p);
- for(const text of ['Edit query','Copy']){const b=document.createElement('button');b.textContent=text;historyNode.append(b);}}}
+ const edit=document.createElement('button');edit.textContent='Edit query';historyNode.append(edit);
+ const actions=document.createElement('div');historyNode.append(actions);
+ for(const text of ['Copy','Share','Fork']){const b=document.createElement('button');b.textContent=text;actions.append(b);}}}
 show();box.addEventListener('keydown',e=>{if(e.key!=='Enter')return;e.preventDefault();
  turns.push(box.innerText);box.innerText='';
  if(location.pathname==='/')history.replaceState({},'', '/search/11111111-1111-1111-1111-111111111111');

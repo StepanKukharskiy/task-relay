@@ -53,6 +53,24 @@ class Tests(unittest.TestCase):
         self.pilot.receive(self.msg('Still orchestrator', 'plain-again'))
         self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0], 2)
 
+    def test_routing_help_and_legacy_off_do_not_redirect_or_submit(self):
+        r=self.router();self.pair()
+        self.pilot.receive(self.msg('/routing','route-help'))
+        self.pilot.receive(self.msg('/orchestrator off','old-off'))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        self.pilot.receive(self.msg('Start new research','next-research'))
+        self.assertEqual(r.state.db.execute('SELECT prompt FROM orchestrator_chats').fetchone()[0],'Start new research')
+        texts='\n'.join(row[0] for row in self.pilot.store.db.execute('SELECT text FROM messages_delivery'))
+        self.assertIn('selecting a provider does not redirect ordinary text',texts)
+
+    def test_bundled_template_listing_needs_no_model_or_dispatch(self):
+        r=self.router();self.pair()
+        self.pilot.receive(self.msg('/templates','templates-list'))
+        self.pilot.receive(self.msg('/templates model-revision','templates-detail'))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        texts='\n'.join(row[0] for row in self.pilot.store.db.execute('SELECT text FROM messages_delivery'))
+        self.assertIn('model-revision',texts);self.assertIn('Native model',texts)
+
     def test_browser_setup_command_is_paired_and_bypasses_the_model(self):
         r=self.router();self.pair()
         self.pilot.receive(self.msg('/browser connect','wrong',chat_id=99))

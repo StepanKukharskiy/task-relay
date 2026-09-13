@@ -67,6 +67,36 @@ class DesktopBridgeTests(unittest.TestCase):
         self.assertEqual(applied['value']['skipped'], 1)
         self.assertTrue(cache.is_file())
 
+    def test_browser_switch_saves_choice_and_open_requires_enabled(self):
+        process, frame = self.request('browser-configure', {'enabled': False})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn('off', frame['value']['message'])
+        saved = json.loads((self.root/'data/browser-use.json').read_text())
+        self.assertFalse(saved['enabled'])
+        _, frame = self.request('companion-status', {})
+        self.assertFalse(frame['value']['browser']['enabled'])
+        _, frame = self.request('browser-open', {})
+        self.assertFalse(frame['ok'])
+        self.assertIn('Turn Browser use on', frame['error'])
+
+    def test_model_default_round_trip_through_native_bridge(self):
+        import sqlite3
+        from task_relay import credentials
+        data = self.root/'data'
+        data.mkdir()
+        with sqlite3.connect(data/'state.sqlite') as db:
+            db.execute('CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT)')
+        credentials.save(data/'gemini.json', {'api_key':'fixture-only', 'models':{'image':'gemini-image-fixture'}})
+        process, frame = self.request('model-default', {'revision':0,'capability':'image','provider':'gemini','model':'gemini-image-fixture'})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertTrue(frame['ok'], frame)
+        _, frame = self.request('companion-status', {})
+        self.assertEqual(frame['value']['model_defaults']['choices']['image'], {'provider':'gemini','model':'gemini-image-fixture'})
+        self.assertNotIn('fixture-only', json.dumps(frame))
+        _, frame = self.request('model-default', {'revision':0,'capability':'image','provider':'gemini','model':'gemini-image-fixture'})
+        self.assertFalse(frame['ok'])
+        self.assertIn('changed', frame['error'])
+
 
 if __name__ == '__main__':
     unittest.main()

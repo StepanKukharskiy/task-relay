@@ -6,24 +6,26 @@ import sys
 import time
 
 from .workers import CodexFactory, SUPERVISOR, atomic, prepare_supervisor
-from . import execution
+from . import execution, executors
 
 
 class GeminiFactory(CodexFactory):
     """Shared process ownership; API file tools never invoke the Codex executable."""
     def create(self,control,workspace,frozen,backend):
         from . import executors
-        executors.available(backend);config,_=executors.configured()
+        executors.available(backend)
+        provider=backend['type'].removesuffix('-browser') if backend['type'] in executors.BROWSER_TYPES else 'gemini'
+        config,_=executors.configured() if provider=='gemini' else executors.configured(provider)
         control=Path(control);control.mkdir(parents=True,exist_ok=False)
         support_hash=prepare_supervisor(control,frozen)
-        (control/'prompt.txt').write_text('Gemini file executor; frozen assignment supplies scope.\n')
+        (control/'prompt.txt').write_text('API executor; frozen assignment supplies scope.\n')
         python=sys.executable;worker='gemini_worker.py'
-        if backend['type']=='gemini-browser':
+        if backend['type'] in executors.BROWSER_TYPES:
             from task_relay.host import HOST
             from task_relay.relay_paths import PATHS
             python=HOST.browser_python(PATHS.install,PATHS.data);worker='browser_worker.py'
         browser_support={}
-        if backend['type']=='gemini-browser':
+        if backend['type'] in executors.BROWSER_TYPES:
             from .browser_worker import support_hashes
             browser_support=support_hashes()
         command=[python,str(Path(__file__).with_name(worker)),str(control),str(workspace)]
@@ -43,7 +45,7 @@ class GeminiFactory(CodexFactory):
             if not (control/(stem+'.response.json')).exists() and detail.get('outcome')!='rejected':unknown.append(stem)
         result.update(backend=session['backend'],api_requests=len(list(control.glob('api-*.request.json'))))
         browser_result=control/'browser-result.json'
-        if session['backend']['type']=='gemini-browser' and browser_result.exists():
+        if session['backend']['type'] in executors.BROWSER_TYPES and browser_result.exists():
             try:
                 detail=json.loads(browser_result.read_text())
                 if not isinstance(detail,dict) or not isinstance(detail.get('actions'),list) or not isinstance(detail.get('uncertain_actions'),list) or not detail.get('profile') or not detail.get('job'):
@@ -52,7 +54,7 @@ class GeminiFactory(CodexFactory):
                 result['browser']=detail
                 if detail['uncertain_actions']:unknown.append('browser_actions')
             except (ValueError,OSError):unknown.append('invalid_browser_receipt')
-        elif session['backend']['type']=='gemini-browser':
+        elif session['backend']['type'] in executors.BROWSER_TYPES:
             unknown.append('missing_browser_receipt')
         result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
         if unknown and not (control/'cancel.json').exists():
@@ -79,11 +81,12 @@ class RegisteredFactory(CodexFactory):
         control=Path(session['control']);operation=control/'operation.json'
         details=json.loads(operation.read_text()) if operation.exists() else {}
         result.update(execution=session['execution'],operation=details)
-        if session['execution']['capability']=='gemini.text':
+        if execution.REGISTRY[session['execution']['capability']]['kind']=='api':
             sent=(control/'request.json').exists();received=(control/'response.json').exists()
             if received:
                 response=json.loads((control/'response.json').read_text())
-                details.update(upstream_id=response.get('responseId'),usage=response.get('usageMetadata',{}))
+                details.update(upstream_id=details.get('upstream_id') or response.get('responseId') or response.get('id') or response.get('request_id'),usage=response.get('usageMetadata',response.get('usage',{})))
+            if (control/'remote.json').exists(): details['remote']=json.loads((control/'remote.json').read_text())
             uncertain=details.get('outcome')=='uncertain' or (sent and not received and details.get('outcome')!='rejected')
             if uncertain:
                 result['external_outcome']='unknown'
@@ -104,7 +107,7 @@ class ExecutionFactory:
 
     def create(self,control,workspace,frozen,backend):
         if frozen.get('execution'):adapter=self.registered
-        elif backend['type'] in ('gemini-agent','gemini-browser'):adapter=self.gemini
+        elif backend['type'] in executors.API_TYPES:adapter=self.gemini
         elif backend['type']=='codex-cli':adapter=self.agents
         else:raise ValueError('Unsupported execution provider; no fallback.')
         return adapter.create(control,workspace,frozen,backend)

@@ -62,6 +62,42 @@ retry-budget expansion.
 - An expired login, timeout or provider failure is described as completed work.
 - Attachments are absent, generically named, mislabeled or bound to the wrong reply target.
 
+### Required media-to-CAD regression sequence
+
+Add a real scenario: request a voxel model **and** an AI photographic visualization,
+revise its location/weather/lighting, then request a facade-element drawing explicitly
+in Rhino. The plan must retain both initial deliverables; if image execution cannot
+be included in the current stage, report the pending requested stage and its exact
+continuation/approval boundary before starting. Do not present the first stage as
+fulfillment of the complete request.
+
+An image-task reply is context for intent resolution, not permanent authorization
+to generate another image. An explicit Rhino request must reach a qualified Rhino
+route with the selected geometry/reference versions, or surface a concrete blocker.
+The drawing must have a native `.3dm` and declared scale/dimensions; a generated
+drawing-like bitmap is not successful CAD execution. Ask for missing dimensional
+inputs rather than inventing measured geometry from a photographic visualization.
+
+Exercise enough image revisions to cross the previous 16 MB request threshold.
+Preserve the exact archive, but use a versioned working-context handoff with the
+selected image, constraints and relevant edit instructions. Record what is carried
+forward; do not drop required provider-native signatures from an active native
+conversation. New sessions/turns must preserve lineage and never replay uncertain
+submissions. Detect oversized requests before queueing paid execution.
+
+Repeat routing with different configured media profiles. Image generation, image
+editing, text-to-video and image-to-video are separate capabilities. Resolution
+should honor an explicit requested provider/model, then project and user defaults;
+otherwise ask among compatible available profiles. Freeze the selected route,
+model, references, supported parameters and limits before dispatch. API-key
+presence alone does not establish a working media adapter. Unsupported parameters,
+formats or unavailable routes must be disclosed; never silently switch providers.
+Cross-provider handoffs use versioned files and a portable brief, not another
+provider's private conversation representation. The image routing, bounded context
+handoff, Gemini/OpenAI graph operations and source-version tests are now implemented
+as described in [media workflows](media-workflows.md). General profile preferences,
+additional adapters, graph video operations and live qualification remain open.
+
 Keep deterministic negative/recovery tests alongside the live benchmark. Induce
 failures in controlled transports; do not intentionally create uncertain paid
 submissions merely to exercise recovery.

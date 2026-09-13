@@ -69,6 +69,32 @@
           <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit">Save connection</button>
         </form>
       </details>
+      <details id="model-settings"><summary>Models by task</summary>
+        <p>Connect a provider once, then choose a model for each kind of work.</p>
+        <details><summary>Image, video &amp; 3D connections</summary>
+          <p id="media-connections-detail" class="hint"></p>
+          <form id="media-provider-form">
+            <label for="media-provider-name">Media provider</label><select id="media-provider-name"><option value="runway">Runway</option><option value="higgsfield">Higgsfield</option><option value="meshy">Meshy — 3D assets</option></select>
+            <label for="media-provider-key" id="media-provider-key-label">API key</label><input id="media-provider-key" type="password" autocomplete="new-password">
+            <a id="media-provider-key-link" href="https://dev.runwayml.com/">Get API credentials ↗</a>
+            <p class="hint">Use API credentials from the provider’s developer account. Saving a connection does not run generation or verify credits. Leave the credential blank to keep the saved connection.</p>
+            <button type="submit">Save media connection</button>
+          </form>
+        </details>
+        <p id="model-defaults-detail" class="hint" role="status"></p>
+        <div id="model-defaults-list"></div>
+        <div class="channel-card"><strong>Modeling &amp; rendering</strong><p class="hint">Editable models and renders use Relay’s Blender or Rhino workflows. Ask for the application and output you need; Relay checks the available tools before planning.</p></div>
+        <p class="hint">Explicit choices in your request and existing task models take precedence. Saved defaults apply to future work. Queued jobs and approved plans keep their models.</p>
+      </details>
+      <details id="browser-settings"><summary><span>Browser use</span><span id="browser-summary" class="muted">Off</span></summary>
+        <p>Let Relay use webpages in its own Chrome window. Requires Google Chrome.</p>
+        <button id="browser-toggle" type="button" role="switch" aria-checked="false" aria-label="Browser use">Off</button>
+        <p id="browser-detail" class="hint" role="status"></p>
+        <button id="browser-open" type="button" disabled>Open browser / sign in</button>
+        <button id="browser-sign-in-done" type="button" hidden>Done signing in</button>
+        <a id="browser-install" href="https://www.google.com/chrome/" hidden>Get Google Chrome ↗</a>
+        <p class="hint">Open the websites you want Relay to use and sign in there. Chrome Sync is unnecessary. Sign-in opens ordinary Chrome with Relay access paused. Done signing in closes that window and lets Relay reuse its saved sessions. Website verification may still need your attention.</p>
+      </details>
       <details id="access-settings"><summary>Folders & permissions</summary>
         <p class="hint">Folders configured for this Relay installation:</p><div id="folder-list"></div>
         <p class="hint">This list is not an access restriction. Connected agents and tools may access other files allowed by their permissions. Full Disk Access, if granted, allows broader access.</p>
@@ -78,7 +104,7 @@
       <details id="advanced-settings"><summary>Troubleshooting & updates</summary>
         <p id="data-location" class="path"></p><p id="ownership-detail"></p><div class="actions"><button id="connect-existing" hidden>Use existing installation</button><button id="service-handoff" hidden>Review service handoff</button></div>
         <button id="handoff-history">Inspect handoff receipts</button><div id="handoff-receipts"></div>
-        <div id="diagnostics"></div><p id="update-summary"></p><button id="update-check">Check updates</button><p class="hint">This checks release metadata. Packaged update installation is not yet available.</p>
+        <div id="diagnostics"></div><p id="update-summary"></p><button id="update-check">Check source releases</button><p class="hint">Source releases are Python packages. Desktop app updates use a separate release channel; installing app updates here is not yet available.</p>
         <details><summary>Storage cleanup</summary><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply">Delete reviewed caches</button></div></details>
         <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/onboarding.md">Setup and recovery guide ↗</a>
       </details>

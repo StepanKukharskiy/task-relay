@@ -41,7 +41,12 @@ class Tests(unittest.TestCase):
         for ident,(cap,valid,invalid) in enumerate(cases,1):
             with self.subTest(cap=cap):
                 self.queue(ident=ident,action=self.action(step_capabilities=[cap]),text='Prepare a Rhino tower script and checks. Do not execute Rhino.')
-                planning.Worker(self.state,lambda *_:(json.dumps(self.response()),{})).tick()
+                response=self.response();response['deferred_operations']={cap:'Prepare exact inputs for a separately approved host operation.'}
+                producer,review=response['plan']['tasks']
+                producer['outputs'].append({'path':'preparation.json','purpose':'Exact prepared manifest'})
+                review['inputs'].append({'from_task':'produce','output':'preparation.json','path':'candidate/preparation.json','purpose':'Review prepared manifest','authority':'Candidate'})
+                producer['selection_outputs']=[o['path'] for o in producer['outputs']]
+                planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
                 row=self.row(ident);self.assertEqual(row['status'],'ready',row['error'])
                 self.start(row)
                 run='production-'+str(ident)
@@ -56,6 +61,12 @@ class Tests(unittest.TestCase):
                     contract=json.loads((support/'contract.json').read_text())
                     self.assertEqual(contract['id'],cap)
                     self.assertIn('checks_schema' if cap=='rhino.run_python' else 'render_schema',contract)
+                    if cap=='rhino.run_python':
+                        checks_file=workspace/'valid-checks.json';checks_file.write_text(json.dumps(valid))
+                        script_file=workspace/'oversized.py';script_file.write_bytes(b'#'+b' '*100000)
+                        result=subprocess.run([sys.executable,'-E','-S',str(support/'validate.py'),str(checks_file),str(script_file)],cwd=workspace,capture_output=True,text=True)
+                        self.assertNotEqual(result.returncode,0)
+                        self.assertIn('100001',result.stderr)
                     validator=validate_checks if cap=='rhino.run_python' else validate_render
                     for value,success in ((valid,True),(invalid,False)):
                         candidate=workspace/'contract-fixture.json';candidate.write_text(json.dumps(value))

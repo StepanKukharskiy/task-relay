@@ -44,6 +44,15 @@ def inputs(rt, root, source=None, script=CREATE_SCRIPT, contract=None):
 
 
 class Tests(unittest.TestCase):
+    def test_preview_named_view_is_required_in_reopened_scene(self):
+        contract=checks();contract['preview']['named_view']='FacadeSheet';validate_checks(contract)
+        snap=dict(objects={'one':dict(name='Tower',dimensions=[2,3,4],valid=True)},units='Meters',tolerance=.001,named_views={})
+        self.assertIn('Preview named view is missing: FacadeSheet',compare({'objects':{}},snap,contract))
+        snap['named_views']['FacadeSheet']='orthographic camera'
+        self.assertEqual(compare({'objects':{}},snap,contract),[])
+        contract['preview']['named_view']=''
+        with self.assertRaises(ValueError):validate_checks(contract)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve()
         self.fake=FakeFactory();self.rt=Runtime(self.root/'runtime',self.fake)
@@ -304,6 +313,16 @@ class AdapterTests(unittest.TestCase):
             exec(shutdown_script(7,'darwin'),scope);scope['relay_exit'](1)
         native.assert_called_once_with(1);managed.assert_not_called()
         with self.assertRaises(UnsupportedHost):shutdown_script(7,'win32')
+
+    def test_rhino8_owned_exit_avoids_managed_finalizers_and_preserves_failure(self):
+        from task_relay.rhino_host import shutdown_script
+        from unittest.mock import Mock
+        scope={'System':Mock()}
+        with patch('os._exit') as native:
+            exec(shutdown_script(8,'darwin'),scope)
+            scope['relay_exit'](0);scope['relay_exit'](1)
+            self.assertEqual([x.args[0] for x in native.call_args_list],[0,1])
+        scope['System'].Environment.Exit.assert_not_called()
 
     def test_forwarded_startup_cannot_operate_on_or_exit_existing_rhino(self):
         import types

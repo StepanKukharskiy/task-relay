@@ -1,13 +1,35 @@
 # General website execution
 
-Task Relay now has a `gemini-browser` worker profile for bounded work on websites
-without a site-specific adapter. It reuses the configured Gemini text model,
+Website task translation is shared with the orchestrator and all Gemini, OpenAI
+and Qwen browser workers. It separates the destination, website task content and
+Relay delivery/control instructions. Search fields receive a self-contained query;
+other tasks retain their scoped actions. Exact quoted queries, identifiers, code
+and supplied message/form text stay unchanged. The worker must preserve substantive
+constraints and cannot invent missing locations or expand authorization. This rule
+is independent of site naming or user phrasing; actual website support still
+depends on the registered browser tools, scope and session.
+
+
+Task Relay has `gemini-browser`, `openai-browser` and `qwen-browser` worker profiles
+for bounded work on websites without a site-specific adapter. Each reuses its
+provider's configured text model,
 production scheduler, immutable assignments, independent review, usage records and
 delivery paths. The Perplexity Search pilot remains a separate adapter.
+
+OpenAI and Qwen execution requires that provider's API connection and a model
+supporting function calling. Neither requires Gemini or the Codex app. Qwen here
+means the configured Alibaba Model Studio API; local Qwen serving is not included.
+Connect the provider and choose its default text model through `/providers`.
+Model metadata checks establish catalog access, not tool compatibility or quota;
+unsupported execution stops with its provider error and never changes providers.
 
 This is a controlled implementation, not live qualification of ChatGPT, Perplexity
 or every website. No live account action, paid model call, service reload or chat
 delivery was performed for this change.
+
+For reusable signed-in sessions, see [Account sites](account-sites.md). The
+`accounts` profile adds an explicit site list, manual confirmation and optional
+attachment to an existing local Chromium browser. Other profiles remain separate.
 
 ## Scope
 
@@ -93,6 +115,9 @@ task-relay browser general prepare --profile research \
   --model YOUR_CONFIGURED_GEMINI_MODEL --id website-check --out browser-plan.json
 ```
 
+For OpenAI or Qwen, add `--provider openai` or `--provider qwen` and use that
+provider's configured model. The default remains Gemini.
+
 This registers the request and saves a plan; it makes no browser or model call.
 For interactive work, add `--interaction-scope 'the precise requested actions'`.
 Inspect both the original request and the generated plan. A transfer or site change
@@ -109,15 +134,17 @@ task-relay orchestrator status website-check
 
 The connection check reads model metadata. `run` starts the approved local work and
 can incur model usage and perform the declared website actions. The selected model
-must match the configured Gemini model; there is no provider fallback. Custom
+must match the selected provider's configured model; there is no provider fallback.
+Use `verify-openai` or `verify-qwen` instead of `verify-gemini` for those providers. Custom
 `--root` choices must be used consistently for preparation and orchestration.
 Browser profiles and their action journal use the configured Relay data directory.
 
-Natural-language production planning can also choose `gemini-browser` from the
+Natural-language production planning can choose any of the three browser profiles from the
 executor catalog. The existing Start card displays each task's profile, origins,
 interaction scope and transfer paths, alongside model/data-transfer limits.
-Send `/browser TASK` in Telegram or Messages to require that executor explicitly,
-even when conversational mode is off. The original message remains the production
+Send `/browser openai TASK` or `/browser qwen TASK` in Telegram or Messages to select
+that provider explicitly, even when conversational mode is off. `/browser TASK`
+and `/browser gemini TASK` retain Gemini. The original message remains the production
 request; the model proposes the website scope and the existing Start card authorizes
 execution. Public information searches can use a dedicated public-search profile
 without signing in. Reasonable search assumptions, including an inferred year,
@@ -164,12 +191,12 @@ Cancel the stopped production through its existing controls before authorizing a
 new stage; its uncertain scheduler attempt also retains the profile reservation.
 Authentication
 cookies and captured page/request text are private local data. Declared inputs and
-observations used in execution are sent to the selected Gemini model.
+observations used in execution are sent to the selected provider's model.
 
 The existing worker envelope bounds each task to at most eight API requests,
 24 tool calls, 600 seconds, 512 KB of input files, 200 KB of output files and 4,096
 generated tokens per request. Browser action/tab limits may be smaller. Actual
-provider usage is recorded as Gemini usage; absent costs remain unknown.
+provider usage is recorded against the exact provider and model; absent costs remain unknown.
 Browser tasks reserve request seven for writing declared outputs and request eight
 for the final report. Tool availability narrows during finalization and is checked
 locally; a model cannot extend browsing by ignoring the advertised tools. Missing

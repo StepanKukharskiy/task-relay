@@ -2,9 +2,15 @@
 
 **Coordinate agents, tools and project work from one inbox.**
 
+[Website](https://task-relay-website-production.up.railway.app)
+
 Task Relay is a self-hosted execution service with a Telegram interface. Send a
 request, choose the references and review a bounded plan. Relay coordinates the
 workers, preserves their outputs and brings back results or decisions that need you.
+
+New messages go to the orchestrator. Reply to a task message to continue that task.
+`/use` selects a target for commands; it does not redirect new messages. `/routing`
+shows where messages go.
 
 ## What it does
 
@@ -130,6 +136,19 @@ Use `/tasks` to find a task, or create a provider task in a project folder:
 /new gemini "/absolute/path/to/project" Review project
 Read README.md and suggest improvements.
 ```
+
+To create a Codex task without starting work, use
+`/new codex "/absolute/path/to/known/project" Task title`, or ask Relay to create
+one in a named project. Explicitly asking to create a task and do work there queues
+the original request as its first turn. This uses an existing local checkout and
+inherits Codex configuration; uncertain creation is never automatically retried.
+Connected creation still needs live qualification on the installed Codex version.
+
+Use `/templates` in Telegram or Messages to see the five bundled cross-tool
+workflow starters, or `task-relay workflows` locally. Ask to prepare a chosen
+stage for your project; the existing planner presents its concrete scope before
+execution. See [project tasks and starter workflows](docs/project-tasks-and-starters.md)
+for stage lists, required integrations and current limits.
 
 Replace the example path with an existing folder on the execution host. Reply to
 that task's messages to continue its conversation. Use `/status` to inspect progress

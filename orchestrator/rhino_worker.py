@@ -93,7 +93,7 @@ def snapshot(doc):
                             'Grasshopper is not invoked.'])
 
 
-def preview(candidate, destination, resolution):
+def preview(candidate, destination, resolution, named_view=None):
     import Rhino
     import System.Drawing
     # Open the saved file in the owned process, never an existing user's document.
@@ -108,10 +108,15 @@ def preview(candidate, destination, resolution):
     doc.Views.ActiveView = view
     view.Maximized = True
     vp = view.ActiveViewport
-    vp.ChangeToParallelProjection(True)
-    vp.SetCameraDirection(Rhino.Geometry.Vector3d(-1, 1, -0.75), True)
+    if named_view:
+        index = doc.NamedViews.FindByName(named_view)
+        if index < 0 or not doc.NamedViews.Restore(index, vp):
+            raise ValueError('Cannot restore selected preview named view: ' + named_view)
+    else:
+        vp.ChangeToParallelProjection(True)
+        vp.SetCameraDirection(Rhino.Geometry.Vector3d(-1, 1, -0.75), True)
     vp.DisplayMode = Rhino.Display.DisplayModeDescription.FindByName('Shaded')
-    vp.ZoomExtents()
+    if not named_view:vp.ZoomExtents()
     view.Redraw()
     # A view created during startup has not yet received a native paint event.
     # Pump Rhino's UI before the single capture; this never reruns the model script.
@@ -242,7 +247,7 @@ def perform(request):
         if after['dependencies']:errors.append('Candidate has unsupported dependencies')
         write(os.path.join(out, 'checks.json'), dict(before=before, after=after, errors=errors, passed=not errors))
         if errors:raise ValueError('; '.join(errors))
-        preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'])
+        preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'], checks['preview'].get('named_view'))
         return {'candidate_sha256':file_hash(candidate)}
     raise ValueError('Unknown Rhino worker phase')
 

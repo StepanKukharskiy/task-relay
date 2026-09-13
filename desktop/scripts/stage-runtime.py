@@ -10,9 +10,12 @@ from scripts.source_inventory import inventory
 
 def main():
     app = ROOT / 'desktop/src-tauri/resources/runtime/app'
+    legacy = app.parent / 'helpers/Messages Relay.app'
+    if legacy.is_symlink():raise ValueError('Generated Messages helper must not be linked.')
     sources = [entry['path'] for entry in inventory()['files'] if entry['release']]
     if app.is_symlink():
         raise ValueError('The generated runtime source directory must not be a symlink.')
+    if legacy.exists():shutil.rmtree(legacy)
     # Rebuild this generated directory so retired sources cannot survive a restage.
     if app.exists():
         shutil.rmtree(app)

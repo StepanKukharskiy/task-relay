@@ -182,9 +182,16 @@ def handoff(state,row):
 def artifact_catalog(state):
     """Recent immutable versions, including useful outputs from blocked attempts."""
     from task_relay.production_control import artifact_filename
-    return [{**dict(r),'display_name':artifact_filename(state,dict(r))} for r in state.db.execute("""SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,
+    result = [{**dict(r),'display_name':artifact_filename(state,dict(r))} for r in state.db.execute("""SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,
         t.state AS attempt_state FROM production_artifacts a JOIN production_attempts t ON t.id=a.attempt
         ORDER BY a.rowid DESC LIMIT 100""")]
+    for row in state.db.execute('''SELECT a.*,j.status,w.title FROM artifacts a
+        JOIN backend_jobs j ON j.id=a.job_id JOIN watched w ON w.id=a.thread_id
+        WHERE a.role='output' ORDER BY a.created_at DESC,a.id LIMIT 100'''):
+        result.append(dict(id='media-'+row['id'],run=row['thread_id'],task='media',attempt=row['job_id'],
+            path=row['filename'],sha256=row['sha256'],bytes=row['size'],purpose=row['title'],
+            attempt_state=row['status'],display_name=row['filename'],media_type=row['mime']))
+    return result
 
 
 def validate_artifact_ids(ids, artifacts):
@@ -201,10 +208,20 @@ def freeze_artifacts(state,job,ids):
     known={a['id']:a for a in artifacts};result=[]
     for ident in ids:
         a=known[ident]
-        row=state.db.execute('SELECT blob FROM production_artifacts WHERE id=?',(ident,)).fetchone()
         from task_relay import production_control as pc
-        path=safe_file(pc.root(state)/'artifacts',ident+'/content')
-        if str(path)!=row['blob'] or path.stat().st_size!=a['bytes'] or file_hash(path)!=a['sha256']:
+        if ident.startswith('media-'):
+            from task_relay import gemini
+            row=state.db.execute("SELECT path FROM artifacts WHERE id=? AND role='output'",(ident[6:],)).fetchone()
+            root=gemini.GENERATED.resolve()
+            source=Path(row['path'])
+            if not source.is_relative_to(root):raise ValueError('Media artifact escaped its generated output folder.')
+            path=safe_file(root,str(source.relative_to(root)))
+            expected_path=row['path']
+        else:
+            row=state.db.execute('SELECT blob FROM production_artifacts WHERE id=?',(ident,)).fetchone()
+            path=safe_file(pc.root(state)/'artifacts',ident+'/content')
+            expected_path=row['blob']
+        if str(path)!=expected_path or path.stat().st_size!=a['bytes'] or file_hash(path)!=a['sha256']:
             raise ValueError('The selected production artifact changed; no substitute was sent.')
         records=capture(state,job,[(path,a['path'],'generated artifact',None,a['sha256'])],
                         section='artifacts/'+ident,max_bytes=100_000_000)

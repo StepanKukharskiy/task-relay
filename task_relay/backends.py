@@ -97,7 +97,6 @@ def create_task(state, arg, update_id, prompt=None, capability="text", *, record
         state.emoji(thread_id)
         if select:
             state.put('selected', thread_id)
-            state.put('orchestrator_mode', False)
         if prompt is not None:
             enqueue(state, thread_id, prompt, update_id, capability, transaction=transaction)
     return thread_id, title, str(cwd)

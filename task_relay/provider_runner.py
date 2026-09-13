@@ -28,6 +28,10 @@ def run_job(state, jid):
             raise ValueError('No saved key is available. Open Providers and connect Gemini.')
         base_url = providers.stored(provider).get('base_url')
         names = api.catalog(provider, key, base_url) if provider in api.SPECS else providers.catalog(key)
+        image_names=None
+        if provider in ('openai','openrouter'):
+            try:image_names=api.image_catalog(provider,key,base_url)
+            except (ValueError,gemini.ProviderError):pass  # Text setup survives unavailable image discovery.
         with state.db:
             state.db.execute('UPDATE provider_jobs SET status=status WHERE id=?', (jid,))
             if state.db.execute('SELECT status FROM provider_jobs WHERE id=?', (jid,)).fetchone()[0] != 'running':
@@ -36,6 +40,10 @@ def run_job(state, jid):
                 api.configure(provider, key, names, base_url, preserve_reference=row['operation']!='connect')
             else:
                 providers.configure_gemini(key, names=names, preserve_reference=row['operation']!='connect')
+        if image_names is not None:
+            from .credentials import save
+            config=api.stored(provider);config['image_catalog']=image_names
+            save(gemini.DATA/(provider+'.json'),config)
         name = providers.REGISTRY[provider]['name']
         if provider=='gemini':
             from orchestrator.executors import probe

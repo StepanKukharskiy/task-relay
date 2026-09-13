@@ -33,6 +33,8 @@ def initialize(db):
 
 def task_conflict(state, task_id, excluding=None):
     """Reserve destinations, not every independent task sharing a checkout."""
+    if state.db.execute("SELECT 1 FROM task_creations WHERE task_id=? AND status IN ('created_pending','naming','opening','submitting','uncertain','needs_inspection')",(task_id,)).fetchone():
+        return 'A new-task creation or first turn needs inspection before more work can be sent.'
     if state.db.execute("SELECT 1 FROM task_routes WHERE task_id=? AND id!=? AND status='guides_pending' AND expires>?",(task_id,excluding if excluding is not None else -1,time.time())).fetchone():
         return 'A guide choice is waiting for this task. Use its Use guides, Continue without guides, or Cancel request button.'
     for row in state.db.execute('SELECT data FROM workflows'):
@@ -57,7 +59,8 @@ def catalog(state, task_source=None):
             stat = path.stat()
         except OSError:
             continue
-        status = recent_status(path)
+        from .task_creation import task_status
+        status = task_status(state,t['id'],path)
         watched = state.db.execute('SELECT status FROM watched WHERE id=?', (t['id'],)).fetchone()
         if status == 'idle' and watched and watched['status'] == 'running':
             status = 'running'  # Covers the gap before the new turn reaches the rollout.

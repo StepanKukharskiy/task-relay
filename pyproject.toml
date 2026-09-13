@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.12.1"
+version = "0.13.0"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,9 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-browser = ["playwright>=1.58,<2"]
+presentations = ["python-pptx==1.0.2"]
+images = ["Pillow==12.2.0"]
+browser = ["playwright>=1.62,<2"]
 claude = ["claude-agent-sdk==0.2.152"]
 
 [project.scripts]
@@ -25,4 +27,4 @@ include-package-data = false
 py-modules = ["api_providers", "api_runner", "approval_text", "approval_ui", "backends", "bridge", "capabilities", "claude_runner", "claude_setup", "codex_approvals", "codex_inputs", "codex_requests", "conversation_inputs", "file_tools", "gemini", "gemini_runner", "gemini_setup", "guide_discovery", "host_apps", "host_evidence", "internal_jobs", "media", "messages_diagnose", "messages_gemini_check", "messages_orchestrator", "messages_pilot", "messages_providers", "messages_service", "orchestrator_chat", "orchestrator_files", "orchestrator_guides", "orchestrator_images", "orchestrator_web", "production_continuations", "production_control", "production_feedback", "production_folders", "production_lifecycle", "production_planning", "production_replacements", "production_selections", "production_stages", "production_status", "project_roadmaps", "provider_runner", "providers", "reference_packs", "relay_channels", "relay_paths", "routing_inputs", "task_routing", "telegram_text", "usage_sources", "usage_tracker", "workflow_protocol", "workflows"]
 
 [tool.setuptools.package-data]
-task_relay = ["assets/*.png", "assets/*.html", "assets/*.css", "assets/*.js", "assets/vendor/*.js", "assets/vendor/*.LICENSE", "assets/vendor/*.txt", "assets/requirements-claude*.txt", "assets/macos/*.swift"]
+task_relay = ["assets/*.png", "assets/*.html", "assets/*.css", "assets/*.js", "assets/vendor/*.js", "assets/vendor/*.LICENSE", "assets/vendor/*.txt", "assets/requirements-claude*.txt", "assets/macos/*.swift", "assets/perplexity-extension.json"]

@@ -21,9 +21,11 @@ DESCRIPTION = {
     'allow_additions': 'boolean; additions require true',
     'expected_object_count': 'exact integer 1–5000 after reopening',
     'expected_dimensions': 'nonempty map of unique final object name to world bounding-box [x,y,z]; finite 0–1000000',
-    'preview': 'resolution [width,height], each 64–1024; fixed shaded parallel perspective, zoom to model',
+    'preview': 'resolution [width,height], each 64–1024; optional named_view restores that exact saved camera (use a Top orthographic view for drawings); otherwise shaded parallel perspective',
+    'script_max_bytes': 100000,
     'expected_named_views': 'Optional list of 1–10 distinct named views required after reopening; declare the intended render camera when preparing a rendered model',
-    'script_api': 'Rhino 7 uses IronPython 2.7; Rhino 8 uses CPython 3; Rhino, rhinoscriptsyntax, scriptcontext and doc supplied. Modify doc; Relay saves it. No interactive prompts.',
+    'script_api': 'Rhino 7 uses IronPython 2.7; Rhino 8 uses CPython 3; Rhino, rhinoscriptsyntax, scriptcontext and doc supplied. The assigned doc is HEADLESS: doc.Views.ActiveView is None. Modify doc; Relay saves it. No interactive prompts.',
+    'named_view_example': 'from System.Drawing import Size\nvp = Rhino.Display.RhinoViewport()\nvp.Size = Size(1024,832)\nvp.SetProjection(Rhino.Display.DefinedViewportProjection.Top,"Drawing",False)\nvp.ZoomBoundingBox(Rhino.Geometry.BoundingBox(Rhino.Geometry.Point3d(-1,-1,-1),Rhino.Geometry.Point3d(11,9,1)))\nview = Rhino.DocObjects.ViewInfo(vp)\nview.Name = "Drawing"\nif doc.NamedViews.Add(view) < 0: raise ValueError("Cannot save named view")\n# Use the actual drawing bounds plus margins; never access an active UI viewport.',
     'scope': 'Geometry/attributes of untouched objects, units, tolerance, layers and materials are preserved on edits. Blocks, worksessions, external textures and custom user data are unsupported. New/deleted objects must be declared. Preview is a viewport capture, not a production render. Grasshopper is paused.',
 }
 
@@ -54,8 +56,10 @@ def validate_checks(value):
         if not isinstance(vector, list) or len(vector) != 3 or any(type(n) not in NUMBER_TYPES or not finite(n) or not 0 <= n <= 1000000 for n in vector):
             raise ValueError('Invalid expected Rhino dimensions')
     p = value['preview']
-    if not isinstance(p, dict) or set(p) != {'resolution'} or not isinstance(p['resolution'], list) or len(p['resolution']) != 2 or any(type(n) not in INTEGER_TYPES or not 64 <= n <= 1024 for n in p['resolution']):
+    if not isinstance(p, dict) or set(p)-{'named_view'} != {'resolution'} or not isinstance(p['resolution'], list) or len(p['resolution']) != 2 or any(type(n) not in INTEGER_TYPES or not 64 <= n <= 1024 for n in p['resolution']):
         raise ValueError('Rhino preview resolution must be 64–1024')
+    if 'named_view' in p and (not isinstance(p['named_view'], STRING_TYPES) or not 1 <= len(p['named_view']) <= 200):
+        raise ValueError('Select an exact existing named view for the preview')
     if 'expected_named_views' in value:
         views=value['expected_named_views']
         if (not isinstance(views,list) or not 1<=len(views)<=10 or
@@ -86,6 +90,8 @@ def compare(before, after, checks):
     if any(not o['valid'] for o in new.values()):errors.append('Candidate contains invalid geometry')
     for name in checks.get('expected_named_views',[]):
         if name not in after.get('named_views',{}):errors.append('Expected render named view is missing: '+name)
+    name=checks['preview'].get('named_view')
+    if name and name not in after.get('named_views',{}):errors.append('Preview named view is missing: '+name)
     return errors
 
 

@@ -55,6 +55,7 @@ def messages_state(paths=PATHS, clock=time.time):
             health = json.loads(health_file.read_text())
             result['fresh'] = 0 <= clock() - float(health.get('updated_at', 0)) < 20
             result['health'] = health.get('status')
+            result['health_detail'] = str(health.get('detail',''))[:1000]
     except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError):
         result['error'] = 'Messages status could not be read. Existing records were preserved.'
     return result
@@ -78,6 +79,15 @@ def status():
     if project:
         folders.append({'name': 'Selected project', 'path': project, 'purpose': 'Default folder selected for new work'})
     result = {'setup': info, 'conversation': conversation(), 'folders': folders}
+    from .managed_browser import status as browser_status
+    result['browser'] = browser_status()
+    from .cloud_providers import connections
+    result['media_connections'] = connections()
+    from .capability_defaults import snapshot as model_defaults
+    try:
+        result['model_defaults'] = model_defaults()
+    except (OSError, ValueError, sqlite3.Error):
+        result['model_defaults'] = {'error': 'Model settings could not be read. Saved choices were preserved.'}
     for name, operation in (('service', lambda: DesktopService().status()),
                             ('channels', snapshot),
                             ('messages', lambda: MessagesService().status()),

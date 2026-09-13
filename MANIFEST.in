@@ -8,6 +8,7 @@ include task_relay/assets/*.png
 include task_relay/assets/*.html
 include task_relay/assets/*.css
 include task_relay/assets/*.js
+include task_relay/assets/perplexity-extension.json
 recursive-include task_relay/assets/vendor *.js *.LICENSE *.txt
 include task_relay/assets/requirements-claude*.txt
 include task_relay/assets/macos/*.swift

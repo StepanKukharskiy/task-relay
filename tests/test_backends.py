@@ -37,9 +37,15 @@ class Tests(unittest.TestCase):
         self.state.db.close()
         self.temp.cleanup()
 
-    def send(self, text, user=123, reply=None, uid=None):
+    def send(self, text, user=123, reply='task', uid=None):
         self.uid += 1
         message = {'chat': {'id': user, 'type': 'private'}, 'from': {'id': user}, 'text': text}
+        # These provider-execution fixtures continue their task by explicit reply.
+        # Pass reply=None to exercise a fresh orchestrator message instead.
+        if reply == 'task':
+            row = self.state.db.execute('SELECT message_id FROM messages WHERE thread_id=? ORDER BY message_id DESC LIMIT 1',
+                                        (self.state.get('selected'),)).fetchone() if not text.startswith('/') else None
+            reply = row[0] if row else None
         if reply is not None:
             message['reply_to_message'] = {'message_id': reply}
         self.bridge.process({'update_id': uid or self.uid, 'message': message})
@@ -61,6 +67,14 @@ class Tests(unittest.TestCase):
         self.assertTrue(tid.startswith('claude:'))
         self.assertIn(self.state.emoji(tid), self.telegram.sent[-1][1])
         self.assertEqual(backends.task(self.state, tid)['cwd'], str(self.root.resolve()))
+
+    def test_provider_creation_does_not_capture_new_orchestrator_requests(self):
+        self.create()
+        with patch('orchestrator_chat.provider',return_value=('gemini','fixture')):
+            self.send('Start a separate Codex research task',reply=None)
+        self.assertEqual(self.state.db.execute('SELECT prompt FROM orchestrator_chats').fetchone()[0],
+                         'Start a separate Codex research task')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
 
     def test_claude_shortcut_keeps_session_and_rejects_busy_task(self):
         tid = self.create()

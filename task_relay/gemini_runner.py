@@ -54,7 +54,7 @@ def make_request(state, job, run):
             parts.append({'inlineData': {'mimeType': ref['mime'], 'data': base64.b64encode(data).decode()}})
     current = {'role': 'user', 'parts': parts}
     history = []
-    # Explicitly fail at the local context cap instead of silently losing history.
+    rows = []
     if cap in ('text', 'image'):
         rows = state.db.execute('SELECT * FROM gemini_history WHERE thread_id=? AND capability=? ORDER BY created_at', (job['thread_id'], cap)).fetchall()
         for previous in rows:
@@ -79,8 +79,34 @@ def make_request(state, job, run):
             payload['tools'] = [{'functionDeclarations': [
                 {'name': d['name'], 'description': d['description'], 'parametersJsonSchema': d['parameters']}
                 for d in file_tools.DEFINITIONS]}]
+    if len(json.dumps(payload).encode()) > gemini.MAX_CONTEXT and cap in ('text','image') and rows:
+        # Start a new native image context. Never splice or strip signed model
+        # turns: archived provider responses remain byte-for-byte intact.
+        transcript, sources, latest_images = [], [], []
+        for previous in rows:
+            old_job = state.db.execute('SELECT prompt FROM backend_jobs WHERE id=?', (previous['job_id'],)).fetchone()
+            native = content(json.loads(Path(previous['response_path']).read_text()))
+            transcript.append({'request': old_job['prompt'] if old_job else
+                json.loads(Path(previous['input_path']).read_text())['parts'][0]['text'],
+                'response': '\n'.join(p['text'] for p in native['parts'] if isinstance(p.get('text'), str) and not p.get('thought'))})
+            images = [p.get('inlineData') or p.get('inline_data') for p in native['parts'] if not p.get('thought')]
+            images = [i for i in images if i and i.get('mimeType', i.get('mime_type', '')).startswith('image/')]
+            if images:
+                latest_images = [{'inlineData': {'mimeType': i.get('mimeType', i.get('mime_type')), 'data': i['data']}} for i in images]
+            sources.append({'job_id': previous['job_id'], **{k: {'path': previous[k],
+                'sha256': hashlib.sha256(Path(previous[k]).read_bytes()).hexdigest()}
+                for k in ('input_path', 'response_path')}})
+        from . import context_handoff
+        can_read=cap=='text' and bool(options.get('workspace'))
+        if can_read:
+            definition=context_handoff.DEFINITION
+            payload['tools'][0]['functionDeclarations'].append({'name':definition['name'],'description':definition['description'],'parametersJsonSchema':definition['parameters']})
+        def render(text):
+            return {**payload,'contents':[{'role':'user','parts':[{'text':text},*latest_images,*parts]}]}
+        payload=context_handoff.fit(transcript,render,gemini.MAX_CONTEXT-(min(64000,gemini.MAX_CONTEXT//4) if can_read else 0),Path(run['response_path']).with_suffix('.context.json'),
+            provider='gemini',sources=sources,can_read=can_read)
     if len(json.dumps(payload).encode()) > gemini.MAX_CONTEXT:
-        raise ValueError('This conversation exceeds the 16 MB request limit. Create a new Gemini task with a concise handoff and the needed references.')
+        raise ValueError('The current references and instructions exceed the request byte limit even after an image context handoff. Select fewer references or a smaller image; no provider request was sent.')
     return payload
 
 
@@ -144,8 +170,13 @@ def text_with_tools(state, job, run, client, check):
             if saved:
                 value = json.loads(saved[0])
             else:
-                value = file_tools.execute(json.loads(run['options_json'])['workspace'], call['name'], raw,
-                                           (gemini.DATA, state.media_dir.parent))
+                offered={d['name'] for group in payload.get('tools',[]) for d in group.get('functionDeclarations',[])}
+                if call['name']=='context_read' and call['name'] in offered:
+                    from . import context_handoff
+                    value=context_handoff.read(final.with_suffix('.context.json'),raw)
+                else:
+                    value = file_tools.execute(json.loads(run['options_json'])['workspace'], call['name'], raw,
+                                               (gemini.DATA, state.media_dir.parent))
                 with state.db:
                     state.db.execute('INSERT OR IGNORE INTO api_tool_calls VALUES (?,?,?,?,?,?)',
                                      (jid, current['step'], cid, call['name'], raw, json.dumps(value, ensure_ascii=False)))
@@ -191,7 +222,7 @@ def save_outputs(state, job, run, response, client):
         samples = video_response.get('generatedSamples', [])
         if not samples or not samples[0].get('video', {}).get('uri'):
             raise ValueError('Google returned no video. The request may have been filtered.')
-        path = folder / 'video.mp4'
+        path = folder / (speech_stem + '.mp4')
         if not path.is_file():
             client.download(samples[0]['video']['uri'], path)
         if path.read_bytes()[4:8] != b'ftyp':
@@ -218,7 +249,7 @@ def save_outputs(state, job, run, response, client):
                     raise ValueError('Google returned invalid image data.')
                 if len(outputs) >= 4:
                     raise ValueError('Google returned more than four images; this result needs local review.')
-                path = folder / (f'image-{len(outputs)+1}' + suffix)
+                path = folder / (f'{speech_stem}-image-{len(outputs)+1}' + suffix)
                 gemini.atomic_bytes(path, data)
                 outputs.append((path, mime))
             elif cap == 'speech' and mime.lower().startswith(('audio/l16', 'audio/pcm')):
@@ -258,6 +289,8 @@ def save_outputs(state, job, run, response, client):
                 'usage': {'steps': usages} if usages else response.get('usageMetadata', {}),
                 'references': [{k: r[k] for k in ('id', 'filename', 'sha256')} for r in json.loads(run['options_json'])['references']],
                 'files': [{'filename': p.name, 'mime': mime, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p, mime in outputs]}
+    handoff=Path(run['response_path']).with_suffix('.context.json')
+    if handoff.is_file():metadata['context_handoff']=json.loads(handoff.read_text())
     gemini.atomic_bytes(folder / 'manifest.json', json.dumps(metadata, indent=2).encode())
     with state.db:
         for path, mime in outputs:
@@ -265,7 +298,8 @@ def save_outputs(state, job, run, response, client):
         state.db.execute('UPDATE gemini_runs SET usage_json=?,stage=? WHERE job_id=?',
                           (json.dumps(metadata['usage']), 'complete', jid))
     links = '\n'.join(f'[{p.name}](<{p}>)' for p, _ in outputs)
-    return (text or f'{cap.capitalize()} generated.') + ('\n\n' + links if links else '')
+    note='\n\nContext continued from retained history; original requests and provider records were preserved.' if handoff.is_file() else ''
+    return (text or f'{cap.capitalize()} generated.') + ('\n\n' + links if links else '') + note
 
 
 def run_job(state, jid, parent_pid=None, client=None, sleep=time.sleep):

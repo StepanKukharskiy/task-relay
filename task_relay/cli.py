@@ -5,6 +5,8 @@ import sys
 
 
 COMMANDS = {
+    'presentation': 'task_relay.presentations',
+    'workflows': 'task_relay.workflow_library',
     'launcher': 'task_relay.launcher',
     'update': 'task_relay.updates',
     'cleanup': 'task_relay.cleanup',

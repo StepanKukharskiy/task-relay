@@ -16,12 +16,88 @@ const keyURLs = {
   deepseek: 'https://platform.deepseek.com/api_keys', openrouter: 'https://openrouter.ai/settings/keys'
 };
 const request = (path, value = {}) => native.core.invoke('relay_request', {path, value});
+let modelDefaultsKey = null;
+let modelDefaultsDirty = false;
+function renderModelDefaults(settings) {
+  const container = $('model-defaults-list');
+  text('model-defaults-detail', settings?.error || settings?.limitation || 'Reading model settings…');
+  if (!settings || settings.error) {
+    container.querySelectorAll('button,select').forEach(el => { el.disabled = true; });
+    modelDefaultsKey = null;
+    return;
+  }
+  const key = JSON.stringify(settings);
+  if (key === modelDefaultsKey || modelDefaultsDirty) return;
+  modelDefaultsKey = key;
+  container.replaceChildren();
+  const labels = {text: 'Conversation', image: 'Images', video: 'Video clips', mesh: '3D assets'};
+  for (const row of settings.capabilities) {
+    const form = document.createElement('form'); form.className = 'channel-card';
+    const title = document.createElement('strong'); title.textContent = labels[row.capability];
+    const provider = document.createElement('select'); provider.id = 'model-' + row.capability + '-provider';
+    const model = document.createElement('select'); model.id = 'model-' + row.capability + '-model';
+    const providerLabel = document.createElement('label'); providerLabel.htmlFor = provider.id; providerLabel.textContent = 'Provider';
+    const modelLabel = document.createElement('label'); modelLabel.htmlFor = model.id; modelLabel.textContent = 'Model';
+    for (const select of [provider, model]) select.setAttribute('aria-label', labels[row.capability] + (select === provider ? ' provider' : ' model'));
+    provider.append(new Option('Choose a provider', ''));
+    for (const option of row.options) provider.append(new Option(option.provider, option.provider));
+    if (row.selected && !row.options.some(x => x.provider === row.selected.provider)) {
+      provider.append(new Option(row.selected.provider + ' — disconnected', row.selected.provider));
+    }
+    provider.value = row.selected?.provider || '';
+    const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save ' + labels[row.capability].toLowerCase() + ' default';
+    const detail = document.createElement('p'); detail.className = 'hint';
+    detail.textContent = !row.available ? (row.capability === 'text' ? 'Connect a text provider in AI connection first.' : row.capability === 'mesh' ? 'Connect Meshy above to generate 3D assets.' : 'Connect a supported provider above, or Gemini in AI connection.') :
+      row.selected && !row.selected_available ? 'The selected provider is disconnected. Relay will not switch providers automatically.' :
+      row.capability === 'video' ? 'Runway and Higgsfield clips use a reviewed production plan. Gemini tasks retain /video. Video editing and composition remain separate workflows.' :
+      row.capability === 'mesh' ? 'Meshy creates an untextured GLB from a text description. Texturing and image-to-3D are not available yet.' :
+      row.selected ? row.inherited ? 'Using the existing provider default.' : 'Saved for future work.' : 'Existing routing remains in use until you save a default.';
+    function fillModels() {
+      const options = row.options.find(x => x.provider === provider.value)?.models || [];
+      model.replaceChildren(...options.map(name => new Option(name, name)));
+      if (provider.value === row.selected?.provider && options.includes(row.selected.model)) model.value = row.selected.model;
+      model.disabled = !options.length;
+      save.disabled = !options.length;
+    }
+    provider.onchange = () => { modelDefaultsDirty = true; fillModels(); };
+    model.onchange = () => { modelDefaultsDirty = true; };
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const result = await change('model-default', {revision: settings.revision, capability: row.capability, provider: provider.value, model: model.value}, save);
+      if (result) { modelDefaultsDirty = false; modelDefaultsKey = null; await refresh(); }
+    };
+    fillModels();
+    form.append(title, providerLabel, provider, modelLabel, model, detail, save);
+    container.append(form);
+  }
+  const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'quiet'; reset.textContent = 'Reload saved choices';
+  reset.onclick = () => { modelDefaultsDirty = false; modelDefaultsKey = null; refresh(); };
+  container.append(reset);
+}
 function message(text, error = false) {
   $('feedback').hidden = !text;
   $('feedback').textContent = text;
   $('feedback').classList.toggle('error', error);
 }
 function text(id, value) { $(id).textContent = value ?? ''; }
+function sourceReleaseSummary(setup) {
+  const update = setup.update || {};
+  const parts = [update.latest ? `Stable source release (last checked): ${update.latest}.` : 'No stable source release information saved yet.'];
+  const parse = value => /^\d+\.\d+\.\d+$/.test(value || '') ? value.split('.').map(Number) : null;
+  const installed = parse(setup.version), published = parse(update.latest);
+  if (installed && published) {
+    const difference = installed.map((number, index) => number - published[index]).find(number => number !== 0) || 0;
+    if (difference > 0) parts.push(`Your installed app version (${setup.version}) is newer than this source release.`);
+    else if (difference < 0) parts.push('A newer source package is listed; this is not a desktop app update.');
+    else parts.push('The app and source package have the same version number.');
+  }
+  if (typeof update.checked === 'number' && Number.isFinite(update.checked)) {
+    const checked = new Date(update.checked * 1000);
+    if (!Number.isNaN(checked.getTime())) parts.push(`Last check: ${checked.toLocaleString()}.`);
+  }
+  if (update.error) parts.push(update.error);
+  return parts.join(' ');
+}
 function openSettings(section) {
   if (['channels-settings', 'telegram-settings', 'messages-settings'].includes(section)) {
     $('channels-settings').open = true;
@@ -107,9 +183,11 @@ function render(info) {
   if (policy) $('proactive-destination').value = policy.proactive;
   for (const option of $('proactive-destination').options) option.disabled = option.value !== 'none' && !paired[option.value];
   const connected = Object.keys(setup.providers).filter(name => setup.providers[name]);
+  renderModelDefaults(info.model_defaults);
+  text('media-connections-detail', (info.media_connections || []).map(x => x.name + ': ' + (x.connected ? 'Saved; access checked when used' : 'Not connected')).join(' · '));
   const providerReady = connected.length > 0 || setup.selected_provider === 'later';
   const ready = providerReady && setup.telegram.paired;
-  text('version', 'Version ' + setup.version);
+  text('version', 'Installed app version: ' + setup.version);
   text('status-title', service.error ? 'Connection needs attention' : service.healthy ? 'Relay is running' : service.loaded ? 'Checking Relay connection' : 'Relay is stopped');
   text('status-detail', service.error || (policy?.paused ? (pending.length ? 'Messaging pause is waiting for service confirmation. Check Channels.' : 'Messaging is paused. Work already started can continue.') : service.healthy ? 'Work in your enabled messengers. Manage delivery in Channels.' : service.detail));
   $('status-dot').className = 'dot ' + (service.healthy ? 'ready' : service.loaded || service.error ? 'attention' : '');
@@ -122,6 +200,16 @@ function render(info) {
   if (firstRead && setup.selected_provider) $('provider-name').value = setup.selected_provider;
   providerFields();
   text('telegram-summary', setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
+  const browser = info.browser || {};
+  text('browser-summary', browser.error ? 'Needs attention' : browser.enabled ? browser.manual_sign_in ? 'Sign-in in progress' : 'On' : 'Off');
+  text('browser-toggle', browser.enabled ? 'On' : 'Off');
+  $('browser-toggle').setAttribute('aria-checked', String(!!browser.enabled));
+  $('browser-toggle').disabled = mutating || (!browser.available && !browser.enabled);
+  $('browser-open').disabled = mutating || !browser.enabled || !browser.available;
+  $('browser-sign-in-done').hidden = !browser.enabled || !browser.manual_sign_in;
+  $('browser-sign-in-done').disabled = mutating;
+  $('browser-install').hidden = !!browser.available;
+  text('browser-detail', browser.error || (browser.enabled ? browser.manual_sign_in ? 'Browser jobs are paused. Complete website verification and sign-in in Chrome, then choose Done signing in.' : 'Relay prepares Chrome automatically when a browser job starts. Open browser / sign in pauses access and reopens Chrome for you.' : 'Turn on to prepare a browser for Relay. Saved sign-ins are kept when this is off.'));
   $('telegram-token').disabled = setup.telegram.configured;
   text('telegram-save', setup.telegram.configured ? (setup.telegram.paired ? 'Check saved pairing' : 'Get pairing link') : 'Connect Telegram');
   const folders = $('folder-list');
@@ -143,7 +231,7 @@ function render(info) {
   $('messages-handoff').hidden = !messages.handoff_available;
   text('messages-summary', messages.error ? 'Needs attention' : messages.healthy ? 'Connected' : messages.loaded ? 'Needs attention' : messages.paired ? 'Stopped' : 'Optional');
   text('messages-detail', messages.detail || messages.error || 'No Messages connection found.');
-  text('messages-limit', messages.uncertain ? `${messages.uncertain} uncertain deliveries need inspection. They will not be resent automatically.` : messages.paired ? 'Pairing is retained. macOS permissions may need to be granted again after a helper handoff.' : 'First-time Messages pairing remains a separate pilot setup. Telegram is the complete setup path.');
+  text('messages-limit', messages.uncertain ? `${messages.uncertain} uncertain deliveries need inspection. They will not be resent automatically.` : messages.paired ? messages.managed ? 'Task Relay owns this connection. Permissions… reveals Task Relay.app. Grant Task Relay Full Disk Access, then stop/start this connection. Pairing is retained.' : 'Pairing is retained. Review the connection handoff to manage it in Task Relay.' : 'First-time Messages pairing remains a separate pilot setup. Telegram is the complete setup path.');
   const items = decisions.items || [];
   $('decisions').hidden = !items.length && !decisions.error;
   text('review-decisions', decisions.error || `Review ${items.reduce((n, item) => n + item.count, 0)} pending decisions…`);
@@ -155,7 +243,7 @@ function render(info) {
     const detail = document.createElement('span'); detail.textContent = check.detail;
     row.append(label, detail); diagnostics.append(row);
   }
-  text('update-summary', setup.update.error || (setup.update.latest ? 'Latest cached release: ' + setup.update.latest : 'No release information cached.'));
+  text('update-summary', sourceReleaseSummary(setup));
   if (setup.setup_error) message(setup.setup_error, true);
   renderSetup(info);
   firstRead = false;
@@ -173,6 +261,7 @@ async function refresh() {
   catch (error) {
     readFailed = true;
     snapshot = null;
+    renderModelDefaults({error: 'Model settings are unavailable. Refresh before saving.'});
     $('home').hidden = false;
     $('onboarding').hidden = true;
     text('status-title', 'Could not read Relay');
@@ -180,7 +269,7 @@ async function refresh() {
     $('status-dot').className = 'dot attention';
     $('service-action').hidden = true;
     $('open-conversation').disabled = true;
-    for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination']) $(id).disabled = true;
+    for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination', 'browser-toggle', 'browser-open', 'browser-sign-in-done']) $(id).disabled = true;
     $('grant-data-access').hidden = false;
     message(String(error), true);
   } finally { refreshing = false; $('refresh').disabled = false; }
@@ -285,6 +374,18 @@ $('grant-data-access').onclick = async () => {
 $('open-conversation').onclick = openConversation;
 $('continue-setup').onclick = nextSetup;
 $('provider-name').onchange = providerFields;
+$('media-provider-name').onchange = () => {
+  const name = $('media-provider-name').value;
+  text('media-provider-key-label', name === 'higgsfield' ? 'API key ID:secret' : 'API key');
+  $('media-provider-key-link').href = {runway:'https://dev.runwayml.com/',higgsfield:'https://cloud.higgsfield.ai/',meshy:'https://www.meshy.ai/settings/api'}[name];
+  $('media-provider-key').value = '';
+};
+$('media-provider-form').onsubmit = async event => {
+  event.preventDefault();
+  const values = {provider:$('media-provider-name').value,key:$('media-provider-key').value};
+  $('media-provider-key').value = '';
+  await change('media-provider', values, event.submitter);
+};
 $('review-decisions').onclick = reviewDecisions;
 $('close-review').onclick = () => { $('review').hidden = true; };
 $('service-action').onclick = () => {
@@ -316,8 +417,13 @@ $('pair-telegram').onclick = async () => {
   if (pairingURL) try { await native.opener.openUrl(pairingURL); } catch (error) { message(String(error), true); }
 };
 $('connect-existing').onclick = () => change('service-connect', {}, $('connect-existing'));
+$('browser-toggle').onclick = () => {
+  if (snapshot?.browser) return change('browser-configure', {enabled: !snapshot.browser.enabled}, $('browser-toggle'));
+};
+$('browser-open').onclick = () => change('browser-open', {}, $('browser-open'));
+$('browser-sign-in-done').onclick = () => change('browser-sign-in-done', {}, $('browser-sign-in-done'));
 $('messages-action').onclick = () => change(snapshot?.messages?.loaded ? 'messages-stop' : 'messages-start', {}, $('messages-action'));
-for (const [id, target] of [['messages-open', 'messages'], ['messages-permissions', 'permissions'], ['folder-permissions', 'permissions']]) {
+for (const [id, target] of [['messages-open', 'messages'], ['messages-permissions', 'messages-permissions'], ['folder-permissions', 'permissions']]) {
   $(id).onclick = async () => { try { await native.core.invoke('companion_open', {target}); } catch (error) { message(String(error), true); } };
 }
 $('service-handoff').onclick = () => prepareHandoff('relay');

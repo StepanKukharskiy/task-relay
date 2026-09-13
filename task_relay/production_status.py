@@ -24,8 +24,38 @@ def controls(state, event):
         run=row['focus'] if row else None
     if not run or not state.db.execute('SELECT 1 FROM production_runs WHERE id=?',(run,)).fetchone():return None
     from task_relay import production_selections; from task_relay import production_lifecycle
-    return {'inline_keyboard':[[{'text':'Check status','callback_data':token(run)},
-        {'text':'Inspect stage','callback_data':token(run,'prodinspect')}]]+production_selections.controls(state,event)+production_lifecycle.controls(state,event,run)}
+    buttons=[[{'text':'Check status','callback_data':token(run)},
+        {'text':'Inspect stage','callback_data':token(run,'prodinspect')}]]+production_selections.controls(state,event)+production_lifecycle.controls(state,event,run)
+    view=next((v for v in pc.inspect(state,run,include_files=False) if v['name']==run),None)
+    if view and view['status']=='completed' and view.get('deferred_operations'):
+        buttons.append([{'text':'Plan execution','callback_data':token(run,'prodexecute')}])
+    return {'inline_keyboard':buttons}
+
+
+def plan_execution(state,run):
+    """Explicit button request; select nothing and launch no host work here."""
+    from task_relay import production_planning as planning, capabilities, relay_channels
+    from task_relay import production_stages
+    from orchestrator.runtime import Runtime
+    rt=Runtime(pc.root(state),connection=state.db)
+    production_stages.snapshot(state,rt,run,'telegram')
+    plan=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
+    deferred=plan.get('deferred_operations',{})
+    if not deferred:raise ValueError('This stage has no pending execution to plan.')
+    prior=state.db.execute('SELECT request,options,provider,model FROM production_plans WHERE run=?',(run,)).fetchone()
+    if not prior:raise ValueError('The original planning request is missing; inspect the stage.')
+    options=json.loads(prior['options']);project=options.get('project')
+    ident=int(hashlib.sha256(('plan-execution:'+run).encode()).hexdigest()[:15],16)
+    action=dict(kind='plan_production',template='custom',project=project,reference_pack_id=None,
+        research_ids=[],planning_only=False,previous_run=run,step_capabilities=sorted(deferred),
+        deliverables={k:v['description'] for k,v in plan.get('deliverables',{}).items() if v.get('deferred_operation')})
+    snapshot={'production_runs':pc.inspect(state,run,include_files=False),
+        'codex_projects':[{'cwd':project}] if project else [],'capabilities':capabilities.catalog(state,{})}
+    state.db.execute('INSERT OR IGNORE INTO relay_request_channels VALUES (?,?)',(ident,'telegram'))
+    prompt=('Plan the pending execution using the exact selected prepared inputs. Produce the remaining declared deliverables. '
+        'Preserve the original scope and decisions. Present the complete script, inputs and limits for Start; do not execute yet.\n\n'
+        '--- ORIGINAL USER REQUEST ---\n'+prior['request'])
+    return planning.enqueue(state,{'id':ident,'prompt':prompt,'provider':prior['provider'],'model':prior['model']},action,snapshot)
 
 
 def current(state, run):
@@ -45,7 +75,10 @@ def current(state, run):
     labels={'active':'In progress','awaiting_user':'Ready for your review','blocked':'Blocked',
             'completed':'Completed','cancelled':'Cancelled','uncertain':'Needs inspection','paused':'Scheduling paused'}
     lines=['Production: '+run,labels.get(view['status'],view['status'])]
+    if view.get('deferred_operations') and view['status'] in ('active','awaiting_user','completed'):
+        lines[1]='Preparation in progress; execution pending' if view['status']=='active' else 'Preparation ready; execution pending'
     lines.append('Outcome: '+view['brief'])
+    if view.get('deferred_operations'):lines.append(pc.pending_execution_text(view).lstrip())
     if view['status']=='paused':lines.append('Running workers may finish. Further tasks wait for Resume.')
     if view['status']=='cancelled' and any(t['attempt_state'] in ('launching','running','cancelling','uncertain') for t in view['tasks']):
         lines.append('Worker termination is not yet confirmed. Cancellation remains pending; no new task will start.')
@@ -135,7 +168,7 @@ def inspection(state,run,key):
 
 def callback(bridge, update):
     q=update['callback_query'];raw=q.get('data','')
-    if not raw.startswith(('prodstatus:','prodinspect:')):return False
+    if not raw.startswith(('prodstatus:','prodinspect:','prodexecute:')):return False
     state=bridge.state;chat=q.get('message',{}).get('chat',{});user=q.get('from',{})
     if user.get('is_bot') or user.get('id')!=state.get('user_id') or chat.get('type')!='private' or chat.get('id')!=state.get('chat_id'):
         return True
@@ -147,7 +180,10 @@ def callback(bridge, update):
         run,text=current(state,bound['focus'])
         with state.db:
             key=hashlib.sha256(q['id'].encode()).hexdigest()[:24]
-            if raw.startswith('prodinspect:'):
+            if raw.startswith('prodexecute:'):
+                message=plan_execution(state,bound['focus'])
+                pc.notice(state,bound['focus'],'execution-plan:'+key,message)
+            elif raw.startswith('prodinspect:'):
                 inspection(state,run,key);message='Stage inspection queued.'
             else:pc.notice(state,run,'status:'+key,text)
     except (ValueError,OSError,sqlite3.Error) as exc:

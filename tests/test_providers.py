@@ -79,6 +79,24 @@ class Tests(unittest.TestCase):
         with patch('providers.catalog', return_value=list(gemini.DEFAULT_MODELS.values())):
             providers.configure_gemini(KEY)
 
+    def test_openai_image_default_is_selected_in_chat_without_changing_text_model(self):
+        config={'api_key':'fixture','model':'text-model','catalog':['text-model','gpt-image-2'],'enabled':True}
+        with patch('providers.stored',return_value=config),patch('providers.api.read_config',return_value=config),patch('providers.credentials.save') as save:
+            self.send('/providers');self.click('OpenAI');self.click('Default models');self.click('Image');self.click('gpt-image-2')
+        saved=save.call_args.args[1]
+        self.assertEqual(saved['model'],'text-model')
+        self.assertEqual(saved['models']['image'],'gpt-image-2')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
+
+    def test_openrouter_image_default_uses_discovered_image_catalog(self):
+        config={'api_key':'fixture','model':'vendor/text','catalog':['vendor/text'],
+                'image_catalog':['vendor/image'],'enabled':True}
+        with patch('providers.stored',return_value=config),patch('providers.api.read_config',return_value=config),patch('providers.credentials.save') as save:
+            self.send('/providers');self.click('OpenRouter');self.click('Default models');self.click('Image');self.click('vendor/image')
+        saved=save.call_args.args[1]
+        self.assertEqual(saved['model'],'vendor/text');self.assertEqual(saved['models']['image'],'vendor/image')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
+
     def test_phone_only_connect_validates_saves_and_deletes_without_model_dispatch(self):
         self.enter_flow()
         mid = self.send(KEY)

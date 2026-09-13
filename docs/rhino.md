@@ -33,9 +33,9 @@ The host adapter launches the Rhino executable directly with its documented
 and a PID/token handshake. A command received by a different process is rejected
 before modeling or process exit. No persistent listener or plugin is installed.
 The process remains in Relay's supervised process group for cancellation.
-After the ownership check, Rhino 7 exits through a macOS adapter using native
+After the ownership check, Rhino 7 and 8 exit through a macOS adapter using native
 process exit, only after closing artifact files and the result receipt. This
-avoids Mono finalizer crashes and Rhino's save-changes dialogs. Both a successful
+avoids Mono/C++ finalizer crashes and Rhino's save-changes dialogs. Both a successful
 worker receipt and a clean exit code are required; failed operations remain failed.
 
 These operations use normal host permissions. Native file dependencies/plugins
@@ -49,10 +49,10 @@ interactive input. Uncertain or interrupted assignments are never replayed.
 Plans scoped to `rhino.run_python` or `rhino.render` attach frozen support files
 under `operation-support/<operation>/` to agent preparation and review assignments:
 `contract.json`, `rhino_contract.py`, and `validate.py`. Run
-`python3 operation-support/rhino.run_python/validate.py delivery/checks.json`
+`python3 operation-support/rhino.run_python/validate.py delivery/checks.json delivery/model.py`
 for modeling checks, or use the render support directory for its manifest.
 These copied validators require only the Python standard library. They validate
-JSON structure and bounds; actual geometry still requires host execution and
+JSON structure and script byte bounds; actual geometry still requires host execution and
 independent reopen checks. Both workers receive the same exact contract version.
 Existing blocked assignments keep their original inputs and attempt limits; a
 new bounded stage is needed to repair a draft produced without the contract.
@@ -64,6 +64,15 @@ every member must finish delivery before the choice records all artifact version
 in one transaction. The next stage carries the complete selected set, while host
 code still requires its own exact approval. Historical drafts with identical
 bytes remain context; executable inputs bind the selected artifact IDs.
+
+Prepared host scripts must be at most 100,000 UTF-8 bytes. Collection rejects an
+oversized selected script before independent review can release it. The same
+bound is enforced again on the actual registered code before host authorization.
+Rejected drafts and prior receipts are retained; correction creates a new version.
+Status cards name pending deliverables and label the stage as preparation.
+After selecting the reviewed set, **Plan execution** queues the remaining declared
+operations with those exact inputs and the original request. Repeated clicks reuse
+the saved plan. Its **Start** approval remains separate from file selection.
 
 For a rendered model, save a named camera view in the modeling script and declare
 it with optional `expected_named_views: ["Overview"]` in checks. Independent reopen
@@ -142,6 +151,21 @@ saves a new file, and reopens it in another process for verification and preview
 Original registered files and attempt input copies are hash checked. The delivered
 preview is a shaded viewport capture of the saved candidate, not a production
 render. Resolution is bounded to 64–1024 pixels per axis.
+
+For a flat drawing, save a Top orthographic named view and set
+`preview: {"resolution": [1024, 832], "named_view": "FacadeSheet"}` in checks.
+The reopened file must contain that view; capture restores its camera without
+replacing it with the default angled view or reframing it. Omitting `named_view`
+retains the existing shaded parallel-perspective preview for 3D work.
+Size drawing annotations for the declared preview resolution and inspect the captured
+PNG during independent review. Text that exists in the native file can still be
+unreadable in a small preview; geometry checks alone do not establish legibility.
+
+Model scripts receive a headless document, so `doc.Views.ActiveView` is unavailable.
+The frozen contract includes `named_view_example`: create a standalone
+`Rhino.Display.RhinoViewport`, set its projection, size and bounding box, wrap it
+in `Rhino.DocObjects.ViewInfo`, and add that record to `doc.NamedViews`. A saved
+camera does not require a live modeling viewport.
 
 Blocks/references, external textures and detected custom object user data stop
 modeling. Inspection can report them, but it does not package dependencies. The

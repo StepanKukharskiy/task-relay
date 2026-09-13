@@ -31,9 +31,18 @@ The existing workflow guards still reject blocked resumes and conflicting runs. 
 planning action authorizes read-only planning only. Pause/stop prevent future handoffs;
 they do not terminate current agent work. Direct `/workflow` commands remain available.
 
-`/orchestrator off` restores ordinary selected-task routing; `/use TASK_ID` and creation
-of a new provider task also leave conversation mode. Attachments can be sent as replies
-to task cards; registered-production replies also accept guides for bounded revisions.
+New messages go to the orchestrator even after `/use`, provider-task creation or
+restart. Historical direct-task mode preferences no longer redirect ordinary text.
+`/use TASK_ID` selects the target for commands such as `/status`, `/model` and `/stop`;
+reply to its confirmation or a task card to continue that exact task. `/routing`
+explains the current routing and command target. The old `/orchestrator off` command
+now explains these rules instead of silently changing them. Explicit provider
+commands and pending approval/credential replies retain their existing priority.
+Attachments can be sent as replies to task cards; registered-production replies
+also accept guides for bounded revisions. Requests phrased as "Can you start a new
+Codex task in PROJECT to research QUESTION?" reach the LLM unchanged; interpretation
+and validated creation remain separate from delivery. No keyword classifier creates
+tasks or overrides an explicitly addressed task reply.
 Conversation requests run in a separate worker with a five-message queue;
 an interrupted provider request is reported without automatic replay. The `/workflow`
 controls below target linked desktop workflows. The conversational interface also

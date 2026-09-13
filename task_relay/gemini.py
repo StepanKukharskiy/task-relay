@@ -55,7 +55,8 @@ def initialize(db):
 
 def read_config():
     from .credentials import configuration, CredentialError
-    try:return configuration(DATA/'gemini.json')
+    from .capability_defaults import overlay
+    try:return overlay('gemini', configuration(DATA/'gemini.json'), DATA/'state.sqlite')
     except CredentialError:return None
 
 

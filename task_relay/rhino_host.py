@@ -7,7 +7,7 @@ import time
 
 
 def shutdown_script(major, platform):
-    """Owned-worker exit without Rhino 7 Mono finalizers or save dialogs.
+    """Owned-worker exit without Mono/C++ finalizers or save dialogs.
 
     Artifacts and the result receipt must be closed before invoking this code.
     The bootstrap passes the function only after verifying process ownership.
@@ -22,7 +22,9 @@ def shutdown_script(major, platform):
                 '    native_exit.restype = None\n'
                 '    native_exit(code)\n')
     if major != 8:raise ValueError('Unsupported Rhino runtime version')
-    return 'def relay_exit(code):\n    System.Environment.Exit(code)\n'
+    # Rhino 8's managed shutdown can abort with "Pure virtual function called"
+    # after a successful receipt. CPython provides a native exit directly.
+    return 'def relay_exit(code):\n    import os\n    os._exit(code)\n'
 
 
 def command(executable, script, platform, major=8):

@@ -5,6 +5,11 @@ import re
 import sqlite3
 import time
 from urllib.parse import urlsplit
+from orchestrator.storage import transaction
+
+
+class SubmissionNotAttempted(ValueError):
+    """The driver stopped before invoking its submission control; no retry implied."""
 
 
 def conversation_url(value):
@@ -23,13 +28,15 @@ class Journal:
     def __init__(self,db):
         self.db=db
         db.row_factory=sqlite3.Row
-        db.executescript('''CREATE TABLE IF NOT EXISTS browser_jobs(
+        statements='''CREATE TABLE IF NOT EXISTS browser_jobs(
             id TEXT PRIMARY KEY, prompt TEXT NOT NULL, target TEXT,
             status TEXT NOT NULL, baseline TEXT, url TEXT, result TEXT,
             error TEXT, created REAL NOT NULL, updated REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS browser_job_events(
             id INTEGER PRIMARY KEY, job TEXT NOT NULL, status TEXT NOT NULL,
-            detail TEXT NOT NULL, created REAL NOT NULL);''')
+            detail TEXT NOT NULL, created REAL NOT NULL);'''
+        for statement in statements.split(';'):
+            if statement.strip():db.execute(statement)
 
     def get(self,receipt):
         row=self.db.execute('SELECT * FROM browser_jobs WHERE id=?',(receipt,)).fetchone()
@@ -46,8 +53,7 @@ class Journal:
         if not isinstance(prompt,str) or not prompt.strip() or len(prompt)>12000:
             raise ValueError('Provide 1–12000 characters of exact prompt text')
         if target:conversation_url(target)
-        with self.db:
-            self.db.execute('BEGIN IMMEDIATE')
+        with transaction(self.db):
             old=self.db.execute('SELECT * FROM browser_jobs WHERE id=?',(receipt,)).fetchone()
             if old:
                 if old['prompt']!=prompt or old['target']!=target:raise ValueError('Receipt belongs to a different exact request')
@@ -62,13 +68,13 @@ class Journal:
 
     def update(self,receipt,status,**values):
         if set(values)-{'baseline','url','result','error'}:raise ValueError('Unknown journal field')
-        with self.db:
+        with transaction(self.db):
             self.db.execute('UPDATE browser_jobs SET status=?,updated=?'+''.join(','+k+'=?' for k in values)+' WHERE id=?',
                             (status,time.time(),*values.values(),receipt))
             self.event(receipt,status,values.get('error') or 'Browser observation recorded')
 
     def claim(self,receipt,baseline):
-        with self.db:
+        with transaction(self.db):
             changed=self.db.execute("UPDATE browser_jobs SET status='submitting',baseline=?,error=NULL,updated=? WHERE id=? AND status IN ('prepared','blocked')",
                                     (json.dumps(baseline),time.time(),receipt)).rowcount
             if not changed:raise ValueError('Browser receipt already claimed; do not resend')
@@ -120,8 +126,10 @@ def execute(journal,receipt,driver,*,reconcile=False,url=None,timeout=120):
             driver.pause()
         raise ValueError('No complete matching turn was observed before the time limit')
     except Exception as exc:
-        # The browser may have accepted Enter even when its driver reports a timeout.
+        # A click may have reached the site even when its driver reports a timeout.
+
         if not submitted and journal.get(receipt)['status'] not in ('prepared','blocked'):
             return journal.get(receipt)
-        journal.update(receipt,'uncertain' if submitted else 'blocked',error=str(exc)[:1000])
+        known_not_attempted=isinstance(exc,SubmissionNotAttempted) and not reconcile
+        journal.update(receipt,'uncertain' if submitted and not known_not_attempted else 'blocked',error=str(exc)[:1000])
         return journal.get(receipt)

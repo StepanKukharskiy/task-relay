@@ -14,6 +14,27 @@ from tests import test_production_planning as fixtures
 
 
 class Tests(unittest.TestCase):
+    def test_pending_execution_button_preserves_selection_and_queues_only_one_plan(self):
+        card,mid=self.selected()
+        with self.state.db:
+            p=json.loads(self.state.db.execute("SELECT plan FROM production_runs WHERE id='production-1'").fetchone()[0])
+            p['deferred_operations']={'rhino.run_python':'Prepare exact script before execution'}
+            p['deliverables']={'drawing':{'description':'Facade drawing','deferred_operation':'rhino.run_python'}}
+            self.state.db.execute("UPDATE production_runs SET plan=? WHERE id='production-1'",(json.dumps(p),))
+        _,text=status.current(self.state,'production-1')
+        self.assertIn('Preparation ready; execution pending',text)
+        self.assertIn('Not generated yet: Facade drawing',text)
+        before=len(self.factory.calls)
+        with patch('task_relay.capabilities.catalog',return_value={'graph_operations':[{'id':'rhino.run_python','available':True}]}):
+            with transaction(self.state.db):first=status.plan_execution(self.state,'production-1')
+            with transaction(self.state.db):second=status.plan_execution(self.state,'production-1')
+        plans=self.state.db.execute("SELECT * FROM production_plans WHERE id!='plan-1'").fetchall()
+        self.assertEqual(len(plans),1);self.assertEqual(plans[0]['status'],'queued')
+        self.assertEqual(len(self.factory.calls),before)
+        payload=json.loads(plans[0]['context'])
+        self.assertIn(card['artifact'],payload['required_artifacts'])
+        self.assertEqual(payload['options']['deliverables'],{'drawing':'Facade drawing'})
+
     setUp=fixtures.Tests.setUp
     tearDown=fixtures.Tests.tearDown
     request=fixtures.Tests.request

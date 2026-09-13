@@ -57,6 +57,20 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):execute(self.journal,'uncertain',driver,reconcile=True)
         result=execute(self.journal,'uncertain',driver,reconcile=True,url=URL)
         self.assertEqual(result['status'],'completed');self.assertEqual(driver.sent,['hello'])
+    def test_confirmed_pre_click_stop_is_blocked_and_requires_explicit_retry(self):
+        from task_relay.browser_jobs import SubmissionNotAttempted
+        class BeforeClick(Driver):
+            def submit(self,prompt,baseline):
+                raise SubmissionNotAttempted('Context changed; no click was sent')
+        stopped=BeforeClick();self.journal.prepare('before-click','hello')
+        result=execute(self.journal,'before-click',stopped)
+        self.assertEqual(result['status'],'blocked')
+        self.assertEqual(stopped.sent,[])
+        self.assertIsNotNone(result['baseline'])
+        driver=Driver()
+        self.assertEqual(execute(self.journal,'before-click',driver)['status'],'completed')
+        self.assertEqual(driver.sent,['hello'])
+
     def test_preflight_failure_can_be_explicitly_retried_without_resending(self):
         driver=Driver();driver.ready=False;self.journal.prepare('login','hello')
         self.assertEqual(execute(self.journal,'login',driver)['status'],'blocked')

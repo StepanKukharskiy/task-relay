@@ -3,11 +3,40 @@ import base64
 import os
 from pathlib import Path
 import plistlib
+import sys
 
 from .host import HOST, UnsupportedHost
 from . import host_linux
 
 LABEL = 'com.personal.codex-telegram'
+
+
+def packaged_runtime(install, python=None):
+    """Recognize native app code, including execution through a filesystem alias."""
+    if HOST.platform != 'darwin':
+        return False
+    for location in (install, python or sys.executable):
+        parts = Path(location).resolve().parts
+        if any(part.endswith('.app') and parts[i + 1] == 'Contents'
+               for i, part in enumerate(parts[:-1])):
+            return True
+    return False
+
+
+def require_source_update(paths):
+    """Reject a packaged runtime or companion-owned service before preparation."""
+    if packaged_runtime(paths.install):
+        raise ValueError('The source updater cannot update Task Relay.app. Packaged app updates are not available yet.')
+    if HOST.platform == 'darwin':
+        raw = host_linux.read(Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist'))
+        if raw is not None:
+            spec = plistlib.loads(raw)
+            if not isinstance(spec, dict):
+                raise ValueError('Existing service ownership is unreadable; source updating was refused.')
+            binding = spec.get('EnvironmentVariables', {}).get('TASK_RELAY_DATA_DIR')
+            same_data = not isinstance(binding, str) or Path(binding).resolve() == paths.data.resolve()
+            if spec.get('TaskRelayDesktopOwner') and same_data:
+                raise ValueError('The companion owns the installed service. The source updater cannot replace it; packaged app updates are not available yet.')
 
 
 class Service:
@@ -31,6 +60,8 @@ class Service:
             return dict(raw=None, active=False, platform=HOST.platform)
         if HOST.platform == 'darwin':
             spec = plistlib.loads(raw)
+            if spec.get('TaskRelayDesktopOwner'):
+                raise ValueError('The companion owns this service; the source updater cannot replace it.')
             argv = spec.get('ProgramArguments', [])
             if (spec.get('Label') != LABEL or spec.get('WorkingDirectory') != self.install
                     or len(argv) != 3 or argv[1:] != [str(Path(self.install) / 'bridge.py'), 'run']

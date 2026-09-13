@@ -24,6 +24,27 @@ def _cleanup_paths():
 
 
 def dispatch(action, value):
+    if action == 'media-provider':
+        from .cloud_providers import connect
+        try: return connect(value)
+        except ValueError as exc: raise launcher.LauncherError(str(exc)) from None
+    if action == 'model-default':
+        from .capability_defaults import update
+        try:
+            return update(value)
+        except ValueError as exc:
+            raise launcher.LauncherError(str(exc)) from None
+    if action in ('browser-configure', 'browser-open', 'browser-sign-in-done'):
+        from . import managed_browser
+        if not isinstance(value, dict):
+            raise ValueError('Expected browser settings.')
+        try:
+            if action == 'browser-sign-in-done':
+                return managed_browser.finish_sign_in()
+            return (managed_browser.configure(value.get('enabled')) if action == 'browser-configure'
+                    else managed_browser.open_browser())
+        except ValueError as exc:
+            raise launcher.LauncherError(str(exc)) from None
     if action == 'channel-update':
         from .channel_policy import update
         return update(value)

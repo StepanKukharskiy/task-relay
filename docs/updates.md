@@ -6,6 +6,14 @@ plus installations run in the foreground. Version 0.12.1 adds reviewed additive
 schema migrations. Separate Messages deployments, custom launchers and unsupported
 data transformations are refused.
 
+This controller updates source/wheel installations. It refuses `plan`, `apply`,
+`rollback` and `recover` when invoked from Task Relay.app or against the matching
+companion-owned installation, before fetching a release or creating update state.
+Bundled startup ignores previous source-release redirection. Metadata checks remain
+available, and bundled release notices identify source packages without offering
+the source-install command. Signed app distribution and the separate packaged
+updater remain open; see the [desktop release plan](../desktop/README.md#packaged-release-implementation-order).
+
 ## Find an update
 
 While Telegram is running and paired, Relay checks the repository's latest stable
@@ -195,3 +203,23 @@ assets, then publish it as a stable release. Users are notified only after
 publication and only when their running version is older. Publication is separate
 from merging code or creating a tag. Published version identities must not be reused
 for different runtime bytes; issue a new version for a fix.
+
+## Local macOS app identity maintenance
+
+The desktop build now signs with a persistent identity and runs Messages through
+Task Relay's own executable. `desktop/scripts/install-local.py --prepare` freezes a
+candidate, existing app, owned service definitions and explicitly named obsolete
+backup apps in a private recovery manifest. `--apply` accepts that exact manifest,
+checks for active work, stops owned services, and saves SQLite and service recovery
+copies. It replaces only Contents, preserving the installed app directory.
+
+Old app versions are ZIP archives outside Applications, verified by extraction,
+bundle digest and signature before any runnable copy is removed. A prelaunch
+failure restores old Contents and plists. Once services can dispatch, failed health
+checks require inspection; they never trigger automatic database rollback or job
+replay. Keep those failure receipts alongside later completion evidence.
+
+This maintenance script is a developer/local installation path, not the public
+updater. Developer ID, notarization, clean-host installation and future-update
+permission continuity remain separate qualification gates. Privacy grants remain
+controlled by macOS and the user.

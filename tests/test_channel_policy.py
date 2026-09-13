@@ -210,7 +210,9 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(len(self.transport.sent), 2)
 
     def test_release_queue_is_once_and_does_not_follow_changed_preference(self):
-        release = dict(version='0.13.0', url=releases.WEB + 'tag/v0.13.0')
+        major, minor, patch_version = releases.version(releases.VERSION)
+        future = f'{major}.{minor}.{patch_version + 1}'
+        release = dict(version=future, url=releases.WEB + 'tag/v' + future)
         self.change(proactive='messages')
         with patch.object(releases.Store, 'check', return_value=release):
             releases.tick(self.state, self.telegram)
