@@ -130,9 +130,13 @@ class Store:
         try:
             result = telegram.call('sendMessage', chat_id=chat_id, text=text,
                                    link_preview_options={'is_disabled': True})
-        except Exception:
+        except Exception as exc:
+            from .channel_policy import ChannelPaused
             with self.db:
-                self.db.execute("UPDATE notices SET status='uncertain' WHERE version=?", (release['version'],))
+                if isinstance(exc, ChannelPaused):
+                    self.db.execute("DELETE FROM notices WHERE version=? AND status='submitting'", (release['version'],))
+                else:
+                    self.db.execute("UPDATE notices SET status='uncertain' WHERE version=?", (release['version'],))
             return  # Never replay a possibly delivered notice.
         with self.db:
             self.db.execute("UPDATE notices SET status='sent',message_id=? WHERE version=?", (result['message_id'], release['version']))
@@ -159,12 +163,22 @@ def cached(data=PATHS.data):
 
 
 def tick(state, telegram):
+    from .channel_policy import queue_proactive
     data = state.media_dir.parent.resolve()
-    if not preferences(data)['notifications'] or state.get('chat_id') is None:
+    if not preferences(data)['notifications']:
         return
     store = Store(data)
     try:
         release = store.check(fetcher=fetch)
-        store.notify(release, telegram, state.get('chat_id'))
+        if not release or version(release['version']) <= version(VERSION):
+            return
+        if store.db.execute('SELECT 1 FROM notices WHERE version=?', (release['version'],)).fetchone():
+            return  # Preserve legacy sent, submitting and uncertain identities.
+        text = (f"Task Relay {release['version']} is available.\nRelease notes: {release['url']}\n"
+                f"On your host: task-relay update apply --version {release['version']}\n"
+                "Manage proactive updates in Task Relay Channels.")
+        if queue_proactive(state, 'proactive:release:' + release['version'], text):
+            with store.db:
+                store.db.execute("INSERT OR IGNORE INTO notices VALUES (?,'queued',NULL)", (release['version'],))
     finally:
         store.close()

@@ -16,8 +16,9 @@ access opens a native chooser for that same saved folder; it does not rebind dat
 Automatic status polling stops after a read failure until a deliberate retry. The source installer retains its separate loopback guide.
 
 After setup the window shows connection status, Open Telegram and the available
-service control. Settings contains AI connections, Telegram, optional Apple
-Messages, working folder, on-demand Relay usage/storage, updates and troubleshooting.
+service control. Channels contains Telegram and optional Apple Messages connection
+settings and delivery controls. Settings contains AI connections, working folder,
+on-demand Relay usage/storage, updates and troubleshooting.
 Task browsing, conversation composition, workflow libraries and tool catalogs are
 not part of the companion. Their existing runtime records and operations remain
 intact. Startup does not fetch task conversations or recursively scan storage.
@@ -26,6 +27,28 @@ A focused local decision view retains exact Codex/Claude review text and the
 existing one-shot approval checks. Allow requires opening the complete review;
 changed or uncertain submissions are not repeated. Production selections and
 normal conversation remain in their supported messenger channel.
+
+## Channels
+
+Open Channels from the window or menu bar. Each paired messenger has an On/Off
+switch. Pause all messaging holds new requests and outgoing messages across both
+channels without cancelling work already started. A send already in progress can
+finish. Replies wait at their original destination; enabling another channel does
+not broadcast or reroute them. Resuming releases pending replies, but never retries
+an uncertain send or executes messages written while the channel was paused.
+Telegram button clicks have no timestamp: the first polled batch after resume is
+discarded for callbacks, so a click during that brief transition may need repeating.
+
+Proactive updates chooses Off, Telegram or Messages for new release notices.
+Changing it does not move queued notices. Off holds existing pending notices too;
+task replies and requested updates are governed by the channel switches. Other
+messengers appear only as future support, with no connect or enable controls.
+
+Policy is shared in the selected Relay database, with atomic revisions and change
+receipts. The app waits for current intake and delivery acknowledgements. A saved
+switch cannot stop an old service that predates these controls; update and restart
+that service first. Opening Channels does not restart a service, change permissions
+or hand off the standalone Messages helper. Pairing records survive toggles.
 
 ## One companion, optional Messages helper
 

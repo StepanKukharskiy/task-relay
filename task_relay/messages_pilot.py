@@ -92,6 +92,9 @@ class Messages:
         return False
 
     def send(self, chat, text):
+        from task_relay import channel_policy
+        if hasattr(self, 'policy_path'):
+            channel_policy.require_outgoing(self.policy_path, 'messages')
         # Explicit iMessage and exact paired GUID; never fall back to SMS.
         result = subprocess.run([self.binary, 'send', '--chat-guid', chat['guid'],
                                  '--service', 'imessage', '--no-sms-fallback', '--text', text],
@@ -107,6 +110,8 @@ class Pilot:
         if not task_id:
             raise BridgeError('Choose a Codex task with --task TASK_UUID for the first setup.')
         self.store, self.transport = store, transport
+        from task_relay import channel_policy
+        transport.policy_path = channel_policy.database_path(store.db)
         self.task_id, self.desktop_factory, self.task_reader = task_id, desktop_factory, task_reader
         self.providers = providers
         self.orchestrator = orchestrator
@@ -139,6 +144,9 @@ class Pilot:
                                   (f'{key}:{i}', header + '\n\n' + part, 'pending'))
 
     def receive(self, msg):
+        from task_relay import channel_policy
+        if not channel_policy.accepting(self.store.db, 'messages', timestamp(msg.get('created_at'))):
+            return
         # Self-chat inputs sync as outbound. Never accept anyone else's incoming messages,
         # group traffic, reactions, absent routing metadata, or stale/offline commands.
         if (msg.get('is_from_me') is not True or msg.get('is_group') is not False
@@ -368,17 +376,30 @@ class Pilot:
             self.store.put('checkpoint', [str(path), offset, checkpoint_anchor(path, offset)])
 
     def deliver(self):
+        from task_relay import channel_policy
+        if not channel_policy.outgoing(self.store.db, 'messages'):
+            return
         chat = self.store.get('chat')
         if not chat:
             return
         # Stop after an ambiguous part instead of transmitting later parts out of order.
-        row = self.store.db.execute("SELECT * FROM messages_delivery WHERE status!='sent' ORDER BY rowid LIMIT 1").fetchone()
+        row = None
+        for candidate in self.store.db.execute("SELECT * FROM messages_delivery WHERE status!='sent' ORDER BY rowid"):
+            if (candidate['status'] == 'pending' and candidate['id'].startswith('shared-orchestrator:proactive:')
+                    and channel_policy.read(self.store.db)['proactive'] == 'none'):
+                continue
+            row = candidate
+            break
         if not row or row['status'] != 'pending':
             return
         with self.store.db:
             self.store.db.execute("UPDATE messages_delivery SET status='sending' WHERE id=?", (row['id'],))
         try:
             self.transport.send(chat, row['text'])
+        except channel_policy.ChannelPaused:
+            with self.store.db:
+                self.store.db.execute("UPDATE messages_delivery SET status='pending' WHERE id=?", (row['id'],))
+            return
         except Exception:
             with self.store.db:
                 self.store.db.execute("UPDATE messages_delivery SET status='uncertain' WHERE id=?", (row['id'],))
@@ -474,6 +495,9 @@ def run(args):
                           if args.background else 'Allow Terminal to control Messages if macOS asks. Ctrl+C stops the pilot.', flush=True)
                     last_health = 0
                     while not stopping.is_set():
+                        from task_relay import channel_policy
+                        channel_policy.heartbeat(shared, 'messages', 'intake')
+                        channel_policy.heartbeat(shared, 'messages', 'delivery')
                         try:
                             message = events.get(timeout=.5)
                             if message is None:

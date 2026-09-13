@@ -30,6 +30,33 @@
       <div id="decision-list"></div><div id="decision-detail"></div>
     </section>
 
+    <details id="channels-settings">
+      <summary>Channels <span id="channels-summary" class="muted"></span></summary>
+      <p class="hint">Replies stay in the conversation where you asked. Turning a channel off stops new requests and holds replies; existing work continues.</p>
+      <button id="messaging-pause" type="button" disabled>Pause all messaging</button>
+      <p class="hint" id="channel-enforcement"></p>
+      <div class="channel-card">
+        <div class="channel-row"><div><strong>Telegram</strong><span id="telegram-summary" class="muted">Checking…</span></div><button id="channel-telegram" type="button" role="switch" aria-label="Enable Telegram" aria-checked="false" disabled>Off</button></div>
+      <details id="telegram-settings"><summary>Connection settings</summary>
+        <p>Create a dedicated bot with <a href="https://t.me/BotFather">BotFather ↗</a>, then paste its token here.</p>
+        <form id="telegram-form"><label for="telegram-token">Bot token</label><input id="telegram-token" type="password" autocomplete="new-password"><button type="submit" id="telegram-save">Connect Telegram</button></form>
+        <button id="pair-telegram" hidden>Pair in Telegram</button><p class="hint">A saved connection is not a delivery test. Send your first instruction in Telegram and check its reply.</p>
+      </details>
+      </div>
+      <div class="channel-card">
+        <div class="channel-row"><div><strong>Messages</strong><span id="messages-summary" class="muted">Checking…</span></div><button id="channel-messages" type="button" role="switch" aria-label="Enable Messages" aria-checked="false" disabled>Off</button></div>
+      <details id="messages-settings"><summary>Connection settings</summary>
+        <p id="messages-detail"></p><p class="hint">The current pilot supports text in your paired self-chat. Attachments and several approvals still need Telegram or local review.</p>
+        <div class="actions"><button id="messages-open">Open Messages</button><button id="messages-action" hidden></button><button id="messages-handoff" hidden>Review connection handoff</button><button id="messages-permissions" class="quiet">Permissions…</button></div>
+        <p class="hint" id="messages-limit"></p>
+      </details>
+      </div>
+      <label for="proactive-destination">New proactive updates</label>
+      <select id="proactive-destination" disabled><option value="none">Off</option><option value="telegram">Telegram</option><option value="messages">Messages</option></select>
+      <p class="hint">Applies to release notices today. Task replies keep their own destination. Already queued notices are not moved.</p>
+      <p class="hint">WhatsApp, Slack and Discord support is not available yet.</p>
+    </details>
+
     <details id="settings">
       <summary>Settings</summary>
       <details id="provider-settings"><summary><span>AI connection</span><span id="provider-summary" class="muted">Checking…</span></summary>
@@ -39,16 +66,6 @@
           <details><summary>Advanced</summary><label for="provider-model">Model ID (optional)</label><input id="provider-model"><div id="endpoint-field" hidden><label for="provider-endpoint">Qwen HTTPS endpoint (optional)</label><input id="provider-endpoint" type="url"></div></details></div>
           <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit">Save connection</button>
         </form>
-      </details>
-      <details id="telegram-settings"><summary><span>Telegram</span><span id="telegram-summary" class="muted">Checking…</span></summary>
-        <p>Create a dedicated bot with <a href="https://t.me/BotFather">BotFather ↗</a>, then paste its token here.</p>
-        <form id="telegram-form"><label for="telegram-token">Bot token</label><input id="telegram-token" type="password" autocomplete="new-password"><button type="submit" id="telegram-save">Connect Telegram</button></form>
-        <button id="pair-telegram" hidden>Pair in Telegram</button><p class="hint">A saved connection is not a delivery test. Send your first instruction in Telegram and check its reply.</p>
-      </details>
-      <details id="messages-settings"><summary><span>Apple Messages</span><span id="messages-summary" class="muted">Optional</span></summary>
-        <p id="messages-detail"></p><p class="hint">The current pilot supports text in your paired self-chat. Attachments and several approvals still need Telegram or local review.</p>
-        <div class="actions"><button id="messages-open">Open Messages</button><button id="messages-action" hidden></button><button id="messages-handoff" hidden>Review connection handoff</button><button id="messages-permissions" class="quiet">Permissions…</button></div>
-        <p class="hint" id="messages-limit"></p>
       </details>
       <details id="access-settings"><summary>Working folder</summary>
         <p class="hint">Optional. Choose existing files when a task needs them. A working folder is context, not an access sandbox.</p><p id="project-summary" class="path"></p>

@@ -58,8 +58,12 @@ def event_channel(state, event_id, thread_id=None, rowid=None):
 
 
 def pending(state, channel, limit=20):
+    from .channel_policy import read
+    proactive = read(state.db)['proactive']
     result = []
     for row in state.db.execute('SELECT rowid,* FROM outbox WHERE sent=0 ORDER BY rowid'):
+        if row['id'].startswith('proactive:') and proactive == 'none':
+            continue
         if event_channel(state, row['id'], row['thread_id'], row['rowid']) == channel:
             result.append(row)
             if len(result) >= limit:
