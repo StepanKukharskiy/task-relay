@@ -2,8 +2,25 @@
 import hashlib
 import json
 import sqlite3
+import re
 import time
 from pathlib import Path
+
+
+def artifact_filename(state, artifact):
+    """Readable download identity; immutable artifact paths and hashes stay intact."""
+    row=state.db.execute('SELECT plan FROM production_runs WHERE id=?',(artifact['run'],)).fetchone()
+    brief=json.loads(row['plan']).get('brief','') if row else ''
+    def slug(value,limit):
+        value=re.sub(r'[^\w.-]+','-',str(value),flags=re.UNICODE).strip('-._')
+        while len(value.encode('utf-8'))>limit:value=value[:-1]
+        return value.rstrip('-._')
+    title=slug(brief,64) or slug(artifact['run'],64) or 'production'
+    step=slug(artifact['task'],32) or 'output'
+    original=Path(artifact['path'])
+    stem=slug(original.stem,40) or 'file'
+    # The artifact ID identifies the exact attempt even if two versions share bytes.
+    return f'{title}-{step}-{artifact["id"][:8]}-{stem}{original.suffix.lower()}'
 
 
 def initialize(db):
@@ -236,6 +253,40 @@ def runtime_digest(rt, name):
     return hashlib.sha256(json.dumps([run['plan'],contracts],sort_keys=True).encode()).hexdigest()
 
 
+def review_resume_digest(state, name, view=None, legacy=False):
+    view=view or next(v for v in inspect(state,name,include_files=False) if v['name']==name)
+    if view['status']!='active' or view['scheduler_enabled'] or not any(t['runnable'] for t in view['tasks']):return None
+    if any(t['status'] in ('blocked','cancelled','uncertain','running','launching','cancelling') for t in view['tasks']):return None
+    digest=view['contract_digest'];epoch=state.get('production-control-epoch:'+name,0)
+    grant=state.get('production-review-grant:'+name)
+    if grant:return digest if grant['digest']==digest and grant['epoch']==epoch else None
+    if not legacy:return None
+    # Older versions lost the scheduling grant at a review gate. Explicit resume
+    # may recover it only from an unchanged, actually started plan and selection.
+    saved=state.get('production-status:'+name,{})
+    if saved.get('status')!='awaiting_user':return None
+    if state.db.execute("SELECT 1 FROM production_control_cards WHERE run=? AND status='applied'",(name,)).fetchone():return None
+    if not state.db.execute('SELECT 1 FROM production_decisions WHERE run=?',(name,)).fetchone():return None
+    row=state.db.execute("SELECT plan FROM production_plans WHERE run=? AND status='started'",(name,)).fetchone()
+    current=state.db.execute('SELECT plan FROM production_runs WHERE id=?',(name,)).fetchone()
+    if not row or json.loads(row[0])!=json.loads(current[0]):return None
+    expected={t['id']:t for t in json.loads(row[0])['tasks']}
+    actual={r['task']:json.loads(r['spec']) for r in state.db.execute('''SELECT a.task,a.spec FROM production_tasks t
+        JOIN production_assignments a ON a.id=t.assignment WHERE t.run=?''',(name,))}
+    return digest if actual==expected else None
+
+
+def resume_review(state,name,legacy=False):
+    from orchestrator.runtime import Runtime
+    if not state.db.in_transaction:raise ValueError('Resume requires a transaction.')
+    digest=review_resume_digest(state,name,legacy=legacy)
+    if not digest:raise ValueError('This stage cannot resume from a review pause: its authorization, tasks or plan changed. No work was started.')
+    state.put('production-enabled:'+name,digest)
+    state.put('production-review-grant:'+name,False)
+    Runtime(root(state),connection=state.db).event(name,None,None,'review_scheduling_resumed',{'contract_digest':digest,'legacy_recovery':legacy})
+    return 'Scheduling resumed for '+name+' within its existing approved plan. Only remaining tasks may start; no attempts were reset.'
+
+
 class Worker:
     def __init__(self, state, runtime_factory=None, telegram=None):
         self.state, self.runtime, self.runtime_factory, self.cursor = state, None, runtime_factory, 0
@@ -364,6 +415,11 @@ class Worker:
             self.state.put('production-status:' + name, {'status': result['status'], 'tasks': summary})
             if result['status']=='paused':return
             if result['status'] != 'active':
+                if result['status']=='awaiting_user' and enabled==current['contract_digest']:
+                    self.state.put('production-review-grant:'+name,{'digest':enabled,
+                        'epoch':self.state.get('production-control-epoch:'+name,0)})
+                elif result['status']!='awaiting_user':
+                    self.state.put('production-review-grant:'+name,False)
                 self.state.put('production-enabled:' + name, False)
                 # One terminal notification; no per-poll or per-tool chatter.
                 status = 'Ready for your review' if result['status'] == 'awaiting_user' else result['status']
@@ -382,7 +438,7 @@ class Worker:
                           if result['status']=='cancelled' else
                           '\nCurrent draft outputs follow where available. They are not approved results. A recovery step is needed; waiting will not resolve this blocker.'
                           if result['status']=='blocked' else
-                          '\nSaved outputs follow as documents. Use a Select button for the exact file, or reply with feedback to request a revision. You can also attach guides and then send your instructions. A revision card shows what will run. No next stage starts automatically.')
+                          '\nSaved outputs follow as documents. Use a Select button for the exact file or declared file set, or reply with feedback to request a revision. You can also attach guides and then send your instructions. A revision card shows what will run. No next stage starts automatically.')
                 self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n' +
                     '\n'.join(details) + ending))
                 current_outputs = {t['id'] for t in current['tasks'] if t['output_is_current']}
@@ -393,10 +449,11 @@ class Worker:
                         if not a['attempt'] or a['attempt'] != task['latest'] or a['task'] != task['id']:
                             continue
                         artifact = self.runtime.artifact(a['id'])
-                        queue_artifact_preview(self.state,event,artifact,task['id']+'-'+Path(a['path']).name,name)
+                        filename=artifact_filename(self.state,artifact)
+                        queue_artifact_preview(self.state,event,artifact,filename,name)
                         self.state.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
                             ('production-output:' + a['id'], event, artifact['blob'],
-                             task['id'] + '-' + Path(a['path']).name, 'original', name + '\n' + task['id'] + ' · attempt ' + str(task['attempts']) + '\n' + Path(a['path']).name + '\n' + a['purpose']))
+                             filename, 'original', name + '\n' + task['id'] + ' · attempt ' + str(task['attempts']) + '\n' + filename + '\n' + a['purpose']))
 
     def close(self):
         if self.runtime is not None:

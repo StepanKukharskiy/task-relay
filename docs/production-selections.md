@@ -6,6 +6,16 @@ task, assignment, attempt, artifact hash and declared decision purpose. The sele
 file must finish delivery first. A button records that one artifact's selection;
 it does not approve sibling files or create a new stage. Status shows saved selections.
 
+For files that must travel together, a producer can declare `selection_outputs`,
+an explicit list of 2–6 output paths such as `delivery/model.py` and
+`delivery/checks.json`. The proposal names the set and independent review covers
+every member. Telegram shows one **Select set** button listing its files. Every
+file must finish delivery and retain its recorded hash before selection records
+all members atomically. Missing delivery, changed bytes or a failed receipt leaves
+the entire set unselected. The recorded set survives restart and carries all exact
+versions to the next stage. This does not authorize host execution of the script;
+that later stage still needs approval of its exact code, inputs and limits.
+
 Cards and delivered-message bindings are persisted in the shared database. Duplicate
 clicks cannot add another decision. Unpaired users, wrong messages/channels, revised
 attempts, changed artifact bytes, cancelled runs and pending feedback/revisions are
@@ -14,9 +24,9 @@ CLI also rejects selection on a cancelled run.
 
 This slice displays up to 30 file choices per card and supports choosing one output
 for each producer's existing decision purpose. Bare text such as “B” is not converted
-into an artifact selection. Selecting a file does not enable a stopped scheduler
-or authorize new work. Multi-output decisions and branching successor plans are
-outside this bounded implementation.
+into an artifact selection. Selecting a file or declared set does not enable a
+stopped scheduler or authorize new work. Arbitrary selection of several alternatives
+and branching successor plans remain outside this bounded implementation.
 
 **Pause scheduling** stops further dispatch while running workers may finish. The
 durable stage stays paused across restart; **Resume** uses the same unchanged

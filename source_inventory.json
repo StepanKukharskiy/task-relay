@@ -27,10 +27,33 @@
       ]
     },
     {
+      "kind": "desktop-build",
+      "release": false,
+      "patterns": [
+        "desktop/README.md",
+        "desktop/package.json",
+        "desktop/package-lock.json",
+        "desktop/scripts/*",
+        "desktop/src-tauri/Cargo.toml",
+        "desktop/src-tauri/Cargo.lock",
+        "desktop/src-tauri/build.rs",
+        "desktop/src-tauri/tauri.conf.json",
+        "desktop/src-tauri/src/*.rs",
+        "desktop/src-tauri/capabilities/*.json",
+        "desktop/src-tauri/icons/*"
+      ]
+    },
+    {
       "kind": "packaged-assets",
       "release": true,
       "patterns": [
         "task_relay/assets/*.png",
+        "task_relay/assets/*.html",
+        "task_relay/assets/*.css",
+        "task_relay/assets/*.js",
+        "task_relay/assets/vendor/*.js",
+        "task_relay/assets/vendor/*.LICENSE",
+        "task_relay/assets/vendor/*.txt",
         "task_relay/assets/*.txt",
         "task_relay/assets/macos/*.swift"
       ]
@@ -82,9 +105,11 @@
         "README.md",
         "ROADMAP.md",
         "CHANGELOG.md",
+        "docs/architecture-pipeline-benchmark.md",
         "docs/artifact-dependencies.md",
         "docs/artifact-replacements.md",
         "docs/blender-animation.md",
+        "docs/blender-qualification.md",
         "docs/capability-registry.md",
         "docs/continuity-experiment.md",
         "docs/conversation-handoffs.md",
@@ -108,12 +133,15 @@
         "docs/production-selections.md",
         "docs/project-structure.md",
         "docs/reference-collection.md",
+        "docs/rhino.md",
         "docs/shared-storage.md",
         "docs/usage-tracking.md",
         "docs/worker-runtime.md",
         "docs/workflow-observer.md",
         "docs/publication.md",
-        "experiments/proposal_review/README.md"
+        "experiments/proposal_review/README.md",
+        "docs/perplexity-browser.md",
+        "docs/general-browser.md"
       ]
     }
   ],

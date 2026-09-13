@@ -34,6 +34,8 @@ def initialize(db):
       CREATE TABLE IF NOT EXISTS provider_key_sessions(id TEXT PRIMARY KEY,provider TEXT NOT NULL,prompt_id INTEGER,status TEXT NOT NULL,expires_at REAL NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS one_provider_setup ON provider_jobs(provider) WHERE status IN ('queued','running');
     ''')
+    from .browser_setup import initialize as browser_initialize
+    browser_initialize(db)
 
 
 def stored(provider):
@@ -107,7 +109,7 @@ class Menu:
 
     def home(self):
         self.show('Providers\nConnect a provider, choose its models, or start a task here. Your Mac hosts the bot; no terminal commands are needed.',
-                  [(p['name'], {'op': 'provider', 'provider': key}) for key, p in REGISTRY.items()])
+                  [(p['name'], {'op': 'provider', 'provider': key}) for key, p in REGISTRY.items()]+[('Perplexity browser',{'op':'browser_home'})])
 
     def provider(self, provider):
         from task_relay import backends
@@ -204,7 +206,15 @@ class Menu:
         from task_relay import backends
         op, provider = action['op'], action.get('provider')
         tid = action.get('tid')
-        if op == 'home':
+        if op in ('browser_home','browser_connect','browser_status','browser_cancel'):
+            from . import browser_setup
+            if op in ('browser_connect','browser_cancel'):
+                browser_setup.command(self.state,op.removeprefix('browser_'),'telegram-button:'+str(update_id))
+            self.show(browser_setup.status(self.state),[
+                ('Open Perplexity sign-in',{'op':'browser_connect'}),
+                ('Check sign-in status',{'op':'browser_status'}),
+                ('Cancel sign-in',{'op':'browser_cancel'})])
+        elif op == 'home':
             self.home()
         elif op == 'provider':
             self.provider(provider)
@@ -344,7 +354,15 @@ class Menu:
             self.bridge.send('This button expired or was already used. Open /providers or /models again.')
             return
         action = json.loads(row['payload'])
-        mutation = action['op'] in ('key_prompt', 'refresh', 'enable', 'new', 'setmodel', 'setendpoint', 'disable')
+        if action['op'] in ('browser_connect','browser_cancel'):
+            from . import browser_setup
+            from orchestrator.storage import transaction
+            with transaction(self.state.db):
+                if not self.state.db.execute('UPDATE provider_actions SET used=1 WHERE id=? AND used=0',(row['id'],)).rowcount:return
+                browser_setup.command(self.state,action['op'].removeprefix('browser_'),'telegram-button:'+row['id'])
+            self.act({'op':'browser_home'},update['update_id'])
+            return
+        mutation = action['op'] in ('key_prompt', 'refresh', 'enable', 'new', 'setmodel', 'setendpoint', 'disable','browser_connect','browser_cancel')
         if mutation:
             with self.state.db:
                 if not self.state.db.execute('UPDATE provider_actions SET used=1 WHERE id=? AND used=0', (row['id'],)).rowcount:
@@ -380,6 +398,11 @@ def delete_pending(state, telegram):
 
 
 def finish_setup(state, jid, ok, text):
+    row=state.db.execute('SELECT provider FROM provider_jobs WHERE id=?',(jid,)).fetchone()
+    if row and row['provider']=='perplexity':
+        from .browser_setup import finish
+        finish(state,jid,ok,text.replace('Check Providers and reconnect if needed.','Use /browser connect to try again.'))
+        return
     (gemini.DATA / 'setup-input' / (jid + '.json')).unlink(missing_ok=True)
     with state.db:
         state.db.execute('UPDATE provider_jobs SET status=? WHERE id=?', ('completed' if ok else 'failed', jid))
@@ -403,17 +426,19 @@ class Worker:
                 if self.state.db.execute('SELECT status FROM provider_jobs WHERE id=?', (jid,)).fetchone()[0] == 'running':
                     finish_setup(self.state, jid, False, 'Provider setup ended without a confirmed result.')
                 self.active = None
-            elif time.monotonic()-started > 660:
+            elif self.state.db.execute('SELECT status FROM provider_jobs WHERE id=?',(jid,)).fetchone()[0]=='cancelled' or time.monotonic()-started > 660:
                 self.close()
             return
         row = self.state.db.execute("SELECT * FROM provider_jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
         if not row:
             return
         with self.state.db:
-            self.state.db.execute("UPDATE provider_jobs SET status='running' WHERE id=?", (row['id'],))
+            if not self.state.db.execute("UPDATE provider_jobs SET status='running' WHERE id=? AND status='queued'", (row['id'],)).rowcount:return
         try:
             dbpath = self.state.db.execute('PRAGMA database_list').fetchone()[2]
-            process = HOST.spawn([sys.executable, str(gemini.ROOT/'provider_runner.py'), dbpath, row['id']],
+            command=([HOST.browser_python(gemini.ROOT,Path(dbpath).parent),'-m','task_relay.browser_setup',dbpath,row['id']]
+                     if row['provider']=='perplexity' else [sys.executable,str(gemini.ROOT/'provider_runner.py'),dbpath,row['id']])
+            process = HOST.spawn(command,
                                  popen=self.popen, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except (OSError, UnsupportedHost):
             finish_setup(self.state, row['id'], False, 'Provider setup could not start on this host.')

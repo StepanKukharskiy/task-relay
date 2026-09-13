@@ -69,7 +69,7 @@ def task(state, thread_id):
     return state.db.execute('SELECT * FROM backend_tasks WHERE id=?', (thread_id,)).fetchone()
 
 
-def create_task(state, arg, update_id, prompt=None, capability="text", *, record_incoming=True, transaction=True):
+def create_task(state, arg, update_id, prompt=None, capability="text", *, record_incoming=True, transaction=True, select=True):
     parts = shlex.split(arg)
     if len(parts) < 2 or parts[0].lower() not in ('claude', 'gemini', *api.SPECS):
         raise ValueError('Use /new PROVIDER "/absolute/project/path" Optional title. Providers: gemini, claude, openai, qwen, deepseek, openrouter.')
@@ -95,8 +95,9 @@ def create_task(state, arg, update_id, prompt=None, capability="text", *, record
         if prompt is None and record_incoming:
             state.db.execute('INSERT INTO incoming VALUES (?,?,?)', (update_id, 'handled', thread_id))
         state.emoji(thread_id)
-        state.put('selected', thread_id)
-        state.put('orchestrator_mode', False)
+        if select:
+            state.put('selected', thread_id)
+            state.put('orchestrator_mode', False)
         if prompt is not None:
             enqueue(state, thread_id, prompt, update_id, capability, transaction=transaction)
     return thread_id, title, str(cwd)

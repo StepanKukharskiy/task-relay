@@ -102,3 +102,73 @@ class Tests(unittest.TestCase):
         self.upload();self.message('What can you do with uploaded images?',10)
         chat.Worker(self.state,lambda *_:json.dumps({'answer':'Generate an image from your references.','action':None})).tick()
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
+
+    def production_image(self,name='tower-updated',data=PNG,output='delivery/preview.png'):
+        from orchestrator.runtime import Runtime
+        from tests.test_orchestrator import FakeFactory,plan,task
+        fake=FakeFactory();rt=Runtime(pc.root(self.state),fake,connection=self.state.db)
+        t=task();t['outputs']=[dict(path=output,purpose='Updated twisting tower preview')]
+        p=plan([t]);p.update(id=name,brief='Twisting tower doubled height')
+        rt.create(p);rt.tick(name);aid=rt.task(name,'produce')['latest'];fake.finish(aid)
+        (Path(fake.sessions[aid]['workspace'])/output).write_bytes(data);rt.tick(name)
+        return rt.output(name,'produce',output)
+
+    def artifact_request(self,a,ident=40,text='Use my updated tower preview for an architectural image.'):
+        self.message(text,ident)
+        action=dict(kind='generate_image',reference_ids=[],artifact_ids=[a['id']])
+        chat.Worker(self.state,lambda *_:json.dumps(dict(answer='Queued',action=action))).tick()
+        return self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(ident,)).fetchone()
+
+    def test_production_preview_reaches_image_bytes_with_exact_version_and_name(self):
+        a=self.production_image()
+        snap=chat.snapshot(self.state,None)
+        source=next(v for v in snap['production_artifacts'] if v['id']==a['id'])
+        self.assertIn('Twisting-tower-doubled-height',source['display_name'])
+        row=self.artifact_request(a)
+        self.assertEqual(row['status'],'answered',row['answer'])
+        run=self.state.db.execute('SELECT * FROM gemini_runs').fetchone()
+        backend=self.state.db.execute('SELECT * FROM backend_jobs').fetchone()
+        refs=json.loads(run['options_json'])['references'];self.assertEqual(len(refs),1)
+        self.assertEqual(refs[0]['sha256'],a['sha256']);self.assertEqual(refs[0]['filename'],source['display_name'])
+        self.assertNotEqual(refs[0]['path'],a['blob'])
+        self.assertIn(base64.b64encode(PNG).decode(),json.dumps(gemini_runner.make_request(self.state,backend,run)))
+        receipt=self.state.get('image-artifact-inputs:40');self.assertEqual(receipt[0]['artifact_id'],a['id'])
+        self.assertEqual(receipt[0]['attempt'],a['attempt'])
+        self.assertEqual(backend['prompt'],row['prompt'])
+        with self.state.db:images.queue(self.state,row,[],[a['id']])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],1)
+
+    def test_changed_or_wrong_type_production_file_cannot_queue(self):
+        a=self.production_image();path=Path(a['blob']);path.chmod(0o600);path.write_bytes(b'changed')
+        self.assertEqual(self.artifact_request(a)['status'],'failed')
+        b=self.production_image('native',b'BLENDER','delivery/scene.blend')
+        self.assertEqual(self.artifact_request(b,41)['status'],'failed')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
+
+    def test_duplicate_unknown_and_combined_reference_budget_rejected(self):
+        a=self.production_image();self.upload();snap=chat.snapshot(self.state,None)
+        for ids in ([a['id'],a['id']],['unknown']):
+            with self.assertRaises(ValueError):images.validate_selection(dict(kind='generate_image',reference_ids=[],artifact_ids=ids),snap)
+        snap['uploaded_files']=[dict(id=n,status='ready') for n in range(6)]
+        with self.assertRaises(ValueError):images.validate_selection(dict(kind='generate_image',reference_ids=list(range(6)),artifact_ids=[a['id']]),snap)
+
+    def test_image_command_on_production_reply_uses_orchestrator_context(self):
+        a=self.production_image()
+        with self.state.db:
+            self.state.db.execute('INSERT INTO orchestrator_messages(chat_id,message_id,focus) VALUES (7,50,?)',
+                                  (a['run'],))
+        self.message('/image Use this preview with warmer lighting.',40,reply=50)
+        job=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=40').fetchone()
+        self.assertEqual(job['focus'],a['run']);self.assertEqual(job['prompt'],'/image Use this preview with warmer lighting.')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],0)
+        action=dict(kind='generate_image',reference_ids=[],artifact_ids=[a['id']])
+        chat.Worker(self.state,lambda *_:json.dumps(dict(answer='Requested',action=action))).tick()
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],1)
+
+    def test_download_names_separate_versions_without_renaming_sources(self):
+        a=self.production_image();b=self.production_image('tower-other')
+        names=[pc.artifact_filename(self.state,v) for v in (a,b)]
+        self.assertNotEqual(*names)
+        self.assertTrue(all(n.endswith('.png') and len(n.encode())<255 for n in names))
+        self.assertEqual(a['path'],'delivery/preview.png')
+        self.assertTrue(Path(a['blob']).is_file())

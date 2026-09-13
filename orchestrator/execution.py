@@ -74,6 +74,42 @@ REGISTRY['blender.animate']={'version':1,'kind':'host','input_types':[*TEXT_TYPE
     'permissions':'Fixed native Blender and ffmpeg operations with embedded scripts disabled, normal OS permissions. Numeric transforms only; no arbitrary Python, downloads or simulation. Output remains unselected.'}
 
 
+REGISTRY['rhino.startup'] = {
+    'version':1, 'kind':'host', 'input_types':list(TEXT_TYPES), 'output_type':None,
+    'max_inputs':20, 'input_bytes':2000000, 'seconds':120, 'output_bytes':200000,
+    'outputs':{'delivery/execution.json':'application/json'},
+    'criteria':['The owned Rhino 7/8 process has a recorded interpreter startup result, exit status and runtime evidence.'],
+    'parameters':{}, 'external_requests':0,
+    'cancellation':'Terminate the owned supervisor process group; no automatic retry.',
+    'permissions':'Fixed startup script with normal host permissions; macOS Rhino 7/8 desktop session required. No Grasshopper.'}
+REGISTRY['rhino.inspect'] = {
+    **copy.deepcopy(REGISTRY['rhino.startup']), 'input_types':[*TEXT_TYPES,'application/vnd.rhino'],
+    'input_bytes':100000000, 'output_bytes':2000000,
+    'outputs':{'delivery/inspection.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The exact selected .3dm has a complete bounded geometry/document inventory and unchanged source-copy hash.'],
+    'permissions':'Fixed native .3dm inspection in an owned Rhino process. Native dependencies/plugins use normal host permissions; not filesystem isolation. No Grasshopper.'}
+REGISTRY['rhino.run_python'] = {
+    'version':1, 'kind':'host', 'input_types':[*TEXT_TYPES,'application/vnd.rhino','text/x-python','application/json'],
+    'output_type':None, 'max_inputs':20, 'input_bytes':100000000, 'seconds':600, 'output_bytes':100000000,
+    'outputs':{'delivery/candidate.3dm':'application/vnd.rhino','delivery/preview.png':'image/png',
+               'delivery/model.py':'text/plain','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The exact approved Rhino Python created/edited an assigned document; the saved candidate reopened in a separate process, passed declared geometry/preservation checks and produced a viewport preview; input copies remain unchanged.'],
+    'parameters':{'scene_sha256':'Selected .3dm SHA-256, or null for a new model',
+                  'script_sha256':'Exact reviewed source SHA-256 for the selected Rhino interpreter', 'checks_sha256':'Exact Rhino checks JSON SHA-256',
+                  'permissions':'unrestricted_host'}, 'external_requests':None,
+    'cancellation':'Terminate the owned supervisor process group. Preserve partial files; no automatic replay. Script side effects cannot be undone.',
+    'permissions':'Exact-script approval required for IronPython 2.7 (Rhino 7) or CPython 3 (Rhino 8)/RhinoCommon with normal host filesystem/network access. No OS isolation. Grasshopper support is paused.'}
+
+REGISTRY['rhino.render'] = {
+    'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/vnd.rhino','application/json'],
+    'output_type':None,'max_inputs':20,'input_bytes':100000000,'seconds':600,'output_bytes':10000000,
+    'outputs':{'delivery/render.png':'image/png','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The selected model rendered through built-in Rhino Render from the exact named-view/resolution manifest; PNG dimensions and source-copy preservation were checked.'],
+    'parameters':{'manifest_sha256':'Exact registered render manifest SHA-256'},'external_requests':0,
+    'cancellation':'Terminate the owned process group; keep partial files and receipts, never automatically replay.',
+    'permissions':'Fixed host rendering with model materials/lighting and normal OS permissions. No arbitrary script, third-party renderer or model save; Grasshopper paused.'}
+
+
 def catalog():
     from task_relay import gemini
     config=gemini.read_config()
@@ -81,11 +117,23 @@ def catalog():
         availability_evidence='Local implementation; provider configuration only, not authentication proof.',
         configured_model=(config.get('models',{}).get('text',gemini.DEFAULT_MODELS['text']) if config and ident=='gemini.text' else None))
         for ident,spec in REGISTRY.items()]
-    from task_relay.host_apps import blender
+    from task_relay.host_apps import blender,rhino
     from .blender_host import SCENE_DESCRIPTION,MESH_DESCRIPTION
     app=blender()
     for entry in result:
         if entry['kind']=='host':
+            if entry['id'].startswith('rhino.'):
+                rhino_app=rhino()
+                entry.update(available=rhino_app['available'],availability_evidence=rhino_app['evidence'])
+                if entry['id']=='rhino.run_python':
+                    from .rhino_contract import DESCRIPTION
+                    entry['checks_schema']=DESCRIPTION
+                if entry['id']=='rhino.render':
+                    from .rhino_contract import RENDER_DESCRIPTION
+                    entry['render_schema']=RENDER_DESCRIPTION
+                entry['rhino_version']=rhino_app.get('version')
+                entry['interpreter']=rhino_app.get('interpreter')
+                continue
             entry.update(available=app['available'],availability_evidence=app['evidence'])
             if entry['id']=='blender.scene':entry['scene_schema']=SCENE_DESCRIPTION
             if entry['id']=='blender.mesh_scene':entry['scene_schema']=MESH_DESCRIPTION
@@ -113,6 +161,24 @@ def validate(a):
         raise ValueError('Unknown capability or unsupported execution version.')
     params=e['parameters']
     if not isinstance(params,dict) or set(params)!=set(spec['parameters']):raise ValueError('Invalid registered-operation parameters.')
+    if e['capability']=='rhino.render':
+        if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):
+            raise ValueError('Rhino render requires an exact manifest hash')
+        for media in ('application/vnd.rhino','application/json'):
+            if sum(i.get('media_type')==media for i in a.get('inputs',[]) if isinstance(i,dict))!=1:
+                raise ValueError('Rhino render needs exactly one model and manifest')
+        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
+            raise ValueError('Rhino render requires already registered inputs')
+    if e['capability']=='rhino.run_python':
+        if params['permissions']!='unrestricted_host':raise ValueError('Rhino Python requires unrestricted_host; no isolation is enforced')
+        for key in ('scene_sha256','script_sha256','checks_sha256'):
+            if key=='scene_sha256' and params[key] is None:continue
+            if not isinstance(params[key],str) or not re.fullmatch('[a-f0-9]{64}',params[key]):raise ValueError('Rhino Python requires exact input hashes')
+        for media,count in (('application/vnd.rhino',int(params['scene_sha256'] is not None)),('text/x-python',1),('application/json',1)):
+            if sum(i.get('media_type')==media for i in a.get('inputs',[]) if isinstance(i,dict))!=count:
+                raise ValueError('Rhino Python needs exact script/checks and a scene only for edits')
+        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
+            raise ValueError('Rhino Python accepts only already registered inputs; prepare and review scripts in a separate stage')
     if e['capability']=='blender.animate':
         if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):raise ValueError('Select the exact animation manifest hash')
         for media in ('application/json','application/x-blender'):
@@ -144,12 +210,14 @@ def validate(a):
     if any(not isinstance(i,dict) or i.get('media_type') not in spec['input_types'] for i in a['inputs']):raise ValueError('Registered input media types do not match the selected operation.')
     if spec['kind']=='host':
         if any(i.get('path','').split('/')[0]=='delivery' for i in a['inputs']):
-            raise ValueError('Blender inputs must stay outside its reserved delivery directory.')
+            raise ValueError('Host inputs must stay outside the reserved delivery directory.')
         outputs=a.get('outputs')
         if (not isinstance(outputs,list) or len(outputs)!=len(spec['outputs'])
                 or any(not isinstance(o,dict) for o in outputs)
                 or {o.get('path'):o.get('media_type') for o in outputs}!=spec['outputs']):
-            raise ValueError('Use the exact registered Blender output paths and media types.')
+            raise ValueError('Use the exact registered host output paths and media types.')
+        if e['capability']=='rhino.inspect' and sum(i['media_type']=='application/vnd.rhino' for i in a['inputs'])!=1:
+            raise ValueError('Select exactly one Rhino model version for inspection')
         if e['capability']=='blender.inspect' and sum(i['media_type']=='application/x-blender' for i in a['inputs'])!=1:
             raise ValueError('Select exactly one Blender scene version for inspection.')
         if e['capability'] in ('blender.scene','blender.mesh_scene') and sum(i['media_type']=='application/json' for i in a['inputs'])!=1:
@@ -167,8 +235,8 @@ def validate(a):
 def available(a):
     spec=validate(copy.deepcopy(a))
     if spec['kind']=='host':
-        from task_relay.host_apps import blender
-        app=blender()
+        from task_relay.host_apps import blender,rhino
+        app=rhino() if a['execution']['capability'].startswith('rhino.') else blender()
         if not app['available']:raise ValueError(app['blocker'])
         if a['execution']['capability']=='blender.animate':
             from task_relay.host_apps import video_tools

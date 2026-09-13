@@ -8,6 +8,35 @@ import time
 from orchestrator.runtime import safe_file, file_hash
 
 MAX_BYTES=2_000_000
+
+class MissingSourceSelection(ValueError):
+    """A valid routing action omitted a source decision; ask the model once."""
+    def __init__(self, fields):
+        self.fields = fields
+        super().__init__('Missing routing source selections: '+', '.join(fields))
+
+
+def require_source_selections(action, snapshot):
+    fields = [field for field, catalog in (('artifact_ids','production_artifacts'),
+                                          ('research_ids','research_documents'))
+              if snapshot.get(catalog) and field not in action]
+    if fields:
+        raise MissingSourceSelection(fields)
+
+
+SOURCE_CORRECTION = '''If routing_source_correction is supplied by Relay, the previous
+routing response has NOT been dispatched. Complete its missing source selections
+using the original user request and captured evidence. Catalog presence alone does
+not mean those files are relevant: use [] for unrelated sources. For requested files,
+select their exact IDs; never omit requested inputs to make validation pass. Read
+omitted evidence if needed. If source identity is ambiguous, return action null and
+ask one short question naming the relevant files/versions in ordinary language.
+Otherwise keep the same routing kind, destination(s), capabilities and all existing
+selections; add only the missing fields. Do not expand the request, invent IDs, claim
+dispatch or ask the user to supply JSON fields. This is one response correction,
+not a retry of an external submission.
+'''
+
 INSTRUCTIONS='''snapshot.production_artifacts lists the 100 most recent generated output versions,
 including reports and drafts from blocked attempts. For Codex route_task, choose_task
 or delegate_task, select artifact_ids explicitly when this catalog is nonempty; []
@@ -152,7 +181,8 @@ def handoff(state,row):
 
 def artifact_catalog(state):
     """Recent immutable versions, including useful outputs from blocked attempts."""
-    return [dict(r) for r in state.db.execute("""SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,
+    from task_relay.production_control import artifact_filename
+    return [{**dict(r),'display_name':artifact_filename(state,dict(r))} for r in state.db.execute("""SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,
         t.state AS attempt_state FROM production_artifacts a JOIN production_attempts t ON t.id=a.attempt
         ORDER BY a.rowid DESC LIMIT 100""")]
 

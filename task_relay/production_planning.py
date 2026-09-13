@@ -4,6 +4,7 @@ Planning does not execute workers. A delivered, version-bound action card starts
 one validated producer/reviewer stage, atomically with its registration receipt.
 """
 import copy
+import ast
 import json
 from pathlib import Path
 import secrets
@@ -33,11 +34,20 @@ next-stage plan is clarified with parent_id, not a second unrelated plan.
 Optional artifact_ids selects exact generated source files from snapshot.production_artifacts
 (e.g. an existing .blend for inspection); [] selects none. For a named existing
 scene, select its exact artifact ID or ask which version if absent/ambiguous.
+Relative edits such as "make it twice as tall" need the existing artifact, even
+without a filename. Resolve it from conversation/reply provenance and select the
+exact editable source (for a generated tower, scene.json), not just a preview or
+conversation.json. If multiple baselines fit, ask which one. Selecting a baseline
+does not mark it accepted or supersede it. Do not send a relative revision with []
+merely because the current user did not repeat the artifact name.
 Optional executor is an available ID from snapshot.capabilities.graph_executors.
 Use it when the user names a provider; never substitute another provider. Gemini
-supports only bounded text file work; a selected provider stays fixed in the plan.
+file workers support bounded text work. The separate gemini-browser executor
+supports general website work with declared origins and interaction scope, using
+a dedicated profile. Select it for requested website control when available;
+never infer browser access from the file-only executor. A selected provider stays fixed.
 For a requested mixed workflow, optional step_capabilities lists needed IDs
-from snapshot.capabilities.graph_operations (text.bundle, gemini.text, blender.startup, blender.scene, blender.mesh_scene, blender.inspect, blender.run_python, blender.import_asset or blender.animate).
+from snapshot.capabilities.graph_operations (text.bundle, gemini.text, Blender operations, rhino.startup, rhino.inspect, rhino.run_python or rhino.render).
 These grant the planner permission to PROPOSE those operations, not to run them.
 Each API operation makes one external text request with an exact model and output
 token limit; do not include it unless the user's work needs it. The plan card
@@ -132,6 +142,24 @@ def source_entry(rt,aid,path,purpose,authority):
     return dict(artifact=aid,path=path,purpose=purpose,authority=authority,sha256=a['sha256'],bytes=a['bytes'])
 
 
+def blender_preparation_validator(capability):
+    """Freeze the actual pure validators without importing host execution in workers."""
+    from orchestrator import blender_edit,blender_assets,blender_animation
+    module,names,entry={
+        'blender.run_python':(blender_edit,{'validate_checks'},'validate_checks'),
+        'blender.import_asset':(blender_assets,{'TYPES','portable','validate'},'validate'),
+        'blender.animate':(blender_animation,{'DESCRIPTION','validate'},'validate'),
+    }[capability]
+    source=Path(module.__file__).read_text(encoding='utf-8')
+    chunks=[]
+    for node in ast.parse(source).body:
+        defined={node.name} if isinstance(node,ast.FunctionDef) else {n.id for n in node.targets if isinstance(n,ast.Name)} if isinstance(node,ast.Assign) else set()
+        if defined & names:chunks.append(ast.get_source_segment(source,node))
+    return ('import json, math, re, sys, unicodedata\nfrom pathlib import PurePosixPath\n\n'+
+        '\n\n'.join(chunks)+'\n\nwith open(sys.argv[1], encoding="utf-8") as source:\n    '+entry+
+        '(json.load(source))\nprint("RELAY_BLENDER_CONTRACT_VALID")\n')
+
+
 def enqueue(state,job,action,snap):
     validate_action(action,snap)
     ident='plan-'+str(job['id']);channel=relay_channels.request_channel(state,job['id'])
@@ -147,6 +175,9 @@ def enqueue(state,job,action,snap):
         prior=json.loads(parent['context'])
         request=parent['request']+'\n\n--- USER FOLLOW-UP ---\n'+job['prompt']
         sources=[d for d in prior['sources'] if not d.get('request_context')]
+        if parent['plan']:
+            selected={i['artifact'] for t in json.loads(parent['plan'])['tasks'] for i in t['inputs'] if 'artifact' in i}
+            sources.extend(d for d in prior.get('available_sources',[]) if d['artifact'] in selected)
         stage=prior.get('previous_stage')
         if stage:production_stages.verify(state,rt,prior,parent['id'],channel,job['id'])
     elif action.get('previous_run'):
@@ -176,7 +207,7 @@ def enqueue(state,job,action,snap):
     options={**action,'backend':backend,'limits':{'seconds':600,'tool_calls':60,'output_bytes':100000000},'max_attempts':1,
              'planning_limits':{'calls':2,'max_output_tokens':10000,'request_timeout_seconds_at_most':180,'context_chars':MAX_CONTEXT}}
     options['tools']=tools
-    if backend['type']=='gemini-agent':options['limits']=executors.GEMINI_LIMITS.copy()
+    if backend['type'] in ('gemini-agent','gemini-browser'):options['limits']=executors.GEMINI_LIMITS.copy()
     if parent and 'step_capabilities' not in action:options['step_capabilities']=json.loads(parent['options']).get('step_capabilities',[])
     options['job_request_id']=json.loads(parent['options']).get('job_request_id',parent['request_id']) if parent else (stage_job if stage else job['id'])
     pack=None
@@ -197,6 +228,8 @@ def enqueue(state,job,action,snap):
     from task_relay import routing_inputs; from task_relay import orchestrator_guides
     manifest=routing_inputs.freeze(state,job,[],action['research_ids'],action.get('artifact_ids'))+orchestrator_guides.selected(state,job['id'])
     required=[a for a in prior['required_artifacts'] if a in {s['artifact'] for s in sources}] if parent else ([s['artifact'] for s in sources] if stage else [])
+    if parent and parent['plan']:
+        required.extend(s['artifact'] for s in sources if s['artifact'] in selected)
     if pack:
         # A selected production pack is a dependency bundle. Dropping individual
         # entries based on filename relevance broke builds and omitted guides in
@@ -223,9 +256,38 @@ def enqueue(state,job,action,snap):
     aid=rt.register(original,'Exact user request and follow-ups',run=ident,path='request/USER-REQUEST.txt')
     entry=source_entry(rt,aid,'request/USER-REQUEST.txt','Exact user request and follow-ups','Current user instructions; preserve restrictions and decision boundaries.')
     entry['request_context']=True;sources.append(entry);required.append(aid)
+    operations=[]
+    if options.get('step_capabilities'):
+        from orchestrator.execution import catalog
+        operations=[x for x in catalog() if x['id'] in options['step_capabilities']]
+        from orchestrator.blender_host import validator_source
+        for operation in operations:
+            capability=operation['id']
+            if capability not in ('blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render'):continue
+            prefix='operation-support/'+operation['id']+'/'
+            documents={'contract.json':json.dumps(operation,ensure_ascii=False,indent=2)+'\n'}
+            if capability.startswith('rhino.'):
+                from orchestrator import rhino_contract
+                validator='validate_checks' if capability=='rhino.run_python' else 'validate_render'
+                documents['rhino_contract.py']=Path(rhino_contract.__file__).read_text(encoding='utf-8')
+                documents['validate.py']=('import json, sys\nfrom rhino_contract import '+validator+'\n'
+                    'with open(sys.argv[1], encoding="utf-8") as source:\n'
+                    '    '+validator+'(json.load(source))\nprint("RELAY_RHINO_CONTRACT_VALID")\n')
+            elif capability in ('blender.scene','blender.mesh_scene'):
+                documents['validate_scene.py']=validator_source(capability=='blender.mesh_scene')
+            else:documents['validate.py']=blender_preparation_validator(capability)
+            for name,text in documents.items():
+                path=prefix+name
+                if any(s['path']==path for s in sources):continue
+                file=root/prefix/name;file.parent.mkdir(parents=True,exist_ok=True)
+                with file.open('x',encoding='utf-8') as stream:stream.write(text)
+                aid=rt.register(file,'Registered operation support',run=ident,path=path)
+                support=source_entry(rt,aid,path,'Exact operation contract and standalone data validation',
+                                     'Relay operation contract; validates JSON only, does not authorize host execution.')
+                support['operation_support']=operation['id'];sources.append(support);required.append(aid)
     # Keep records distinct by artifact identity, avoiding a full copy per stage.
     sources=list({s['artifact']:s for s in sources}.values())
-    if backend['type']=='gemini-agent':
+    if backend['type'] in ('gemini-agent','gemini-browser'):
         if sum(s['bytes'] for s in sources)>executors.MAX_INPUT_BYTES:raise ValueError('Gemini requires a text input pack of at most 512 KB.')
         for source in sources:
             try:verify_artifact(rt,source).read_bytes().decode('utf-8')
@@ -251,10 +313,21 @@ def enqueue(state,job,action,snap):
         'required_artifacts':required,'source_texts':texts,'reference_pack':pack,
         'missing_text_artifacts':[s['artifact'] for s in sources if s['artifact'] not in {t['artifact'] for t in texts}],
         'max_selected_input_bytes':MAX_INPUT_BYTES}
+    if options.get('backend',{}).get('type')=='gemini-browser':
+        from task_relay.orchestrator_chat import clock_context
+        payload['host_clock']=clock_context()
+        payload['planner_instructions']+='\nUse host_clock for date interpretation. Disclose inferred years and search defaults in the brief/instructions. Require observed evidence for factual website claims; unverified dates remain unverified, not assumed unavailable.'
+    selected_ids={s['artifact'] for s in sources}
+    selected_ids.update(action.get('artifact_ids',[]))
+    payload['available_sources']=[dict(artifact=a['id'],
+        path='prior-outputs/'+a['id']+'/'+Path(a['path']).name,
+        purpose=a['purpose'],authority='Prior output candidate; source use is not acceptance or replacement.',
+        sha256=a['sha256'],bytes=a['bytes'],run=a['run'],task=a['task'],
+        original_path=a['path'],attempt=a['attempt'],attempt_state=a['attempt_state'])
+        for a in routing_inputs.artifact_catalog(state) if a['id'] not in selected_ids]
     if stage:payload['previous_stage']=stage
     if options.get('step_capabilities'):
-        from orchestrator.execution import catalog
-        payload['graph_operations']=[x for x in catalog() if x['id'] in options['step_capabilities']]
+        payload['graph_operations']=operations
         payload['planner_instructions']+=MIXED_INSTRUCTIONS
     encoded=c.encoded(payload)
     if len(encoded)>MAX_CONTEXT:raise ValueError('Planning context exceeds its limit; select a smaller reference set.')
@@ -271,6 +344,20 @@ def enqueue(state,job,action,snap):
 
 PLANNER_SYSTEM='''Plan one bounded stage from the exact request and selected sources.
 Return JSON with exactly decision (ready, needs_input, blocked), message, plan.
+For a ready response when available_sources is nonempty, also include input_basis:
+{"mode":"new","artifacts":[]} for independent new work, or
+{"mode":"modify_existing","artifacts":["exact baseline artifact ID"]} for revisions.
+Classify the current request using its conversation context. A relative change
+(for example "twice as tall", "shorten this", "use the same design") requires
+the exact baseline, not a newly invented approximation. available_sources contains
+prior output versions that were omitted by upstream routing; select the relevant
+IDs there or in sources. Include each baseline as an artifact input to the producer;
+the reviewer receives the same version. These are candidates, not acceptance.
+Choose editable data rather than a preview when the change needs source geometry
+or text. If no unique baseline is available, return needs_input with a concrete
+source/version question and no plan. Do not leave missing-baseline discovery to
+workers or pretend conversation references contain the original file.
+Use only necessary prior outputs; catalog presence alone does not make them inputs.
 For needs_input/blocked, plan is null and message explains the specific missing
 decision/input/capability. Never guess user acceptance or broaden scope.
 For ready, plan has exactly brief and tasks. Tasks use the supplied assignment
@@ -280,11 +367,29 @@ path, purpose, authority OR from_task, output, path, purpose, authority.
 Every output has path,purpose. Use exactly one producer and one independent reviewer.
 Reviewer dependencies include producer, inputs include every output under candidate/,
 and criteria exactly equal the producer's. Each task has max_attempts=1 and tools
-options.tools, within options.limits. Gemini has only file tools and text outputs;
-never propose shell work or render/build tasks for it. Examples below show the Codex
+options.tools, within options.limits. gemini-agent has only file tools and text outputs.
+gemini-browser has file and browser tools, also with UTF-8 inputs/outputs only.
+For gemini-browser each task requires browser with exactly profile (a dedicated
+profile name), origins (exact https://host origins without paths/wildcards),
+interaction_scope (precise authorized website actions, empty for reading/navigation),
+max_tabs (1–8), max_actions (1–60), uploads (exact declared input paths), downloads
+(exact declared output paths). Choose origins and actions only from the request's
+scope, and preserve an explicitly named profile. If the needed account/site is
+ambiguous, ask; never invent a signed-in session. Empty transfer lists by default.
+The reviewer uses the same profile/origins but empty interaction_scope/uploads/downloads.
+No login automation, secret entry, arbitrary JavaScript or shell is available.
+Retain evidence URLs and distinguish observed interactions from verified remote
+outcomes. An uncertain action stops the worker without resubmission. Completion
+may require the user to sign in locally. Never promise support for every website.
+Never propose shell work or render/build tasks for either Gemini profile. Examples below show the Codex
 profile; adapt tools and limits to the frozen options, never change the executor.
 Put user_gate on the PRODUCER ONLY; omit it entirely from the reviewer. Reviewers
 must not have user_gate, even when their report is presented for user review.
+In a mixed graph requested to deliver a visual/native artifact, the relevant
+producer is the final rendering/model operation. Put visual selection after its
+preview exists. Do not insert a user gate on intermediate scene JSON or a generator
+script unless the user explicitly requested approval before rendering. Independent
+data review remains a dependency and does not need another user approval.
 Use a user_gate only where the request or supplied decisions need a human selection.
 Required artifacts will be included in BOTH tasks by the service; do not include
 them manually. Other artifact IDs must come from sources. Select only inputs needed
@@ -350,6 +455,19 @@ Example shape (replace illustrative content and IDs with the actual job):
 ]}}'''
 
 MIXED_INSTRUCTIONS='''
+Preparation outputs that must travel together (especially model.py and checks.json)
+require selection_outputs on the producer: an explicit list of the exact declared
+output paths to select as one set. Give the producer a user_gate describing that
+set; include every member in independent review. The later host stage receives all
+selected members and still needs its own exact-code approval. Do not select a
+single script and assume its sibling checks are selected. For a blocked attempt,
+prepare a NEW bounded stage using its exact draft artifact_ids and report as
+unaccepted source inputs; do not reset budgets or replay the old attempt.
+For a requested rendered Rhino model, preparation must create a named view/camera
+and document its exact name. The host inspection's named_views is the source for
+the later render manifest; a viewport preview is insufficient. Include a render
+manifest draft in the preparation outputs when useful, without authorizing render.
+
 blender.animate adds numeric linear transform/camera tracks or renders existing
 animation from one registered .blend plus an exact registered JSON manifest.
 Use graph_operations.animation_schema, exact registered criteria and six outputs.
@@ -380,6 +498,22 @@ renaming, missing/unselected dependencies and unsupported sources stop the job.
 Blender edits use TWO stages. First inspect the selected scene, have an agent write
 edit.py and edit-checks.json using the run_python checks_schema, and independently
 review them. Do not execute this script in the agent shell. Stop for user review.
+rhino.render uses an exact existing named view and bounded resolution from an attached
+manifest, with the built-in Rhino Render engine; it requires independent review and
+a candidate selection gate. It never substitutes a viewport preview.
+Direct Rhino: rhino.startup is a fixed version/interpreter startup diagnostic; rhino.inspect
+inventories one exact application/vnd.rhino .3dm with its source unchanged.
+rhino.run_python creates/edits through IronPython 2.7 on Rhino 7 or CPython 3 on
+Rhino 8, using RhinoCommon in an owned macOS process. First prepare and independently review model.py and checks JSON
+using its catalog checks_schema. Only a later stage with already registered exact
+script/checks and optional scene can execute. Bind script_sha256/checks_sha256 and
+permissions=unrestricted_host; scene_sha256=null for create, exact source hash for
+edit. Use text/x-python and application/json for code/checks. Edits require selected
+application/vnd.rhino. Use exact catalog outputs/criteria, independent output review
+and a user selection gate. A viewport preview is not a production render. Preserve
+undeclared geometry/attributes and the documented table/settings scope. Do not
+approve future scripts or invoke Grasshopper; GH support is paused.
+
 Only AFTER exact script/checks artifacts exist, propose a separate blender.run_python
 stage with those registered artifacts and the exact original scene. It accepts no
 from_task inputs: an initial job approval cannot approve unknown future host code.
@@ -405,7 +539,12 @@ pretend this inspection operation implements a requested edit; use it as the fir
 explicitly described stage while Blender script editing remains a separate milestone.
 
 For blender.startup, blender.scene and blender.mesh_scene use their catalog outputs/criteria/limits
-exactly, including every output media_type. These registered host operations run
+exactly, including every output media_type. Relay fills omitted types for fixed
+registered outputs and their consumers; conflicting explicit types are rejected.
+For scene generation, identify one upstream scene JSON (application/json); other
+JSON reports are context, not additional scene inputs. A fixed host operation has
+one operation invocation and no agent tools, so use tool_calls=1. Keep both the
+data producer and its reviewer as dependencies of the scene operation. These registered host operations run
 fixed trusted Blender code with normal OS permissions, independently of the agent
 sandbox. Explain host execution in the proposed scope. No arbitrary scripts,
 commands, imported blends, drivers or external assets are supported.
@@ -487,6 +626,56 @@ def plan_origin(payload,supplied,request_id):
     return origin
 
 
+def complete_operation_wiring(tasks):
+    """Compile fixed operation metadata; never replace explicit type choices.
+
+    Runs on the candidate copy before approval, not on frozen assignments.
+    Declared file edges imply dependencies; additional review gates stay intact.
+    """
+    from orchestrator.execution import REGISTRY
+    if not any(t.get('execution') for t in tasks):return
+    def typed(item, media):
+        if 'media_type' in item and item['media_type'] != media:
+            raise ValueError('Conflicting media type for '+str(item.get('path'))+': expected '+media)
+        item['media_type'] = media
+    outputs = {(t['id'],o['path']):o for t in tasks for o in t['outputs']}
+    for task in tasks:
+        e = task.get('execution')
+        if not e:continue
+        spec = REGISTRY.get(e.get('capability'))
+        if not spec or e.get('version') != spec['version']:continue
+        for output in task['outputs']:
+            media = spec.get('outputs',{}).get(output['path'])
+            if media:typed(output,media)
+        if e['capability'] in ('blender.scene','blender.mesh_scene'):
+            scene_inputs = [i for i in task['inputs'] if 'from_task' in i and
+                            (i.get('media_type')=='application/json' or
+                             Path(i.get('output','')).suffix.lower()=='.json')]
+            if len(scene_inputs) != 1:
+                raise ValueError('Scene operation needs one unambiguous upstream scene JSON; mark its media_type application/json.')
+            scene = scene_inputs[0]
+            typed(scene,'application/json')
+            source = outputs.get((scene['from_task'],scene['output']))
+            if source is not None:typed(source,'application/json')
+        # This is a fixed operation, with no agent tools. The runtime accounts for
+        # one operation invocation; zero/agent-style tool counts are not its schema.
+        tools = task['limits'].get('tool_calls')
+        if type(tools) is int and 0 <= tools <= 60:
+            task['limits']['tool_calls'] = 1
+    for task in tasks:
+        for item in task['inputs']:
+            if 'from_task' not in item:continue
+            source = outputs.get((item['from_task'],item.get('output')))
+            if source is not None and source.get('media_type'):
+                typed(item,source['media_type'])
+            if item['from_task'] not in task['dependencies']:
+                task['dependencies'].append(item['from_task'])
+
+
+def source_catalog(payload):
+    return payload['sources']+payload.get('available_sources',[])
+
+
 def validate_result(raw,row):
     if not isinstance(raw,str) or len(raw)>100000:raise ValueError('Planner response exceeds 100,000 characters.')
     def unique(pairs):
@@ -496,7 +685,7 @@ def validate_result(raw,row):
             result[k]=v
         return result
     result=json.loads(raw,object_pairs_hook=unique)
-    if not isinstance(result,dict) or set(result)!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
+    if not isinstance(result,dict) or set(result)-{'input_basis'}!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
         raise ValueError('Invalid planning response envelope.')
     c.nonempty(result['message'],'planning message')
     if len(result['message'])>3000:raise ValueError('Planning message too long.')
@@ -510,10 +699,19 @@ def validate_result(raw,row):
         raise ValueError('Use one producer/reviewer pair, or 2–6 tasks for a permitted mixed graph.')
     plan=copy.deepcopy(supplied);plan.update(id='production-'+str(row['request_id']),backend=options['backend'],concurrency=2)
     if not isinstance(plan['brief'],str) or not 1<=len(plan['brief'])<=1500:raise ValueError('Use a concise stage brief.')
-    known={s['artifact']:s for s in payload['sources']};used=set(payload['required_artifacts'])
+    known={s['artifact']:s for s in source_catalog(payload)};used=set(payload['required_artifacts'])
+    basis=result.get('input_basis')
+    if payload.get('available_sources') or basis is not None:
+        if not isinstance(basis,dict) or set(basis)!={'mode','artifacts'} or basis['mode'] not in ('new','modify_existing'):
+            raise ValueError('Declare input_basis as new work or a modification with exact baseline artifacts; ask for missing sources before proposing workers.')
+        ids=basis['artifacts']
+        if not isinstance(ids,list) or len(ids)>10 or any(not isinstance(i,str) or i not in known for i in ids) or len(set(ids))!=len(ids):
+            raise ValueError('Select distinct baseline artifacts from the captured source catalog.')
+        if (basis['mode']=='new' and ids) or (basis['mode']=='modify_existing' and not ids):
+            raise ValueError('A modification requires exact baseline artifacts; independent new work has none.')
     for task in plan['tasks']:
         if not isinstance(task,dict):raise ValueError('Invalid task object.')
-        if set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','tools','execution'}:
+        if set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','selection_outputs','tools','execution','browser'}:
             raise ValueError('Unsupported assignment field.')
         registered='execution' in task
         if registered:
@@ -529,28 +727,41 @@ def validate_result(raw,row):
         if not isinstance(task.get('criteria'),list) or not 1<=len(task['criteria'])<=8 or any(not isinstance(x,str) or len(x)>500 for x in task['criteria']):
             raise ValueError('Use at most eight concise criteria.')
         if not isinstance(task.get('outputs'),list) or not 1<=len(task['outputs'])<=6:raise ValueError('Use at most six outputs per task.')
+        if 'selection_outputs' in task and (not isinstance(task['selection_outputs'],list) or any(not isinstance(p,str) for p in task['selection_outputs'])):
+            raise ValueError('selection_outputs must list exact declared output paths')
         if not isinstance(task.get('inputs',[]),list) or any(not isinstance(i,dict) for i in task.get('inputs',[])):
             raise ValueError('Inputs must be a list of artifact references.')
         for item in task.get('inputs',[]):
             if 'artifact' in item:
                 if item['artifact'] not in known:raise ValueError('Unknown input artifact.')
                 used.add(item['artifact'])
+        explicit_inputs={i['artifact'] for i in task.get('inputs',[]) if 'artifact' in i}
         task['inputs']=[i for i in task.get('inputs',[]) if i.get('artifact') not in payload['required_artifacts']]
         for aid in payload['required_artifacts']:
             source=known[aid]
+            if registered and source.get('operation_support') in ('rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
+                continue
             item={k:source[k] for k in ('artifact','path','purpose','authority')}
             if registered:
-                if e['capability'] in ('blender.inspect','blender.run_python','blender.import_asset','blender.animate') and Path(source['path']).suffix.lower()=='.blend':
+                if (e['capability'] in ('rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate')
+                    and aid not in explicit_inputs):
+                    # Historical inputs are context, even when their bytes equal
+                    # a selected script. Bind executable inputs by artifact identity.
+                    if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py'):continue
+                    item['media_type']='text/plain';task['inputs'].append(item);continue
+                if e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render') and Path(source['path']).suffix.lower()=='.3dm':
+                    item['media_type']='application/vnd.rhino'
+                elif e['capability'] in ('blender.inspect','blender.run_python','blender.import_asset','blender.animate') and Path(source['path']).suffix.lower()=='.blend':
                     item['media_type']='application/x-blender'
                 elif e['capability']=='blender.import_asset' and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg'):
                     item['media_type']='image/png' if Path(source['path']).suffix.lower()=='.png' else 'image/jpeg'
                 elif e['capability']=='blender.animate' and Path(source['path']).suffix.lower()=='.zip':
                     item['media_type']='application/zip'
-                elif e['capability'] in ('blender.import_asset','blender.animate') and source['sha256']==e.get('parameters',{}).get('manifest_sha256'):
+                elif e['capability'] in ('blender.import_asset','blender.animate','rhino.render') and source['sha256']==e.get('parameters',{}).get('manifest_sha256'):
                     item['media_type']='application/json'
-                elif e['capability']=='blender.run_python' and source['sha256']==e.get('parameters',{}).get('script_sha256'):
+                elif e['capability'] in ('blender.run_python','rhino.run_python') and source['sha256']==e.get('parameters',{}).get('script_sha256'):
                     item['media_type']='text/x-python'
-                elif e['capability']=='blender.run_python' and source['sha256']==e.get('parameters',{}).get('checks_sha256'):
+                elif e['capability'] in ('blender.run_python','rhino.run_python') and source['sha256']==e.get('parameters',{}).get('checks_sha256'):
                     item['media_type']='application/json'
                 else:
                     if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py'):
@@ -558,14 +769,63 @@ def validate_result(raw,row):
                     item['media_type']='text/plain'
             task['inputs'].append(item)
         task['instruction']='Read request/USER-REQUEST.txt first. Preserve its exact constraints and current user decisions.\n\n'+task['instruction']
+        if not registered:
+            for capability in ('blender.run_python','blender.import_asset','blender.animate'):
+                prefix='operation-support/'+capability+'/'
+                if not {prefix+'contract.json',prefix+'validate.py'} <= {s['path'] for s in payload['sources']}:continue
+                task['instruction']+=('\n\nRead '+prefix+'contract.json. Validate prepared/reviewed checks or manifest JSON with python3 '+
+                    prefix+'validate.py PATH_TO_JSON. It requires only the Python standard library. '
+                    'Do not launch Blender or execute host scripts in an agent preparation/review assignment.')
+            for capability in ('rhino.run_python','rhino.render'):
+                prefix='operation-support/'+capability+'/'
+                if not {prefix+'contract.json',prefix+'rhino_contract.py',prefix+'validate.py'} <= {s['path'] for s in payload['sources']}:continue
+                task['instruction']+=('\n\nRead '+prefix+'contract.json and rhino_contract.py for the frozen authoritative '
+                    'Rhino contract. Validate prepared or reviewed checks/manifest JSON with python3 '+prefix+
+                    'validate.py PATH_TO_JSON. This uses only the Python standard library; it does not '
+                    'validate native geometry. Do not launch Rhino or execute model.py in this preparation/review '
+                    'assignment. Exact host script execution and rendering require later approved stages.')
         if payload.get('previous_stage'):
             task['instruction']='Read previous-stage/CONTEXT.json and the exact selected outputs. Preserve prior relevant user constraints; the latest explicit request controls this stage.\n\n'+task['instruction']
         if task.get('max_attempts')!=1:raise ValueError('Planner permits one attempt per task.')
-        if any(type(task.get('limits',{}).get(k)) is not int or not 1<=task['limits'][k]<=v for k,v in options['limits'].items()):
+        if any(type(task.get('limits',{}).get(k)) is not int or not (0 if registered and k=='tool_calls' else 1)<=task['limits'][k]<=v for k,v in options['limits'].items()):
             raise ValueError('Planner exceeds frozen worker limits.')
+    complete_operation_wiring(plan['tasks'])
+    for host in plan['tasks']:
+        capability=host.get('execution',{}).get('capability')
+        if capability not in ('blender.scene','blender.mesh_scene'):continue
+        prefix='operation-support/'+capability+'/'
+        # Only advertise support actually frozen for this plan, including on
+        # revisions. Old assignments are never repaired by changing their prompt.
+        if not {prefix+'contract.json',prefix+'validate_scene.py'} <= {s['path'] for s in payload['sources']}:continue
+        scene_input=next(i for i in host['inputs'] if i.get('media_type')=='application/json')
+        producer_id=scene_input.get('from_task')
+        for task in plan['tasks']:
+            if task['id']!=producer_id and task.get('review_of')!=producer_id:continue
+            candidate=scene_input['output'] if task['id']==producer_id else next(
+                (i['path'] for i in task['inputs'] if i.get('from_task')==producer_id and i.get('output')==scene_input['output']),scene_input['output'])
+            task['instruction']=('This is scene-data preparation/review only. Read '+prefix+'contract.json. '
+                'Validate the scene JSON with the standalone Python script '+prefix+'validate_scene.py, '
+                'passing '+candidate+' as its file argument. It needs only the Python standard library. '
+                'Do not launch/probe Blender or look for an installed Relay executor. Relay runs the separate '
+                'registered '+capability+' task '+host['id']+' after its dependencies are satisfied. '
+                'A previous worker-shell startup failure is not a blocker for producing or validating this JSON.\n\n'+task['instruction'])
     producers=[t for t in plan['tasks'] if not t.get('review_of') and not t.get('execution')]
+    if basis and basis['mode']=='modify_existing':
+        production_inputs={i.get('artifact') for t in plan['tasks'] if not t.get('review_of') for i in t['inputs']}
+        if not set(basis['artifacts']) <= production_inputs:
+            raise ValueError('Every declared baseline must be an input to the producing step; conversation alone is insufficient.')
     reviewers=[t for t in plan['tasks'] if t.get('review_of')]
-    if (not producers and not any(t.get('execution',{}).get('capability') in ('blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
+    for producer in producers:
+        prepared=[o['path'] for o in producer['outputs'] if Path(o['path']).suffix.lower() in ('.py','.json')]
+        if (set(options.get('step_capabilities',[])) & {'rhino.run_python','blender.run_python'}
+            and any(p.endswith('.py') for p in prepared) and any(p.endswith('.json') for p in prepared)
+            and not set(prepared)<=set(producer.get('selection_outputs',[]))):
+            raise ValueError('Host script preparation requires selection_outputs containing its script and checks together')
+        for path in producer.get('selection_outputs',[]):
+            if not any(i.get('from_task')==producer['id'] and i.get('output')==path
+                       for r in reviewers if r['review_of']==producer['id'] for i in r['inputs']):
+                raise ValueError('Every member of a selection set needs independent review')
+    if (not producers and not any(t.get('execution',{}).get('capability') in ('blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate','rhino.startup','rhino.inspect','rhino.run_python','rhino.render') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
         raise ValueError('An independent reviewer is required for every agent producer.')
     # Independent verification needs the same source versions as production.
     for review in reviewers:
@@ -578,6 +838,10 @@ def validate_result(raw,row):
     if sum(known[aid]['bytes'] for aid in used)>MAX_INPUT_BYTES:raise ValueError('Selected inputs exceed 150 MB; select a smaller source set.')
     plan=c.plan(plan)
     for task in plan['tasks']:
+        if task.get('execution',{}).get('capability')=='rhino.render':
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):raise ValueError('Rhino render needs independent review and a candidate selection gate')
+            manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
+            if known[manifest['artifact']]['sha256']!=task['execution']['parameters']['manifest_sha256']:raise ValueError('Rhino render manifest hash differs from selected artifact')
         if task.get('execution',{}).get('capability')=='blender.animate':
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):raise ValueError('Animation needs independent review and a candidate selection gate')
             manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
@@ -586,12 +850,14 @@ def validate_result(raw,row):
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):raise ValueError('Asset import needs independent review and a candidate selection gate')
             manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
             if known[manifest['artifact']]['sha256']!=task['execution']['parameters']['manifest_sha256']:raise ValueError('Asset manifest hash does not match the selected version')
-        if task.get('execution',{}).get('capability')=='blender.run_python':
+        if task.get('execution',{}).get('capability') in ('blender.run_python','rhino.run_python'):
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
-                raise ValueError('Blender Python requires independent output review and a candidate selection gate')
-            for media,key in (('application/x-blender','scene_sha256'),('text/x-python','script_sha256'),('application/json','checks_sha256')):
+                raise ValueError('Host Python requires independent output review and a candidate selection gate')
+            native='application/vnd.rhino' if task['execution']['capability']=='rhino.run_python' else 'application/x-blender'
+            for media,key in ((native,'scene_sha256'),('text/x-python','script_sha256'),('application/json','checks_sha256')):
+                if native=='application/vnd.rhino' and key=='scene_sha256' and task['execution']['parameters'][key] is None:continue
                 item=next(i for i in task['inputs'] if i['media_type']==media)
-                if known[item['artifact']]['sha256']!=task['execution']['parameters'][key]:raise ValueError('Proposed Blender code/input hash differs from its selected artifact')
+                if known[item['artifact']]['sha256']!=task['execution']['parameters'][key]:raise ValueError('Proposed host code/input hash differs from its selected artifact')
     if not any(a.get('review_of') for a in plan['tasks']):raise ValueError('An independent reviewer is required.')
     plan['origin']=plan_origin(payload,supplied,row['request_id'])
     return result,plan
@@ -613,6 +879,12 @@ def attach_host_code(state,row,event,rt):
             item=next(i for i in task['inputs'] if i['media_type']=='application/json');artifact=rt.artifact(item['artifact'])
             state.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
                 (event+':asset-manifest:'+task['id'],event,artifact['blob'],task['id']+'-assets.json','original','Exact assets, paths, import modes and supplied provenance · SHA-256 '+artifact['sha256']))
+        if task.get('execution',{}).get('capability')=='rhino.render':
+            from orchestrator.rhino_render import bind_registered
+            bind_registered(rt,task)
+            item=next(i for i in task['inputs'] if i['media_type']=='application/json');artifact=rt.artifact(item['artifact'])
+            state.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
+                (event+':rhino-render-manifest:'+task['id'],event,artifact['blob'],task['id']+'-render.json','original','Exact Rhino renderer, named view and image resolution · SHA-256 '+artifact['sha256']))
         if task.get('execution',{}).get('capability')=='blender.animate':
             from orchestrator.blender_animation import bind_registered
             bind_registered(rt,task)
@@ -637,21 +909,26 @@ def preview(row):
     lines.append('Executor: '+c.encoded(plan['backend']))
     if plan['backend']['type']=='gemini-agent':
         lines.append('File tools only: declared UTF-8 inputs and text outputs. External transfer: assignment and read text go to Gemini. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB inputs. Cancellation stops local work; an accepted remote request cannot be undone. Unknown cost stays unknown.')
+    if plan['backend']['type']=='gemini-browser':
+        lines.append('Browser and declared UTF-8 file tools. External transfer: instructions, read files and visible page observations go to Gemini. Dedicated browser sessions; no shell or credential tools. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB file inputs. Site/action scope is shown below; interpreting permitted actions still uses the model. Cancellation cannot undo website actions; uncertain actions are never replayed.')
     if payload.get('previous_stage'):
         lines.append('Next stage after: '+payload['previous_stage']['run']+'; exact recorded selections and prior instructions are included.')
     used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
-    selected=[s for s in payload['sources'] if s['artifact'] in used]
+    selected=[s for s in source_catalog(payload) if s['artifact'] in used]
     lines += ['Project: '+(payload['project'] or 'Isolated production workspace'),
               'Inputs: '+', '.join(s['path'] for s in selected[:12])]
     if len(selected)>12:lines.append(f'{len(selected)-12} more inputs listed in the attached source manifest.')
     for task in plan['tasks']:
+        if task.get('browser'):lines.append('Browser scope for '+task['id']+': '+c.encoded(task['browser']))
         if task.get('execution'):
             e=task['execution']
             lines.append('Operation: '+e['capability']+' v'+str(e['version'])+' · '+c.encoded(e['parameters']))
             if e['capability']=='blender.inspect':
                 lines.append('Host inspection: open the exact selected .blend with embedded auto-execution disabled. Linked libraries may resolve on the host. No editing, rendering or asset import.')
-            if e['capability']=='blender.run_python':
+            if e['capability'] in ('blender.run_python','rhino.run_python'):
                 lines.append('HOST PYTHON: Start authorizes the attached exact script with normal host filesystem and network access. No OS isolation is enforced. Scene/scripts/checks hashes and limits are fixed; changes require a new approval. Candidate output is not automatically selected.')
+            if e['capability'].startswith('rhino.'):
+                lines.append('Direct Rhino 7/8 on macOS: owned application process, IronPython 2.7 on 7 or CPython 3 on 8, and RhinoCommon. Modeling creates a new .3dm candidate with independent reopen checks and a viewport preview. Startup/inspection use fixed code. Grasshopper is paused.')
             if e['capability']=='blender.import_asset':
                 lines.append('Host asset import: append named meshes and pack selected image files using the attached exact manifest. Normal OS permissions; embedded scripts disabled. No downloads or persistent links. Candidate and retained source bundle remain unselected.')
             if e['capability']=='blender.animate':
@@ -662,6 +939,7 @@ def preview(row):
         lines += ['\n'+task['role']+': '+task['objective'], 'Outputs: '+', '.join(o['path'] for o in task['outputs']),
                   'Checks: '+'; '.join(task['criteria']),f"Limits: {task['limits']['seconds']} seconds, {task['limits']['tool_calls']} tool calls, one attempt."]
         if task.get('user_gate'):lines.append('Next user decision: '+task['user_gate'])
+        if task.get('selection_outputs'):lines.append('Select together: '+' + '.join(task['selection_outputs']))
     lines.append('\nInputs include your exact request, selected guides and named source versions. '+
                  ('Ask to execute this saved plan when ready.' if options['planning_only'] else 'Start approves this exact stage only.'))
     return '\n'.join(lines)
@@ -698,7 +976,12 @@ class Worker:
                 s.db.execute('INSERT INTO production_plan_calls VALUES (?,?,?,NULL,NULL,NULL,?)',(row['id'],number,c.encoded(payload),time.time()))
             raw,usage=self.generator(row,payload)
             with s.db:s.db.execute('UPDATE production_plan_calls SET response=?,usage=? WHERE plan_id=? AND number=?',(raw,c.encoded(usage),row['id'],number))
-            try:result,plan=validate_result(raw,row)
+            try:
+                result,plan=validate_result(raw,row)
+                if plan:
+                    used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
+                    for source in source_catalog(payload):
+                        if source['artifact'] in used:verify_artifact(rt,source)
             except (ValueError,KeyError,TypeError) as exc:
                 with s.db:
                     s.db.execute('UPDATE production_plan_calls SET error=? WHERE plan_id=? AND number=?',(str(exc),row['id'],number))
@@ -720,7 +1003,7 @@ class Worker:
                                  (event+':file',event,str(path),'plan.json','original','Complete proposed plan; not started'))
                     manifest=path.with_name('sources.json')
                     used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
-                    manifest.write_text(json.dumps([s for s in payload['sources'] if s['artifact'] in used],ensure_ascii=False,indent=2));manifest.chmod(0o400)
+                    manifest.write_text(json.dumps([s for s in source_catalog(payload) if s['artifact'] in used],ensure_ascii=False,indent=2));manifest.chmod(0o400)
                     s.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
                                  (event+':sources',event,str(manifest),'sources.json','original','Selected input versions, purposes and SHA-256 hashes'))
         except Exception as exc:
@@ -755,13 +1038,20 @@ def controls(state,event):
     return {'inline_keyboard':[buttons]}
 
 
-def apply(state,token,verb):
+def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followup_channel=None):
     if not state.db.in_transaction:raise ValueError('Plan approval requires a transaction.')
     row=state.db.execute("SELECT * FROM production_plans WHERE token=? AND status='ready' AND expires>?",(token,time.time())).fetchone()
     if not row:raise ValueError('That plan is expired, changed or already handled.')
     if row['channel']!=getattr(state,'channel','telegram'):raise ValueError('Use the plan card in its original channel.')
+    if followup_channel is not None and (row['channel']!='desktop' or followup_channel!='telegram'):
+        raise ValueError('Unsupported plan follow-up channel.')
+    desktop_review = row['channel']=='desktop' and reviewed_event==row['event_id']
     sent=state.db.execute('SELECT sent FROM outbox WHERE id=?',(row['event_id'],)).fetchone()
-    if not sent or not sent[0]:raise ValueError('Wait for the complete plan card before approving it.')
+    if not desktop_review and (not sent or not sent[0]):raise ValueError('Wait for the complete plan card before approving it.')
+    def delivered(ident):
+        if desktop_review:return ident in (reviewed_attachments or set())
+        item=state.db.execute('SELECT status FROM media_outbox WHERE id=?',(ident,)).fetchone()
+        return bool(item and item['status']=='sent')
     if verb=='discard':
         state.db.execute("UPDATE production_plans SET status='discarded' WHERE id=?",(row['id'],));return 'Plan discarded; no workers started.'
     if verb!='start' or json.loads(row['options'])['planning_only']:raise ValueError('This plan has no execution authorization.')
@@ -782,24 +1072,25 @@ def apply(state,token,verb):
     if any(not t.get('execution') for t in plan['tasks']):executor_available(plan['backend'])
     for task in plan['tasks']:
         if task.get('execution'):available(task)
-    for source in payload['sources']:
+    for source in source_catalog(payload):
         if source['artifact'] in used:verify_artifact(rt,source)
     from orchestrator import host_code
     for task in plan['tasks']:
+        if task.get('execution',{}).get('capability')=='rhino.render':
+            from orchestrator.rhino_render import bind_registered
+            bind_registered(rt,task)
+            if not delivered(row['event_id']+':rhino-render-manifest:'+task['id']):raise ValueError('Wait for the complete Rhino render manifest before approving this render')
         if task.get('execution',{}).get('capability')=='blender.animate':
             from orchestrator.blender_animation import bind_registered
             bind_registered(rt,task)
-            delivery=state.db.execute('SELECT status FROM media_outbox WHERE id=?',(row['event_id']+':animation-manifest:'+task['id'],)).fetchone()
-            if not delivery or delivery['status']!='sent':raise ValueError('Wait for the complete animation manifest before approving this render')
+            if not delivered(row['event_id']+':animation-manifest:'+task['id']):raise ValueError('Wait for the complete animation manifest before approving this render')
         if task.get('execution',{}).get('capability')=='blender.import_asset':
             from orchestrator.blender_assets import bind_registered
             bind_registered(rt,task)
-            delivery=state.db.execute('SELECT status FROM media_outbox WHERE id=?',(row['event_id']+':asset-manifest:'+task['id'],)).fetchone()
-            if not delivery or delivery['status']!='sent':raise ValueError('Wait for the complete asset manifest before approving this import')
+            if not delivered(row['event_id']+':asset-manifest:'+task['id']):raise ValueError('Wait for the complete asset manifest before approving this import')
         if host_code.required(task):
             for suffix in ('script','checks'):
-                delivery=state.db.execute('SELECT status FROM media_outbox WHERE id=?',(row['event_id']+':host-'+suffix+':'+task['id'],)).fetchone()
-                if not delivery or delivery['status']!='sent':raise ValueError('Wait for the complete editing script and checks documents before approving host Python')
+                if not delivered(row['event_id']+':host-'+suffix+':'+task['id']):raise ValueError('Wait for the complete editing script and checks documents before approving host Python')
     rt.create(plan)
     for task in plan['tasks']:
         if host_code.required(task):host_code.authorize(rt,plan['id'],task['id'],
@@ -808,8 +1099,9 @@ def apply(state,token,verb):
     production_stages.register(state,rt,payload,row['id'],plan['id'])
     state.put('production-enabled:'+plan['id'],pc.runtime_digest(rt,plan['id']))
     state.db.execute("UPDATE production_plans SET status='started',run=? WHERE id=?",(plan['id'],row['id']))
-    relay_channels.bind(state,'production',plan['id'],row['channel'])
-    pc.notice(state,plan['id'],'planner-started','Production scheduled: '+plan['brief']+'\n'+str(len(plan['tasks']))+' bounded steps with declared dependencies. Results and status will arrive here.')
+    relay_channels.bind(state,'production',plan['id'],followup_channel or row['channel'])
+    notice_state=getattr(state,'base',state) if followup_channel=='telegram' else state
+    pc.notice(notice_state,plan['id'],'planner-started','Production scheduled: '+plan['brief']+'\n'+str(len(plan['tasks']))+' bounded steps with declared dependencies. Results and status will arrive here.')
     return 'Stage scheduled.'
 
 

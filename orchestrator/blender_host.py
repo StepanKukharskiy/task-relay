@@ -29,6 +29,17 @@ MESH_DESCRIPTION={**SCENE_DESCRIPTION,'version':2,
     'input_limit':'20 MB scene plus text context. Generate geometry with agent-side code, not by writing arrays in a chat answer.'}
 
 
+def validator_source(allow_mesh=False):
+    """Portable copy of the actual data validator, with no Blender/runtime imports."""
+    import inspect
+    return ('import json\nimport math\nimport sys\nfrom pathlib import Path\n\n'+
+            inspect.getsource(scene)+'\n'+inspect.getsource(mesh_data)+
+            '\nif __name__ == "__main__":\n'
+            '    value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))\n'
+            f'    scene(value, allow_mesh={allow_mesh!r})\n'
+            '    print("RELAY_SCENE_DATA_VALID")\n')
+
+
 def scene(value,allow_mesh=False):
     def keys(obj,expected):
         if not isinstance(obj,dict) or set(obj)!=set(expected):raise ValueError('Unsupported or missing Blender scene fields')

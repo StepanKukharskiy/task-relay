@@ -23,6 +23,10 @@ Task Relay is in active development. Workflows are bounded by the capabilities o
 their selected workers; it does not provide unrestricted automation of arbitrary
 applications.
 
+Registered local modeling includes [Blender](docs/local-applications.md) and
+[direct Rhino 7/8 on macOS](docs/rhino.md), with native candidates, previews and
+reviewed execution. Grasshopper support is paused.
+
 ## Platform support
 
 | Platform | Current support |
@@ -37,23 +41,46 @@ pilot with a smaller feature set than Telegram.
 
 ## Get started
 
+A [macOS companion app pilot](desktop/README.md) is available for local builds.
+It bundles Python and Relay, provides compact setup/settings and connection status
+from the menu bar, and leaves everyday work in Telegram. Exact local decisions and
+recovery are available when needed. An optional bundled Messages helper and
+reviewed existing-service handoffs share the same settings surface. Public signing,
+clean-host installation and live handoff/provider/delivery qualification remain open;
+use the source installation below for the supported path.
+
 Start on **macOS with Python 3.11 or newer**, a dedicated Telegram bot token and a
-provider account or API key for the work you want to run. Install from source:
+provider account or API key for the work you want to run. [Download the source
+ZIP](https://github.com/StepanKukharskiy/task-relay/archive/refs/heads/main.zip),
+extract it, and double-click **Setup.command** in the extracted folder. It finds
+its own folder, installs Relay and opens the local setup page. No terminal command
+or Git checkout is needed for this macOS path.
+
+The terminal alternative, also used on Linux, is:
 
 ```sh
 git clone https://github.com/StepanKukharskiy/task-relay.git
 cd task-relay
 sh install.sh
-export PATH="$PWD/.venv-relay/bin:$PATH"
 ```
 
-The installer creates a dedicated Python environment and opens guided setup. It
-asks for an API provider, a model, an existing project folder, and a dedicated
-Telegram bot token from **@BotFather**. API keys are entered locally with hidden
-input. Choose `later` to configure providers separately or use existing Codex tasks.
+The installer creates a dedicated Python environment and opens a local setup page.
+Opening its HTML file directly shows the complete install guide; live status and
+configuration controls appear only when the installer opens the local server.
+Follow its project, provider and Telegram steps.
+It installs Relay’s required Python packages automatically. Python 3.11+ must
+already be installed; Git is needed for cloning but not for the source ZIP.
+Optional browser, Claude and media tools are installed separately when needed.
+API keys and bot tokens are entered locally and are not shown in status checks.
+Choose `later` to configure providers separately or use existing Codex tasks.
+The source installer prints the installed CLI path. Terminal users can add it to
+their PATH with the printed command. Reopen setup by double-clicking
+**Setup.command** again, or use `task-relay launcher` from the installed environment.
+The CLI wizard remains available through `sh install.sh --terminal-setup`.
 
-Setup checks the provider's model catalog and Telegram bot metadata. It prints a
-pairing link and a first-task command; it does not send messages or run a model.
+Setup checks the provider's model catalog and Telegram bot metadata. The page
+shows a pairing link and, once a project and provider are ready, a first-task
+command. It does not send messages or run a model.
 Start the relay:
 
 ```sh
@@ -61,14 +88,15 @@ task-relay telegram run
 ```
 
 With the service running, open the pairing link in Telegram and tap **Start**.
-Send the `/new` command printed by setup, then your first instruction. This
+Send the `/new` command shown by setup, then your first instruction. This
 instruction starts provider work and may incur provider charges. A returned reply
 confirms that task's provider and Telegram path. `/providers` manages connections
 and models.
 
-If interrupted, run `task-relay setup` again. Saved credentials and existing pairing
-are retained. `task-relay doctor` checks local configuration and reports remaining
-steps without making network calls. See [setup and troubleshooting](docs/onboarding.md).
+If interrupted, reopen `task-relay launcher` or rerun `task-relay setup`. Saved
+credentials and existing pairing are retained. `task-relay doctor` checks local
+configuration and reports remaining steps without making network calls. See
+[setup and troubleshooting](docs/onboarding.md).
 
 Keep the foreground process running while using the bot. To run it in the
 background, stop the foreground process first, then use:
@@ -85,7 +113,8 @@ it. For future releases, use `task-relay update check` and select a version with
 `task-relay update apply --version VERSION`. The running bot checks daily and sends
 one notice per newer release; disable this with `task-relay update notifications off`.
 See [updates and rollback](docs/updates.md) for scope, recovery and first-upgrade
-instructions. Explicit data migration remains planned.
+instructions. Version 0.12.1 adds reviewed additive-schema migration plans;
+destructive data conversions need a separate plan.
 
 ## Working from Telegram
 

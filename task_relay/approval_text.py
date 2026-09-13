@@ -33,6 +33,25 @@ def fields(out, values, prefix=''):
             out.add('\n')
 
 
+def file_summary(title, detail, token, allow):
+    out = Text()
+    out.styled('Approve file changes?', 'bold')
+    changes = detail.get('fileChange', {}).get('changes', [])
+    out.add('\n' + title[:160] + f'\n\n{len(changes)} file change(s).\n')
+    for change in changes[:8]:
+        kind = change.get('kind', {})
+        operation = kind.get('type', 'change') if isinstance(kind, dict) else str(kind)
+        out.add(label(operation) + ': ' + str(change.get('path', '(path unavailable)'))[:160] + '\n')
+    if len(changes) > 8:
+        out.add(f'And {len(changes) - 8} more; see the full document.\n')
+    out.add('\nThe complete diff, reasons and requested access are in the document below:\n')
+    out.styled('file-changes-' + token + '.txt', 'code')
+    out.add('\n\nRead the document before deciding. ')
+    out.add('Allow works only after the document is delivered and while this exact request remains pending. '
+            'Allow once; no saved rule.' if allow else 'Approval requires desktop review; denial remains available.')
+    return out.result()
+
+
 def render(title, request, detail, allow, too_large=False):
     from task_relay.codex_approvals import COMMAND, FILE, PERMISSIONS, METHODS
     out = Text()

@@ -5,7 +5,11 @@ import sys
 
 
 COMMANDS = {
+    'launcher': 'task_relay.launcher',
     'update': 'task_relay.updates',
+    'cleanup': 'task_relay.cleanup',
+    'storage': 'task_relay.messages_storage',
+    'browser': 'task_relay.perplexity_browser',
     'setup': 'task_relay.onboarding',
     'doctor': 'task_relay.diagnostics',
     'host': 'task_relay.host',
@@ -33,7 +37,8 @@ def main(argv=None):
     previous = sys.argv
     try:
         sys.argv = [parser.prog + ' ' + args.command, *args.arguments]
-        importlib.import_module(COMMANDS[args.command]).main()
+        result=importlib.import_module(COMMANDS[args.command]).main()
+        if type(result) is int and result:raise SystemExit(result)
     except KeyboardInterrupt:
         print('\nStopped.')
         raise SystemExit(130) from None

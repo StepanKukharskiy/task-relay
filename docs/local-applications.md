@@ -1,5 +1,13 @@
 # Local application execution
 
+Direct Rhino 7/8 support uses the same production/approval paths through
+`rhino.startup`, `rhino.inspect`, `rhino.run_python` and `rhino.render`. See
+[Rhino setup, modeling and qualification](rhino.md). Grasshopper support is paused.
+
+Run the [Blender pipeline qualification](blender-qualification.md) with
+`python3 scripts/qualify_blender.py --host` to check all registered operations and
+the planning/review/delivery connections using isolated fixtures.
+
 Blender now has seven registered **host operations**. Six run fixed Relay code;
 `blender.run_python` adds separately approved host Python. Blender runs with normal
 OS permissions, outside the agent shell sandbox. Agents retain

@@ -179,7 +179,7 @@ class Tests(unittest.TestCase):
         self.desktop.fail = True
         message = self.msg('/ask hello')
         self.pilot.receive(message)
-        self.assertEqual(self.store.db.execute("SELECT status FROM commands WHERE guid='input'").fetchone()[0], 'uncertain')
+        self.assertEqual(self.store.db.execute("SELECT status FROM messages_commands WHERE guid='input'").fetchone()[0], 'uncertain')
         self.pilot = self.new_pilot()
         self.pilot.receive(message)
         self.pilot.receive(self.msg('/ask again', 'again'))
@@ -188,7 +188,7 @@ class Tests(unittest.TestCase):
     def test_old_history_not_forwarded_new_completion_delivered(self):
         self.pair()
         self.pilot.scan()
-        self.assertEqual(self.store.db.execute('SELECT count(*) FROM delivery').fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM messages_delivery').fetchone()[0], 1)
         self.pilot.receive(self.msg('/ask hello'))
         self.append('task_complete', text='Phone test works')
         self.pilot.scan()
@@ -196,7 +196,7 @@ class Tests(unittest.TestCase):
         self.drain()
         self.assertTrue(any('Phone test works' in text for _, text in self.transport.sent))
         self.pilot.scan()
-        self.assertEqual(self.store.db.execute("SELECT count(*) FROM delivery WHERE id='turn:task_complete:1'").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM messages_delivery WHERE id='turn:task_complete:1'").fetchone()[0], 1)
 
     def test_partial_completion_line_waits(self):
         self.pair()
@@ -205,11 +205,11 @@ class Tests(unittest.TestCase):
         with self.path.open('a') as stream:
             stream.write(event)
         self.pilot.scan()
-        self.assertEqual(self.store.db.execute('SELECT count(*) FROM delivery').fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM messages_delivery').fetchone()[0], 1)
         with self.path.open('a') as stream:
             stream.write('\n')
         self.pilot.scan()
-        self.assertEqual(self.store.db.execute('SELECT count(*) FROM delivery').fetchone()[0], 2)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM messages_delivery').fetchone()[0], 2)
 
     def test_rewrite_does_not_clear_new_pending_or_repeat_result(self):
         self.pair()
@@ -220,7 +220,7 @@ class Tests(unittest.TestCase):
         self.path.write_text('\n' + content)
         self.pilot.scan()
         self.assertIsNotNone(self.store.get('pending'))
-        self.assertEqual(self.store.db.execute("SELECT count(*) FROM delivery WHERE id='first:task_complete:1'").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM messages_delivery WHERE id='first:task_complete:1'").fetchone()[0], 1)
 
     def test_uncertain_send_never_retried_and_later_parts_blocked(self):
         self.pair()
@@ -253,12 +253,12 @@ class Tests(unittest.TestCase):
     def test_crash_during_sends_converts_states_to_uncertain(self):
         self.pair()
         with self.store.db:
-            self.store.db.execute("INSERT INTO commands VALUES ('crashed','submitting')")
-            self.store.db.execute("UPDATE delivery SET status='sending'")
+            self.store.db.execute("INSERT INTO messages_commands VALUES ('crashed','submitting')")
+            self.store.db.execute("UPDATE messages_delivery SET status='sending'")
         self.store.db.close()
         self.store = Store(self.root / 'state.sqlite')
-        self.assertEqual(self.store.db.execute("SELECT status FROM commands WHERE guid='crashed'").fetchone()[0], 'uncertain')
-        self.assertEqual(self.store.db.execute('SELECT status FROM delivery').fetchone()[0], 'uncertain')
+        self.assertEqual(self.store.db.execute("SELECT status FROM messages_commands WHERE guid='crashed'").fetchone()[0], 'uncertain')
+        self.assertEqual(self.store.db.execute('SELECT status FROM messages_delivery').fetchone()[0], 'uncertain')
 
 
 if __name__ == '__main__':

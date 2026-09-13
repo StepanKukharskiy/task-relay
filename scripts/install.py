@@ -1,4 +1,4 @@
-"""Install a source checkout into an owned environment, then run guided setup."""
+"""Install a source checkout into an owned environment, then open local setup."""
 import argparse
 import hashlib
 import json
@@ -69,6 +69,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--venv', type=Path, default=ROOT / '.venv-relay', help='New dedicated environment directory')
     parser.add_argument('--no-setup', action='store_true', help='Install code only; no credentials, data or service configuration')
+    parser.add_argument('--terminal-setup', action='store_true', help='Use the original interactive CLI setup instead of the local HTML launcher')
     args = parser.parse_args()
     try:
         cli = install(args.venv.expanduser())
@@ -77,7 +78,13 @@ def main():
         print('For this shell: export PATH=' + shlex.quote(str(cli.parent)) + ':"$PATH"', flush=True)
         print('Keep this environment in place while a service uses it.', flush=True)
         if not args.no_setup:
-            raise SystemExit(subprocess.call([str(cli), 'setup']))
+            command = 'setup' if args.terminal_setup else 'launcher'
+            try:
+                raise SystemExit(subprocess.call([str(cli), command]))
+            except KeyboardInterrupt:
+                if args.terminal_setup:
+                    raise
+                print('Launcher closed. Installation and saved settings remain.', flush=True)
     except KeyboardInterrupt:
         print('Installation interrupted. Rerun the same command to continue.', file=sys.stderr)
         raise SystemExit(130) from None

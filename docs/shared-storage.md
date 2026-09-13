@@ -1,6 +1,6 @@
 # Shared operational storage
 
-The local relay, its managed provider queues, and the production runtime use
+The local relay, Messages pairing/delivery, all managed provider queues, and the production runtime use
 `private/state.sqlite`. Production records live in `production_runs`,
 `production_tasks`, `production_assignments`, `production_attempts`,
 `production_artifacts`, `production_events` and `production_decisions`. The existing
@@ -50,7 +50,10 @@ be reviewed rather than silently discarded. Existing relay rows are left unchang
 
 The application refuses to silently initialize empty production history while an
 unmigrated legacy database exists. After verified cutover, `runtime.sqlite` is retained
-read-only as a historical recovery copy, along with timestamped pre-migration backups.
+read-only as a historical recovery copy. The subsequent Messages consolidation
+archives that inactive file with its verified snapshot under `backups/`; see
+[Messages consolidation](messages-pilot.md#consolidating-older-installations).
+Cleanup may remove a redundant retired copy only when the verified snapshot remains.
 It is not opened by the scheduler, status reader or CLI. Future operational backups
 need the single state database plus the separately stored artifact/input files.
 

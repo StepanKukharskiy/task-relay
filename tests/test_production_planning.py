@@ -46,7 +46,8 @@ class Tests(unittest.TestCase):
         for task in value['tasks']:
             task['tools']=['files','shell']
             task['limits']={'seconds':600,'tool_calls':60,'output_bytes':100000000}
-        return dict(decision='ready',message='One brief and independent review.',plan={k:value[k] for k in ('brief','tasks')})
+        return dict(decision='ready',message='One brief and independent review.',
+                    input_basis={'mode':'new','artifacts':[]},plan={k:value[k] for k in ('brief','tasks')})
 
     def ready(self,ident=1,action=None):
         self.queue(ident,action)

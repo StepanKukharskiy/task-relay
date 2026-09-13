@@ -41,6 +41,8 @@ def sources(state,rt,run,channel,request_id):
     plan=state.db.execute('SELECT * FROM production_plans WHERE run=?',(run,)).fetchone()
     job_id=json.loads(plan['options']).get('job_request_id',plan['request_id']) if plan else original.get('origin',{}).get('job_request_id',run)
     inputs={}
+    support={s['artifact']:s['operation_support'] for s in json.loads(plan['context']).get('sources',[])
+             if s.get('operation_support')} if plan else {}
     assignments=[rt.spec(t) for t in prior['tasks']]
     for spec in assignments:
         for item in spec['inputs']:
@@ -49,6 +51,7 @@ def sources(state,rt,run,channel,request_id):
             if path in ('request/USER-REQUEST.txt','previous-stage/CONTEXT.json'):
                 path='previous-stage/'+run+'/'+path
             inputs[item['artifact']]=planning.source_entry(rt,item['artifact'],path,item['purpose'],item['authority'])
+            if item['artifact'] in support:inputs[item['artifact']]['operation_support']=support[item['artifact']]
     for d in prior['decisions']:
         a=rt.artifact(d['artifact'])
         inputs[a['id']]=planning.source_entry(rt,a['id'],'previous-stage/'+run+'/selected/'+d['task']+'/'+a['path'],

@@ -1,5 +1,6 @@
 """Exact, delivered-output choices over the existing runtime decision record."""
 import secrets
+import json
 import sqlite3
 from pathlib import Path
 
@@ -18,6 +19,8 @@ def initialize(db):
       CREATE TABLE IF NOT EXISTS production_selection_messages (
         chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL, token TEXT NOT NULL,
         PRIMARY KEY(chat_id,message_id,token));''')
+    if 'members' not in {r[1] for r in db.execute('PRAGMA table_info(production_selection_cards)')}:
+        db.execute("ALTER TABLE production_selection_cards ADD COLUMN members TEXT NOT NULL DEFAULT '[]'")
 
 
 def controls(state,event):
@@ -32,13 +35,23 @@ def controls(state,event):
         for task in state.db.execute("SELECT * FROM production_tasks WHERE run=? AND status='awaiting_user' ORDER BY id",(run,)).fetchall():
             purpose=rt.spec(task).get('user_gate')
             if not purpose:continue
-            for artifact in state.db.execute('SELECT * FROM production_artifacts WHERE attempt=? AND task=? ORDER BY path',(task['latest'],task['id'])).fetchall():
+            artifacts=state.db.execute('SELECT * FROM production_artifacts WHERE attempt=? AND task=? ORDER BY path',(task['latest'],task['id'])).fetchall()
+            selected=rt.spec(task).get('selection_outputs')
+            if selected:
+                by_path={a['path']:a for a in artifacts}
+                if not set(selected)<=set(by_path):continue
+                groups=[[by_path[p] for p in selected]]
+            else:groups=[[a] for a in artifacts]
+            for group in groups:
+                artifact=group[0]
+                members=json.dumps([{'artifact':a['id'],'sha256':a['sha256'],'path':a['path']} for a in group])
                 state.db.execute('''INSERT OR IGNORE INTO production_selection_cards
-                    (token,event_id,run,task,assignment,attempt,artifact,sha256,purpose)
-                    VALUES (?,?,?,?,?,?,?,?,?)''',(secrets.token_hex(12),event,run,task['id'],task['assignment'],task['latest'],artifact['id'],artifact['sha256'],purpose))
+                    (token,event_id,run,task,assignment,attempt,artifact,sha256,purpose,members)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)''',(secrets.token_hex(12),event,run,task['id'],task['assignment'],task['latest'],artifact['id'],artifact['sha256'],purpose,members))
                 card=state.db.execute('SELECT * FROM production_selection_cards WHERE event_id=? AND artifact=?',(event,artifact['id'])).fetchone()
                 if card['status']=='pending':
-                    buttons.append([{'text':'Select '+task['id']+'/'+artifact['path'], 'callback_data':'prodselect:'+card['token']}])
+                    label='Select set: '+' + '.join(a['path'] for a in group) if selected else 'Select '+task['id']+'/'+artifact['path']
+                    buttons.append([{'text':label, 'callback_data':'prodselect:'+card['token']}])
                     if len(buttons)==30:return buttons
     return buttons
 
@@ -73,11 +86,21 @@ def apply(state,token,chat_id,message_id):
     blob=safe_file(rt.root,str(Path(artifact['blob']).relative_to(rt.root)))
     if file_hash(blob)!=card['sha256'] or blob.stat().st_size!=artifact['bytes']:
         raise ValueError('The registered output changed; selection was not recorded.')
-    note='Telegram selection of '+artifact['path']+' from delivered message '+str(message_id)
-    rt.select(card['run'],card['task'],card['artifact'],card['purpose'],note)
+    members=json.loads(card['members']) or [{'artifact':artifact['id'],'sha256':artifact['sha256'],'path':artifact['path']}]
+    for member in members:
+        current=rt.artifact(member['artifact'])
+        if current['sha256']!=member['sha256'] or current['path']!=member['path']:
+            raise ValueError('The output selection set changed')
+        delivered=state.db.execute('SELECT status FROM media_outbox WHERE id=?',('production-output:'+member['artifact'],)).fetchone()
+        if not delivered or delivered['status']!='sent':raise ValueError('Wait for every file in the selection set to finish delivery.')
+    names=' + '.join(m['path'] for m in members)
+    note='Telegram selection of '+names+' from delivered message '+str(message_id)
+    rt.select(card['run'],card['task'],card['artifact'],card['purpose'],note,artifacts=[m['artifact'] for m in members])
     state.db.execute("UPDATE production_selection_cards SET status='stale' WHERE run=? AND task=? AND status='pending'",(card['run'],card['task']))
     state.db.execute("UPDATE production_selection_cards SET status='selected' WHERE token=?",(token,))
-    pc.notice(state,card['run'],'selected:'+card['artifact'],'Selected '+artifact['path']+' for '+card['purpose']+'.')
+    resumed=pc.resume_review(state,card['run']) if pc.review_resume_digest(state,card['run']) else ''
+    pc.notice(state,card['run'],'selected:'+card['artifact'],'Selected '+names+' for '+card['purpose']+'.'+
+              ('\n'+resumed if resumed else ''))
     return 'Selection recorded.'
 
 

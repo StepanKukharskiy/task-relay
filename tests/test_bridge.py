@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import socket
 import sqlite3
@@ -843,9 +844,12 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.state.get('offset'), 902)
             self.assertIsNotNone(self.state.get('health:commands'))
             deadline = time.monotonic() + 2
-            while self.state.get('health:updates') is None and time.monotonic() < deadline:
+            while (self.state.get('health:updates') is None or self.state.get('health:orchestrator-chat') is None) and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertIsNotNone(self.state.get('health:updates'))
+            loaded = self.state.get('health:orchestrator-chat')
+            self.assertEqual(loaded['process_id'], os.getpid())
+            self.assertTrue({'rhino.startup','rhino.inspect','rhino.run_python','rhino.render'} <= set(loaded['registered_graph_operations']))
             self.assertFalse(release.is_set())
         finally:
             release.set()

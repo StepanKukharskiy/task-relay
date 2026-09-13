@@ -3,6 +3,13 @@ import Foundation
 
 final class RelayApp: NSObject, NSApplicationDelegate {
     let configuration: [String: String] = {
+        let env = ProcessInfo.processInfo.environment
+        if let runtime = env["TASK_RELAY_COMPANION_RUNTIME"], env["TASK_RELAY_COMPANION"] == "1" {
+            guard let data = env["TASK_RELAY_DATA_DIR"], let workspaces = env["TASK_RELAY_WORKSPACE_DIR"],
+                  let generated = env["TASK_RELAY_GENERATED_DIR"] else { return [:] }
+            return ["python": runtime + "/python/bin/python3", "root": runtime + "/app", "data": data,
+                    "workspaces": workspaces, "generated": generated, "messages": data + "/messages-pilot"]
+        }
         let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/runtime.json")
         guard let data = try? Data(contentsOf: url),
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
@@ -17,6 +24,7 @@ final class RelayApp: NSObject, NSApplicationDelegate {
     var nextStart = Date.distantPast
     var quitting = false
     var started = false
+    let companion = ProcessInfo.processInfo.environment["TASK_RELAY_COMPANION"] == "1"
     var signals: [DispatchSourceSignal] = []
     var folder: URL { URL(fileURLWithPath: configuration["messages"] ?? root.appendingPathComponent("private/messages-pilot").path) }
     var pauseFile: URL { folder.appendingPathComponent("paused") }
@@ -30,6 +38,11 @@ final class RelayApp: NSObject, NSApplicationDelegate {
         guard !started else { return }
         started = true
         FileHandle.standardError.write(Data("Messages Relay launcher started\n".utf8))
+        // The packaged companion owns the visible menu. Keep the old standalone
+        // launcher's UI unchanged for installations that have not been handed off.
+        status = NSMenuItem(title: "Messages Relay is starting…", action: nil, keyEquivalent: "")
+        detail = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        if !companion {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let url = Bundle.main.url(forResource: "MenuBarTemplate", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
@@ -56,6 +69,7 @@ final class RelayApp: NSObject, NSApplicationDelegate {
             menu.addItem(entry)
         }
         item.menu = menu
+        }
         for number in [SIGTERM, SIGINT] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
@@ -71,10 +85,7 @@ final class RelayApp: NSObject, NSApplicationDelegate {
     }
 
     func launch() {
-        let configURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/runtime.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let config = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-              let python = config["python"] else {
+        guard let python = configuration["python"] else {
             status.title = "Messages Relay needs repair"
             return
         }
@@ -85,6 +96,8 @@ final class RelayApp: NSObject, NSApplicationDelegate {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONNOUSERSITE"] = "1"
         for (key, setting) in [("TASK_RELAY_DATA_DIR", "data"), ("TASK_RELAY_WORKSPACE_DIR", "workspaces"), ("TASK_RELAY_GENERATED_DIR", "generated")] {
             if let value = configuration[setting] { env[key] = value }
         }
