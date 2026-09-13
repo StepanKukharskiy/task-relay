@@ -1,12 +1,24 @@
 # Installation and first setup
 
-The [macOS companion pilot](../desktop/README.md) bundles Python and the Relay
-runtime, with a compact menu-bar setup/settings window. Everyday work stays in
-Telegram; the companion handles connections, status, exact local decisions and
-recovery. Existing source and Messages services require a separate reviewed
-handoff before the companion manages them. The local `.app` is not a signed public
-distribution and has not passed clean-host provider/Telegram acceptance. Use the
-source installer below for the supported installation path.
+The primary Mac route is the [downloadable companion beta](https://task-relay-website-production.up.railway.app/#download), for Apple Silicon and macOS 14+.
+Open the DMG, drag Task Relay into Applications, eject the disk, and open the app.
+Python is bundled. The beta is ad hoc signed without Developer ID or notarization;
+use Apple's per-app Open Anyway flow only if you trust the download. Managed Macs
+may prohibit this beta, and updates may require refreshing permissions. Public
+signing and clean-host end-to-end qualification remain open.
+
+The app guides four resumable steps: AI access, Telegram bot, explicit background
+service startup, and Telegram pairing. Only the current form is shown. Existing
+connections and services are preserved; a service-owner change requires a reviewed
+handoff. Once paired, work in messenger and use the menu bar for settings. Your
+first instruction may incur provider charges; a returned reply verifies that run.
+Messages is still an optional pilot with separate first-time enrollment.
+
+**CLI alternative:** download the matching source archive from the same website
+and run `sh install.sh --terminal-setup`. This route requires Python 3.11+ and prints
+the installed CLI path and next steps. CLI commands reuse a data binding already
+selected in the companion, while explicit environment overrides take precedence.
+The source installer remains supported as described below.
 
 Use macOS with Python 3.11+ for the primary supported path. The source installer
 also supports Linux, whose live provider, Telegram and systemd activation
@@ -149,3 +161,14 @@ installation require an explicit `update apply --version VERSION` command.
 Version 0.12.1 adds explicit additive-schema migration plans and guarded reversal;
 see the controller bootstrap instructions before upgrading from 0.12.0. Destructive
 data conversions and separate Messages deployment updates remain outside this scope.
+
+### Folders and usage
+
+Open **Settings → Folders & permissions** to see Relay’s configured data, workspace,
+generated-output and selected project locations. This is not a complete list of
+files connected agents can access, and does not enforce a folder allowlist. Review
+macOS permissions there; connected tools retain their own access settings.
+
+Expand **Usage** to read recorded Relay tokens for the last seven days and storage.
+Ordinary status refreshes do not start a usage scan. Cache cleanup lives in Troubleshooting &
+updates and still requires reviewing the exact cleanup before deleting anything.

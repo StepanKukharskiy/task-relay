@@ -25,6 +25,8 @@ COMMANDS = {
 
 
 def main(argv=None):
+    from .desktop_binding import apply_binding
+    apply_binding()
     from .updates import redirect
     from .releases import VERSION
     redirect(list(sys.argv[1:] if argv is None else argv))

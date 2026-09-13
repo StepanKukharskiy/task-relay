@@ -41,12 +41,49 @@ function providerFields() {
   $('provider-key-link').href = keyURLs[name] || keyURLs.gemini;
   $('endpoint-field').hidden = name !== 'qwen';
 }
-function nextSetup() {
-  const setup = snapshot?.setup;
-  if (!setup) return openSettings('advanced-settings');
-  if (!Object.values(setup.providers).some(Boolean) && setup.selected_provider !== 'later') return openSettings('provider-settings');
-  if (!setup.telegram.paired) return openSettings('telegram-settings');
-  $('service-action').focus();
+let setupStep = null;
+const setupHomes = new Map();
+function renderSetup(info) {
+  setupStep = RelaySetup.step(info);
+  for (const id of ['provider-settings', 'telegram-settings']) {
+    const form = $(id);
+    if (!setupHomes.has(id)) {
+      const marker = document.createComment(id + ' home');
+      form.before(marker); setupHomes.set(id, marker);
+    }
+    if (setupStep?.form === id) {
+      $('setup-form').append(form); form.open = true; form.classList.add('setup-inline');
+    } else {
+      if (form.classList.contains('setup-inline')) { setupHomes.get(id).after(form); form.open = false; }
+      form.classList.remove('setup-inline');
+    }
+  }
+  $('onboarding').hidden = !setupStep;
+  $('home').hidden = !!setupStep;
+  if (!setupStep) return;
+  text('setup-title', setupStep.title);
+  text('setup-progress', `Step ${setupStep.number} of 4 · AI → Telegram → Start → Pair`);
+  text('setup-next', setupStep.detail);
+  $('continue-setup').hidden = !!setupStep.form;
+  $('continue-setup').disabled = mutating;
+  text('continue-setup', setupStep.label || 'Continue');
+}
+async function nextSetup() {
+  if (!snapshot) return;
+  renderSetup(snapshot);
+  if (!setupStep) return;
+  if (setupStep.form) return $(setupStep.form).scrollIntoView({block: 'nearest'});
+  if (setupStep.action === 'start') return change('service-start', {}, $('continue-setup'));
+  if (setupStep.action === 'connect') return change('service-connect', {}, $('continue-setup'));
+  if (setupStep.action === 'handoff') return prepareHandoff('relay');
+  if (setupStep.action === 'troubleshoot') return openSettings('advanced-settings');
+  if (setupStep.action === 'pair') {
+    const result = await change('telegram', {}, $('continue-setup'));
+    if (result?.pairing_url) {
+      pairingURL = result.pairing_url;
+      try { await native.opener.openUrl(pairingURL); } catch (error) { message(String(error), true); }
+    }
+  }
 }
 function render(info) {
   snapshot = info;
@@ -81,16 +118,22 @@ function render(info) {
   $('service-action').disabled = mutating || (!service.loaded && !setup.telegram.configured);
   text('service-action', service.loaded ? 'Stop Relay' : 'Start Relay');
   text('service-note', service.owner === 'other' ? 'Your existing service stays under its current installation until you choose a handoff in Settings.' : 'Closing this window leaves the service running. Stopping it does not undo work already performed.');
-  $('onboarding').hidden = ready && (service.healthy || service.loaded);
-  text('setup-next', !providerReady ? 'Connect an AI provider or select your existing agent tasks.' : !setup.telegram.configured ? 'Connect your dedicated Telegram bot.' : !setup.telegram.paired ? 'Start Relay, then pair this bot with your Telegram account.' : 'Start Relay, then send a first instruction in Telegram.');
-  text('continue-setup', ready ? 'Ready to start' : 'Continue setup');
   text('provider-summary', connected.join(', ') || (setup.selected_provider === 'later' ? 'Existing agents' : 'Not connected'));
   if (firstRead && setup.selected_provider) $('provider-name').value = setup.selected_provider;
   providerFields();
   text('telegram-summary', setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
   $('telegram-token').disabled = setup.telegram.configured;
   text('telegram-save', setup.telegram.configured ? (setup.telegram.paired ? 'Check saved pairing' : 'Get pairing link') : 'Connect Telegram');
-  text('project-summary', setup.project.path || 'No default folder. New work can use its own workspace.');
+  const folders = $('folder-list');
+  folders.replaceChildren();
+  for (const folder of info.folders || []) {
+    const row = document.createElement('div'); row.className = 'channel-card';
+    const name = document.createElement('strong'); name.textContent = folder.name;
+    const path = document.createElement('p'); path.className = 'path'; path.textContent = folder.path;
+    const purpose = document.createElement('p'); purpose.className = 'hint'; purpose.textContent = folder.purpose;
+    row.append(name, path, purpose); folders.append(row);
+  }
+  if (!info.folders?.length) folders.textContent = 'Folder information is unavailable. Refresh to try again.';
   text('ownership-detail', service.detail || service.error);
   $('connect-existing').hidden = !service.connectable;
   $('service-handoff').hidden = service.owner !== 'other' || !service.shared_data;
@@ -114,7 +157,7 @@ function render(info) {
   }
   text('update-summary', setup.update.error || (setup.update.latest ? 'Latest cached release: ' + setup.update.latest : 'No release information cached.'));
   if (setup.setup_error) message(setup.setup_error, true);
-  if (firstRead && !ready) { $('settings').open = true; nextSetup(); }
+  renderSetup(info);
   firstRead = false;
 }
 async function refresh() {
@@ -130,6 +173,8 @@ async function refresh() {
   catch (error) {
     readFailed = true;
     snapshot = null;
+    $('home').hidden = false;
+    $('onboarding').hidden = true;
     text('status-title', 'Could not read Relay');
     text('status-detail', 'Check local access, then refresh. Saved settings remain in place.');
     $('status-dot').className = 'dot attention';
@@ -259,7 +304,7 @@ $('provider-form').onsubmit = async event => {
   if (values.name === 'later') values.key = values.model = values.endpoint = '';
   const result = await change('provider', values, event.submitter);
   $('provider-key').value = '';
-  if (result) nextSetup();
+  if (result && snapshot) renderSetup(snapshot);
 };
 $('telegram-form').onsubmit = async event => {
   event.preventDefault();
@@ -270,14 +315,9 @@ $('telegram-form').onsubmit = async event => {
 $('pair-telegram').onclick = async () => {
   if (pairingURL) try { await native.opener.openUrl(pairingURL); } catch (error) { message(String(error), true); }
 };
-$('project-browse').onclick = async () => {
-  try { const path = await native.dialog.open({directory: true, multiple: false, title: 'Choose a working folder'}); if (typeof path === 'string') $('project-path').value = path; }
-  catch (error) { message(String(error), true); }
-};
-$('project-form').onsubmit = event => { event.preventDefault(); if ($('project-path').value) change('project', {path: $('project-path').value}, event.submitter); };
 $('connect-existing').onclick = () => change('service-connect', {}, $('connect-existing'));
 $('messages-action').onclick = () => change(snapshot?.messages?.loaded ? 'messages-stop' : 'messages-start', {}, $('messages-action'));
-for (const [id, target] of [['messages-open', 'messages'], ['messages-permissions', 'permissions']]) {
+for (const [id, target] of [['messages-open', 'messages'], ['messages-permissions', 'permissions'], ['folder-permissions', 'permissions']]) {
   $(id).onclick = async () => { try { await native.core.invoke('companion_open', {target}); } catch (error) { message(String(error), true); } };
 }
 $('service-handoff').onclick = () => prepareHandoff('relay');
@@ -310,12 +350,16 @@ $('handoff-history').onclick = async () => {
   } catch (error) { message(String(error), true); }
 };
 $('update-check').onclick = () => change('update-check', {}, $('update-check'));
-$('usage-load').onclick = async () => {
-  $('usage-load').disabled = true;
+let usageLoading = false;
+$('usage-settings').ontoggle = async () => {
+  if (!$('usage-settings').open || usageLoading) return;
+  usageLoading = true;
+  text('usage-summary', 'Loading usage…');
   try {
     const result = await request('usage-summary');
     text('usage-summary', `${result.tokens.relay_total == null ? 'Unknown' : result.tokens.relay_total.toLocaleString()} recorded Relay tokens · 7 days. ${result.tokens.relay_unmeasured ?? 0} unmeasured records. Storage ${result.storage.complete ? '' : 'at least '}${(result.storage.bytes / 1073741824).toFixed(2)} GiB. This is not a bill or account quota.`);
-  } catch (error) { message(String(error), true); } finally { $('usage-load').disabled = false; }
+  } catch (error) { text('usage-summary', 'Usage could not be read. Close and reopen Usage to try again.'); }
+  finally { usageLoading = false; }
 };
 $('cleanup-preview').onclick = async () => {
   cleanupManifest = null; $('cleanup-review').hidden = true;

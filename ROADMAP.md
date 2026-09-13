@@ -50,6 +50,16 @@ private trials do not establish general product acceptance.
 
 ## Current build: O13
 
+**Direct beta distribution and guided first launch.** The primary website route
+is an Apple Silicon/macOS 14+ DMG; matching CLI source is secondary. Disk images
+contain the app, Applications shortcut and beta instructions. Downloads use fixed,
+versioned filenames with checksums and resumable transfer. Four saved setup steps
+cover AI access, Telegram, explicit service start and pairing. Source/CLI and app
+reuse the companion's explicit data binding; existing services retain their owner
+until reviewed handoff. Public Developer ID/notarization and clean-host end-to-end
+acceptance remain open; first-time Messages setup remains a separate pilot.
+
+
 Implemented: a source installer with a dedicated environment and interrupted-install
 retry; guided local API-provider/model, Telegram and first-project setup; saved
 credential/pairing retention; and local diagnostics independent of Codex desktop.
@@ -89,6 +99,10 @@ adapter is qualified. Controlled checks do not establish live provider generatio
 Telegram delivery or background-service acceptance.
 
 **Minimal companion — user-selected product direction; controlled implementation.**
+Settings now show configured folders and the actual permission limits. This is
+visibility only; enforcing an allowlist across connected tools remains open. Usage
+loads only when expanded, with cleanup kept under troubleshooting.
+
 The desktop is now a menu-bar companion for setup, status, connections, settings
 and focused local decisions. Messenger is the primary work surface. The companion
 uses the existing Messages Relay transparent template menu-bar icon. The packaged

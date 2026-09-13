@@ -41,13 +41,19 @@ pilot with a smaller feature set than Telegram.
 
 ## Get started
 
-A [macOS companion app pilot](desktop/README.md) is available for local builds.
-It bundles Python and Relay, provides compact setup/settings and connection status
-from the menu bar, and leaves everyday work in Telegram. Exact local decisions and
-recovery are available when needed. An optional bundled Messages helper and
-reviewed existing-service handoffs share the same settings surface. Public signing,
-clean-host installation and live handoff/provider/delivery qualification remain open;
-use the source installation below for the supported path.
+**Mac beta:** [download the DMG](https://task-relay-website-production.up.railway.app/#download)
+for Apple Silicon and macOS 14+. Drag Task Relay into Applications and follow the
+app's four saved setup steps. Python is bundled. This beta lacks Apple Developer
+ID/notarization; the website explains macOS's per-app opening step and limitations.
+Existing services require reviewed handoff. First-time Messages enrollment remains
+an optional pilot; Telegram is the complete onboarding path.
+
+**CLI alternative:** the same download page offers matching beta source. With
+Python 3.11+, extract it and run `sh install.sh --terminal-setup`. Keep its installed
+environment in place. CLI commands honor the data binding previously selected in
+the companion; explicit environment overrides take precedence.
+
+The development source route remains available:
 
 Start on **macOS with Python 3.11 or newer**, a dedicated Telegram bot token and a
 provider account or API key for the work you want to run. [Download the source

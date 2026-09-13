@@ -40,3 +40,6 @@ node_modules/
 /experiments/*.py
 /POSITIONING.md
 /GEMINI_PLAN.md
+
+# Generated public installer artifacts are uploaded separately from source.
+/website/downloads/

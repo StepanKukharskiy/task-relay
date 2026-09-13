@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
-  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="companion.js" defer></script>
+  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="companion-setup.js" defer></script><script src="companion.js" defer></script>
 </head>
 <body>
   <header><div class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></div><button id="refresh" class="quiet" type="button" aria-label="Refresh status">Refresh</button></header>
@@ -20,9 +20,12 @@
     </section>
 
     <section id="onboarding" hidden aria-labelledby="setup-title">
+      <p id="setup-progress" class="hint">Step 1 of 4</p>
       <h2 id="setup-title">Connect once. Work in your messenger.</h2>
       <p class="muted" id="setup-next">Connect an AI provider, pair Telegram, then start Relay.</p>
+      <div id="setup-form"></div>
       <button id="continue-setup" class="primary">Continue setup</button>
+      <p class="hint">Each completed step is saved. You can close Relay and continue later. Messages can be added separately after this Telegram setup.</p>
     </section>
 
     <section id="review" hidden aria-labelledby="review-title">
@@ -54,7 +57,6 @@
       <label for="proactive-destination">New proactive updates</label>
       <select id="proactive-destination" disabled><option value="none">Off</option><option value="telegram">Telegram</option><option value="messages">Messages</option></select>
       <p class="hint">Applies to release notices today. Task replies keep their own destination. Already queued notices are not moved.</p>
-      <p class="hint">WhatsApp, Slack and Discord support is not available yet.</p>
     </details>
 
     <details id="settings">
@@ -67,15 +69,17 @@
           <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit">Save connection</button>
         </form>
       </details>
-      <details id="access-settings"><summary>Working folder</summary>
-        <p class="hint">Optional. Choose existing files when a task needs them. A working folder is context, not an access sandbox.</p><p id="project-summary" class="path"></p>
-        <form id="project-form"><label for="project-path">Default folder</label><div class="input-row"><input id="project-path" readonly><button type="button" id="project-browse">Choose…</button></div><button type="submit">Save folder</button></form>
+      <details id="access-settings"><summary>Folders & permissions</summary>
+        <p class="hint">Folders configured for this Relay installation:</p><div id="folder-list"></div>
+        <p class="hint">This list is not an access restriction. Connected agents and tools may access other files allowed by their permissions. Full Disk Access, if granted, allows broader access.</p>
+        <button id="folder-permissions" type="button">Review macOS permissions…</button>
       </details>
-      <details id="usage-settings"><summary>Usage & storage</summary><button id="usage-load">Read Relay usage and storage</button><p id="usage-summary" class="muted"></p><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply">Delete reviewed caches</button></div></details>
+      <details id="usage-settings"><summary>Usage</summary><p id="usage-summary" class="muted" role="status"></p></details>
       <details id="advanced-settings"><summary>Troubleshooting & updates</summary>
         <p id="data-location" class="path"></p><p id="ownership-detail"></p><div class="actions"><button id="connect-existing" hidden>Use existing installation</button><button id="service-handoff" hidden>Review service handoff</button></div>
         <button id="handoff-history">Inspect handoff receipts</button><div id="handoff-receipts"></div>
         <div id="diagnostics"></div><p id="update-summary"></p><button id="update-check">Check updates</button><p class="hint">This checks release metadata. Packaged update installation is not yet available.</p>
+        <details><summary>Storage cleanup</summary><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply">Delete reviewed caches</button></div></details>
         <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/onboarding.md">Setup and recovery guide ↗</a>
       </details>
     </details>
