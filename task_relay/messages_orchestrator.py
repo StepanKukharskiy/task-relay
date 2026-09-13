@@ -9,8 +9,9 @@ from task_relay.bridge import State
 
 
 class OrchestratorRouter:
-    def __init__(self, path, require_ready=True):
-        self.state = State(path)
+    def __init__(self, path=None, require_ready=True, *, state=None):
+        self.owns_state = state is None
+        self.state = State(path) if state is None else state
         self.require_ready = require_ready
         self.state.db.executescript('''
           CREATE TABLE IF NOT EXISTS messages_orchestrator_requests (
@@ -65,9 +66,15 @@ class OrchestratorRouter:
                                     "WHERE r.channel='messages' ORDER BY c.id DESC LIMIT 1").fetchone()
         return ('ready' if self.ready() else 'service offline') + (' · latest request: ' + row[0] if row else '')
 
+    def browser_setup(self,guid,argument):
+        from . import browser_setup
+        if self.require_ready and not self.ready():
+            raise ValueError('The shared Relay service is offline; browser setup was not queued.')
+        return browser_setup.command(self.state,argument,'messages:'+guid,'messages')
+
     def acknowledge(self, pilot):
         for row in self.state.db.execute('SELECT e.* FROM messages_orchestrator_exports e JOIN outbox o ON o.id=e.event_id WHERE o.sent=0').fetchall():
-            parts = pilot.store.db.execute('SELECT status FROM delivery WHERE substr(id,1,?)=?',
+            parts = pilot.store.db.execute('SELECT status FROM messages_delivery WHERE substr(id,1,?)=?',
                                            (len(row['delivery_key'])+1, row['delivery_key']+':')).fetchall()
             if parts and all(part[0] == 'sent' for part in parts):
                 with self.state.db:
@@ -82,11 +89,14 @@ class OrchestratorRouter:
         self.acknowledge(pilot)
         for row in relay_channels.pending(self.state, 'messages'):
             with self.state.db:
+                direct = self.state.db.execute('SELECT 1 FROM messages_provider_requests r '
+                    'JOIN backend_jobs j ON j.id=r.job_id WHERE j.thread_id=?', (row['thread_id'],)).fetchone()
                 saved = self.state.db.execute('SELECT * FROM messages_orchestrator_exports WHERE event_id=?', (row['id'],)).fetchone()
                 if not saved:
                     text = row['text'].removeprefix('Orchestrator\n')
                     text = text.replace('tap the button to apply', 'choose an option below to apply')
-                    text = text.replace('Reply to continue this task.', 'Send a new instruction to the orchestrator to continue this task.')
+                    text = text.replace('Reply to continue this task.', 'Use /gemini YOUR INSTRUCTION to continue.' if direct
+                                        else 'Send a new instruction to the orchestrator to continue this task.')
                     markup = orchestrator_chat.controls(self.state, row['id']) or {}
                     options = [b for line in markup.get('inline_keyboard', []) for b in line if 'callback_data' in b]
                     if options:
@@ -100,6 +110,8 @@ class OrchestratorRouter:
                         text += '\n\nFiles saved on the Mac (Messages currently sends text only):\n'
                         text += '\n'.join(f'{f["filename"]}: {f["path"]}' for f in files)
                     key = 'shared-orchestrator:' + row['id']
+                    if direct:
+                        key = row['id']  # Preserve the original Messages provider delivery identity.
                     parts = row['id'].split(':')
                     if row['thread_id'] == pilot.task_id and len(parts) == 3 and parts[2] in ('task_complete', 'turn_aborted'):
                         # The original pilot watches this task too. Both paths use
@@ -107,11 +119,15 @@ class OrchestratorRouter:
                         key = ':'.join(parts[1:])
                     self.state.db.execute('INSERT INTO messages_orchestrator_exports VALUES (?,?,?)', (row['id'], key, text))
                     saved = {'delivery_key': key, 'text': text}
-            # Queue locally before acknowledging globally. A crash between stores
-            # reuses the same key; a lost Messages send stays uncertain, never retried.
-            with pilot.store.db:
-                if not pilot.store.db.execute('SELECT 1 FROM delivery WHERE id=?', (saved['delivery_key'] + ':1',)).fetchone():
-                    pilot.notify(saved['delivery_key'], saved['text'], provider='Orchestrator')
+                # Production uses one connection: export, choices and outgoing
+                # parts commit together. Sent acknowledgement follows transport.
+                if pilot.store.db is self.state.db:
+                    if not pilot.store.db.execute('SELECT 1 FROM messages_delivery WHERE id=?', (saved['delivery_key'] + ':1',)).fetchone():
+                        pilot.notify(saved['delivery_key'], saved['text'], provider='Gemini' if direct else 'Orchestrator')
+            if pilot.store.db is not self.state.db:
+                with pilot.store.db:
+                    if not pilot.store.db.execute('SELECT 1 FROM messages_delivery WHERE id=?', (saved['delivery_key'] + ':1',)).fetchone():
+                        pilot.notify(saved['delivery_key'], saved['text'], provider='Gemini' if direct else 'Orchestrator')
 
     def choose(self, pilot, guid, argument):
         words = argument.split()
@@ -154,4 +170,5 @@ class OrchestratorRouter:
             pilot.notify(guid, '\n'.join(dict.fromkeys(t for t in replies if t)) or 'Choice received.', provider='Orchestrator')
 
     def close(self):
-        self.state.db.close()
+        if self.owns_state:
+            self.state.db.close()

@@ -103,6 +103,23 @@ class Tests(unittest.TestCase):
             self.assertIn('file_read',json.dumps(client.return_value.request.call_args_list[0]))
             self.assertEqual(len(list((self.root/'orchestrator-reads').glob('*.json'))),1)
 
+    def test_source_correction_keeps_separate_provider_and_read_receipts(self):
+        payload={'snapshot':{},'user_message':'Continue the installation work.'}
+        job={'id':77,'provider':'gemini','model':'test'}
+        with patch.object(chat.gemini,'read_config',return_value={'api_key':'fake'}), patch.object(chat.gemini,'DATA',self.root), patch.object(chat.gemini,'Client') as client:
+            client.return_value.request.return_value=self.response('gemini')
+            chat.generate(job,payload)
+            original=next((self.root/'orchestrator-reads').glob('*.json'))
+            saved=original.read_bytes()
+            correction={'missing_fields':['artifact_ids'],'previous_action':{'kind':'route_task','task_id':'t0'}}
+            chat.generate(job,{**payload,'routing_source_correction':correction})
+            self.assertEqual(original.read_bytes(),saved)
+            self.assertEqual(len(list((self.root/'orchestrator-reads').glob('*.json'))),2)
+            request=client.return_value.request.call_args.args[1]
+            data=json.loads(request['contents'][0]['parts'][0]['text'])
+            self.assertEqual(data['routing_source_correction'],correction)
+            self.assertEqual(data['user_message'],payload['user_message'])
+
 
 if __name__ == '__main__':
     unittest.main()

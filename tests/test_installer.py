@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -43,6 +44,21 @@ class InstallerTests(unittest.TestCase):
             install.install(self.target)
             self.assertEqual(run.call_count, 1)
             self.assertEqual(run.call_args.args[0][-1], '--version')
+
+    def test_default_opens_launcher_and_terminal_setup_remains_explicit(self):
+        cli = self.target / 'bin/task-relay'
+        with patch.object(install, 'install', return_value=cli), patch.object(install.subprocess, 'call', return_value=0) as call:
+            for arguments, expected in (([], 'launcher'), (['--terminal-setup'], 'setup')):
+                with patch.object(sys, 'argv', ['install.py', *arguments]), self.assertRaises(SystemExit) as result:
+                    install.main()
+                self.assertEqual(result.exception.code, 0)
+                self.assertEqual(call.call_args.args[0], [str(cli), expected])
+
+    def test_closing_launcher_keeps_completed_install(self):
+        cli = self.target / 'bin/task-relay'
+        with patch.object(install, 'install', return_value=cli), patch.object(install.subprocess, 'call', side_effect=KeyboardInterrupt):
+            with patch.object(sys, 'argv', ['install.py']):
+                self.assertIsNone(install.main())
 
 
 if __name__ == '__main__':

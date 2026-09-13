@@ -31,6 +31,21 @@ class Host:
     def environment_python(self, environment):
         return Path(environment)/('Scripts/python.exe' if self.platform=='win32' else 'bin/python')
 
+    def browser_python(self, install, data):
+        self.require_posix('Browser setup desktop session')
+        import importlib.util
+        configured=os.environ.get('TASK_RELAY_BROWSER_PYTHON')
+        if configured:
+            path=Path(configured).expanduser()
+            if not path.is_absolute() or not path.is_file() or not os.access(path,os.X_OK):
+                raise UnsupportedHost('Configured browser runtime is not an executable absolute file')
+            return str(path)
+        if importlib.util.find_spec('playwright') is not None:return sys.executable
+        for folder in (Path(data)/'browser-venv',Path(install)/'.venv-browser'):
+            path=self.environment_python(folder)
+            if path.is_file() and os.access(path,os.X_OK):return str(path)
+        raise UnsupportedHost('The optional browser component is unavailable on this host')
+
     def codex(self, explicit=None):
         configured = explicit or os.environ.get('TASK_RELAY_CODEX')
         if configured:

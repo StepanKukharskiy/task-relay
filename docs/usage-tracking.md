@@ -26,6 +26,11 @@ python3 usage_tracker.py --enable
 python3 usage_tracker.py --disable
 ```
 
+The native desktop Tasks tab shows recorded usage through Task Relay separately
+from the wider indexed local total. Its direct API-task number is a subset of
+Relay usage, which also includes planner/chat calls and managed workers. The
+app reads the ledger; Refresh does not call a provider or import new logs.
+
 Enable/disable controls background indexing; disabling retains recorded usage.
 The installed Relay must contain this worker for background indexing to run.
 `--refresh` explicitly performs one bounded import, regardless of that switch.
@@ -53,8 +58,9 @@ not wait for it. No daily message or usage alert is sent automatically.
 - Relay: recorded OpenAI, Qwen, DeepSeek, OpenRouter and Gemini API responses;
   orchestrator conversations/searches; planner calls; production worker receipts;
   and new Claude SDK results. Existing Claude jobs without saved token counts
-  remain unmeasured. The Messages provider database is also imported. A selected
-  model without any recorded call does not appear as zero usage.
+  remain unmeasured. Messages provider calls use the same main database and
+  collector. Consolidation rebinds historical usage identities so those calls are
+  counted once. A selected model without a recorded call does not appear as zero usage.
 
 The ledger, source health and byte cursors are new tables in the **existing
 `PATHS.state` database** (currently `private/state.sqlite`). There is no additional

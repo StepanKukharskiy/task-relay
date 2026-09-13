@@ -1,4 +1,4 @@
-"""Delivery ownership for the shared orchestrator's Telegram and Messages fronts."""
+"""Delivery ownership for Telegram, Messages and local desktop planning."""
 
 
 def initialize(db):

@@ -43,6 +43,10 @@ def snapshot():
         objects[o.name]=data
     materials={}
     for m in bpy.data.materials:
+        # Unused, non-retained datablocks disappear on save/reopen (including
+        # Blender's default Material after a generated scene deletes the cube).
+        # They are not part of the persisted candidate's material contract.
+        if m.users == 0 and not m.use_fake_user:continue
         data={'properties':properties(m)}
         if m.node_tree:
             data['nodes']=[{'name':n.name,'type':n.bl_idname,'properties':properties(n),

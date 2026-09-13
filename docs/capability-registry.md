@@ -5,6 +5,14 @@ give a language model new powers or grant native tool permissions.
 
 ## Execution paths
 
+Relay's direct web tools perform public search/fetch, not browser interaction.
+The experimental [Perplexity browser CLI](perplexity-browser.md) is a separate
+local pilot. Its sign-in can be started with `/browser connect` in either channel
+or through Telegram Providers. Conversation execution is not yet an orchestrator
+tool, managed backend or Telegram route;
+its standalone authenticated execution needs qualification before advertising it
+as an available worker capability.
+
 O03 adds `plan_production` (template, project, reference pack, explicit research IDs,
 planning-only intent, optional prior plan ID) and `authorize_production_plan`
 (saved plan ID). The first saves a bounded planning operation; the second presents
@@ -21,6 +29,7 @@ runtime. See [new workflow planning](new-pipeline-planning.md) for limits and ev
 | Existing Gemini/OpenAI/Qwen/DeepSeek/OpenRouter text task | Three read-only file tools | `backend_jobs`, native provider/tool receipts |
 | Relay actions | Existing image, reference, research-folder and production/workflow controls | Existing adapter receipts and user gates |
 | Registered production worker | Files/shell within its frozen assignment | Runtime attempts, artifacts, independent review and user selection |
+| Direct Rhino 7/8 host operations | Startup, selected `.3dm` inspection and exact-approved interpreter-specific creation/editing and native rendering on macOS; Grasshopper paused | Exact script/input grants, process ownership, native candidate, independent reopen checks and viewport preview; [scope](rhino.md) |
 
 Every ordinary orchestrator request receives a current capability catalog. Targets
 include their project, provider, declared capabilities, availability/blocker and
@@ -90,3 +99,18 @@ entry, example and total-byte limits; it is not a general-purpose memory system.
 Previously registered video workers already carried copied content guides. Guide
 presence does not establish that an editor followed the desired voice or that a
 draft is acceptable. Creative review and the user's corrections remain necessary.
+
+## Large desktop file-change approvals
+
+Telegram file-change approvals include complete literal diffs and requested access.
+Small reviews stay inline. Reviews larger than 6,000 UTF-8 bytes use a compact card
+and a named `.txt` document. The report is tied to the exact request fingerprint and
+stored under the data directory's `approval-reports/` folder.
+
+Allow is accepted only after the card and document are delivered, the report hash
+still matches, and the desktop owner, request and diff remain unchanged. You can
+use the card buttons or reply to its document with `/allow` or `/deny`. Delivery
+failure never makes a summary sufficient for approval. Missing diffs or requests
+above the 1 MB serialized UTF-8 detail bound retain desktop review. This replaces
+the former 10,000-character escaped-JSON cutoff for file changes; command and
+permission cards retain their existing limits. No approval is submitted automatically.

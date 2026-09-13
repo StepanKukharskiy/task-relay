@@ -20,7 +20,21 @@ def files(state, focus=None):
         ','.join('?' for _ in scopes)+") AND status IN ('pending','ready','failed') ORDER BY rowid", scopes)]
 
 
-def queue(state, job, reference_ids):
+def validate_selection(action, snapshot):
+    from task_relay import routing_inputs
+    refs=action.get('reference_ids');artifacts=action.get('artifact_ids',[])
+    available={f['id'] for f in snapshot.get('uploaded_files',[]) if f['status']=='ready'}
+    if (set(action)-{'artifact_ids'}!={'kind','reference_ids'} or not isinstance(refs,list)
+            or any(type(i) is not int or i not in available for i in refs) or len(set(refs))!=len(refs)):
+        raise ValueError('Choose ready uploaded references and exact production artifact IDs.')
+    routing_inputs.validate_artifact_ids(artifacts,snapshot.get('production_artifacts',[]))
+    if len(refs)+len(artifacts)>6:raise ValueError('Choose at most six image references in total.')
+    known={a['id']:a for a in snapshot.get('production_artifacts',[])}
+    if any(Path(known[i]['path']).suffix.lower() not in ('.png','.jpg','.jpeg','.webp') for i in artifacts):
+        raise ValueError('Image generation needs an image artifact, not a Blender scene or report.')
+
+
+def queue(state, job, reference_ids, artifact_ids=None):
     from task_relay import backends
     from task_relay import gemini
     from task_relay import production_control as pc
@@ -30,6 +44,10 @@ def queue(state, job, reference_ids):
         return existing['task_id'], 'This image request is already queued or handled. No duplicate generation was started.'
     if not state.db.in_transaction:
         raise ValueError('Image queueing requires an outer transaction.')
+    from task_relay import routing_inputs
+    artifact_ids=[] if artifact_ids is None else artifact_ids
+    validate_selection({'kind':'generate_image','reference_ids':reference_ids,'artifact_ids':artifact_ids},
+        {'uploaded_files':files(state,job['focus']),'production_artifacts':routing_inputs.artifact_catalog(state)})
     available={f['id']:f for f in files(state,job['focus'])}
     references=[]
     for ident in reference_ids:
@@ -41,6 +59,16 @@ def queue(state, job, reference_ids):
             raise ValueError('The uploaded reference changed. Please upload it again.')
         mime=gemini.validate_input(path,row['filename'])
         references.append((row,path,mime))
+    catalog={a['id']:a for a in routing_inputs.artifact_catalog(state)}
+    if sum(r[0]['bytes'] for r in references)+sum(catalog[i]['bytes'] for i in artifact_ids)>11_000_000:
+        raise ValueError('Image references exceed 11 MB total.')
+    frozen=routing_inputs.freeze_artifacts(state,job,artifact_ids)
+    for record in frozen:
+        artifact=dict(state.db.execute('SELECT * FROM production_artifacts WHERE id=?',(record['artifact_id'],)).fetchone())
+        path=Path(record['path']);filename=pc.artifact_filename(state,artifact)
+        mime=gemini.validate_input(path,filename)
+        references.append((dict(id=record['artifact_id'],filename=filename,bytes=record['bytes'],run=record['run'],
+            caption='',sha256=record['sha256']),path,mime))
     if sum(r[0]['bytes'] for r in references)>11_000_000:
         raise ValueError('Image references exceed 11 MB total.')
     config=gemini.read_config()
@@ -61,6 +89,7 @@ def queue(state, job, reference_ids):
         prompt+='\n\nUser-supplied reference captions:\n'+'\n'.join(captions)
     backend_job=backends.enqueue(state,tid,prompt,internal_id,'image',transaction=False)
     state.db.execute('INSERT INTO orchestrator_image_requests VALUES (?,?,?,?)',(job['id'],tid,backend_job,json.dumps(reference_ids)))
+    state.put('image-artifact-inputs:'+str(job['id']),frozen)
     for row,_,_ in references:
         if row['run']==UPLOAD_SCOPE:
             state.db.execute("UPDATE production_uploads SET status='used' WHERE id=?",(row['id'],))

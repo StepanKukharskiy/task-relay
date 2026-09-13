@@ -17,9 +17,19 @@ class GeminiFactory(CodexFactory):
         control=Path(control);control.mkdir(parents=True,exist_ok=False)
         support_hash=prepare_supervisor(control,frozen)
         (control/'prompt.txt').write_text('Gemini file executor; frozen assignment supplies scope.\n')
-        command=[sys.executable,str(Path(__file__).with_name('gemini_worker.py')),str(control),str(workspace)]
+        python=sys.executable;worker='gemini_worker.py'
+        if backend['type']=='gemini-browser':
+            from task_relay.host import HOST
+            from task_relay.relay_paths import PATHS
+            python=HOST.browser_python(PATHS.install,PATHS.data);worker='browser_worker.py'
+        browser_support={}
+        if backend['type']=='gemini-browser':
+            from .browser_worker import support_hashes
+            browser_support=support_hashes()
+        command=[python,str(Path(__file__).with_name(worker)),str(control),str(workspace)]
         atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,'workspace':str(workspace),
             'limits':frozen['limits'],'registered_command':command,'backend':backend,
+            'browser_support':browser_support,
             'credential_fingerprint':executors.fingerprint(config,backend)})
         return {'id':frozen['assignment_id'],'control':str(control),'adapter':'gemini-agent','backend':backend}
 
@@ -31,10 +41,22 @@ class GeminiFactory(CodexFactory):
             stem=request.name.removesuffix('.request.json');outcome=control/(stem+'.outcome.json')
             detail=json.loads(outcome.read_text()) if outcome.exists() else {}
             if not (control/(stem+'.response.json')).exists() and detail.get('outcome')!='rejected':unknown.append(stem)
-        result.update(backend=session['backend'],api_requests=len(list(control.glob('api-*.request.json'))),
-                      external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
+        result.update(backend=session['backend'],api_requests=len(list(control.glob('api-*.request.json'))))
+        browser_result=control/'browser-result.json'
+        if session['backend']['type']=='gemini-browser' and browser_result.exists():
+            try:
+                detail=json.loads(browser_result.read_text())
+                if not isinstance(detail,dict) or not isinstance(detail.get('actions'),list) or not isinstance(detail.get('uncertain_actions'),list) or not detail.get('profile') or not detail.get('job'):
+                    raise ValueError('Incomplete browser receipt')
+                if session.get('id') and detail['job']!=session['id']:raise ValueError('Browser receipt belongs to another assignment')
+                result['browser']=detail
+                if detail['uncertain_actions']:unknown.append('browser_actions')
+            except (ValueError,OSError):unknown.append('invalid_browser_receipt')
+        elif session['backend']['type']=='gemini-browser':
+            unknown.append('missing_browser_receipt')
+        result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
         if unknown and not (control/'cancel.json').exists():
-            result.update(status='uncertain',local_terminal=True,reason='Gemini request outcome is unknown; stopped locally, never replayed or switched providers.')
+            result.update(status='uncertain',local_terminal=True,reason='Provider or browser outcome is unknown; stopped locally, never replayed or switched providers.')
         return result
 
 
@@ -82,7 +104,7 @@ class ExecutionFactory:
 
     def create(self,control,workspace,frozen,backend):
         if frozen.get('execution'):adapter=self.registered
-        elif backend['type']=='gemini-agent':adapter=self.gemini
+        elif backend['type'] in ('gemini-agent','gemini-browser'):adapter=self.gemini
         elif backend['type']=='codex-cli':adapter=self.agents
         else:raise ValueError('Unsupported execution provider; no fallback.')
         return adapter.create(control,workspace,frozen,backend)

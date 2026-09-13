@@ -68,6 +68,7 @@ HELP = ('Reply to a completion message to continue that exact task.\n'
         '/allow ID or /deny ID — answer a Codex or Claude permission request\n'
         '/stop — stop the selected or replied-to managed task\n'
         '/providers — connect providers and choose default models\n'
+        '/browser TASK — plan a browser task; connect|status|cancel — Perplexity sign-in\n'
         '/workflow — linked roadmap runs and step budgets\n'
         '/orchestrator — talk about and control linked workflows\n'
         '/workflow run NAME 1 · /workflow plan NAME · /workflow pause NAME\n'
@@ -479,6 +480,14 @@ class State:
             PRIMARY KEY(chat_id, message_id));
           CREATE TABLE IF NOT EXISTS incoming (
             id INTEGER PRIMARY KEY, status TEXT, thread_id TEXT);
+          CREATE TABLE IF NOT EXISTS desktop_commands (
+            request_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, prompt TEXT NOT NULL,
+            incoming_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL,
+            created REAL NOT NULL, result TEXT);
+          CREATE TABLE IF NOT EXISTS desktop_creations (
+            request_id TEXT PRIMARY KEY, backend TEXT NOT NULL, cwd TEXT NOT NULL,
+            title TEXT NOT NULL, status TEXT NOT NULL, created REAL NOT NULL,
+            task_id TEXT, result TEXT);
           CREATE TABLE IF NOT EXISTS task_emojis (
             thread_id TEXT PRIMARY KEY, emoji TEXT NOT NULL, emoji_key TEXT UNIQUE NOT NULL,
             custom INTEGER NOT NULL DEFAULT 0);
@@ -495,7 +504,11 @@ class State:
         workflows.initialize(self.db)
         orchestrator_chat.initialize(self.db)
         relay_channels.initialize(self.db)
+        from . import desktop_plans
+        desktop_plans.initialize(self.db)
         usage_tracker.initialize(self.db)
+        from task_relay.messages_storage import initialize as initialize_messages
+        initialize_messages(self.db)
         if 'entities' not in {r[1] for r in self.db.execute('PRAGMA table_info(outbox_parts)')}:
             self.db.execute('ALTER TABLE outbox_parts ADD COLUMN entities TEXT')
         os.chmod(path, 0o600)
@@ -741,6 +754,8 @@ class Bridge:
     def flush(self, include_media=True):
         with self.state.db:
             self.state.put('health:messages-routing', {'version': 1, 'last_success': time.time()})
+            for row in relay_channels.pending(self.state, 'desktop', limit=50):
+                self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', (row['id'],))
         if self.state.get('chat_id') is None:
             return
         for row in relay_channels.pending(self.state, 'telegram'):
@@ -814,6 +829,9 @@ class Bridge:
                     if row['thread_id']:
                         self.state.remember(self.state.get('chat_id'), response['message_id'], row['thread_id'])
                     orchestrator_chat.remember(self.state, row['event_id'], self.state.get('chat_id'), response['message_id'])
+                    approval = approval_ui.controls(self.state, row['event_id'])
+                    if approval:
+                        approval_ui.remember(self.state, self.state.get('chat_id'), response['message_id'], approval[0])
                     if isinstance(response.get('video'), dict):
                         self.state.put('video-receipt:' + row['id'], {key: response['video'].get(key) for key in ('width', 'height', 'duration')})
                     self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE id=?", (row['id'],))
@@ -896,6 +914,16 @@ class Bridge:
         command = command.split('@')[0]
         if command == '/usage':
             try:self.send(usage_tracker.command(self.state,arg))
+            except ValueError as exc:self.send(str(exc))
+            return
+        if command == '/browser':
+            from . import browser_setup
+            from orchestrator.storage import transaction
+            try:
+                with transaction(self.state.db):
+                    result=browser_setup.command(self.state,arg,'telegram:'+str(update_id))
+                    self.state.db.execute('INSERT INTO incoming VALUES (?,?,NULL)',(update_id,'handled'))
+                self.send(result)
             except ValueError as exc:self.send(str(exc))
             return
         if command in ('/workflow', '/workflows'):
@@ -1257,7 +1285,7 @@ class Bridge:
                     codex_inputs.claim(self.state, update_id, input_ids)
                     self.state.db.execute('UPDATE incoming SET status=?,thread_id=? WHERE id=?',
                                           ('submitting', thread_id, update_id))
-                    relay_channels.bind(self.state, 'task', thread_id, 'telegram')
+                    relay_channels.bind(self.state, 'task', thread_id, getattr(self, 'channel', 'telegram'))
                 desktop.start(thread_id, prompt, owner, **({'images': images} if images else {}))
         except Exception as exc:
             status = self.state.db.execute('SELECT status FROM incoming WHERE id=?', (update_id,)).fetchone()[0]
@@ -1387,6 +1415,11 @@ class BackgroundWorkers:
                'codex-inputs': codex_inputs.Worker(state, bridge.telegram).tick,
                'providers': provider_worker.tick if provider_worker else None}[name]
         backoff = 2
+        runtime_evidence = {}
+        if name == 'orchestrator-chat':
+            from orchestrator.execution import REGISTRY
+            runtime_evidence = {'interface_version': 1, 'process_id': os.getpid(),
+                                'registered_graph_operations': sorted(REGISTRY)}
         try:
             while not self.stop.is_set():
                 start = time.monotonic()
@@ -1395,7 +1428,7 @@ class BackgroundWorkers:
                     with state.db:
                         state.put(f'health:{name}', {'last_success': time.time(),
                                                    'seconds': round(time.monotonic() - start, 3),
-                                                   **({'interface_version': 1} if name == 'orchestrator-chat' else {})})
+                                                   **runtime_evidence})
                     backoff = 2
                     self.stop.wait(interval)
                 except Exception as exc:
@@ -1434,6 +1467,10 @@ def receive_updates(bridge):
                 'delivery_lag_seconds': max(0, round(received - update.get('message', {}).get('date', received), 3))})
     with state.db:
         state.put('health:poll', {'last_success': time.time()})
+    from .desktop_tasks import process_commands
+    process_commands(bridge)
+    from .desktop_plans import process_requests
+    process_requests(state)
 
 
 def run():
@@ -1446,6 +1483,8 @@ def run():
         raise BridgeError('The bridge is already running.') from None
     from .update_gate import startup
     startup()
+    from task_relay.messages_storage import require_consolidated
+    require_consolidated(DATA / 'state.sqlite', PATHS.messages)
     state = State(DATA / 'state.sqlite')
     pacer = SendPacer()
     bridge = Bridge(state, Telegram(config['token'], pacer), config)
@@ -1460,6 +1499,8 @@ def run():
                                'The bridge restarted before delivering your instruction. Please send it again.')))
         state.db.execute("UPDATE incoming SET status='uncertain' WHERE status='submitting' AND NOT EXISTS (SELECT 1 FROM backend_tasks b WHERE b.id=incoming.thread_id)")
         state.db.execute("UPDATE incoming SET status='failed' WHERE status='received' AND NOT EXISTS (SELECT 1 FROM backend_tasks b WHERE b.id=incoming.thread_id)")
+    from .desktop_tasks import recover_commands
+    recover_commands(state)
     workers = BackgroundWorkers(DATA / 'state.sqlite', config, pacer)
     workers.start()
     shutdown_requested = threading.Event()

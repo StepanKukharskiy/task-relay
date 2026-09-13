@@ -1,5 +1,12 @@
 # Messages Relay
 
+The [Task Relay companion](../desktop/README.md) now provides one settings surface
+for Telegram and the optional Messages connection. Existing Messages Relay.app
+installations remain active until an explicit reviewed handoff to the bundled
+hidden helper. Pairing/history stay in place; permissions at the new helper
+location and live handoff still need qualification. First-time enrollment retains
+the pilot setup below. This does not add attachments or channel parity.
+
 ## Orchestrator as the default
 
 Send ordinary text in the paired self-chat to give an instruction to the shared Task Relay orchestrator. `/orchestrator YOUR INSTRUCTION` is an explicit equivalent. It can route instructions to existing tasks, collect references, and control registered production stages using the same saved project state as the Telegram interface. Creating arbitrary new workflows from a message is not implemented yet.
@@ -10,15 +17,15 @@ Ordinary text always goes to the orchestrator. `/codex` and `/gemini` still addr
 
 Messages conversation history is separate from Telegram history. Jobs, registered productions, and task state are shared. Results return to their originating interface; a task or production controlled from Messages sends subsequent progress there until it is controlled from Telegram again. The pilot and shared task watcher deduplicate results for the pilot's original Codex task. Bot headers and inbound self-chat echoes are ignored, so generated replies do not start new requests.
 
-This interface accepts and sends text only. Generated files are reported with their local Mac paths. Attachments, macOS/Codex approvals, and Codex input questions still require the Mac. Orchestrator jobs and delivery receipts live in `private/state.sqlite`; the paired chat and outgoing Messages queue remain in `private/messages-pilot/state.sqlite`.
+This interface accepts and sends text only. Generated files are reported with their local Mac paths. Attachments, macOS/Codex approvals, and Codex input questions still require the Mac. All Relay records live in `private/state.sqlite`, including pairing, outgoing Messages parts, provider history, orchestration and delivery receipts. Messages uses namespaced tables and explicit channel ownership in that shared database.
 
 ## Background service and Gemini
 
 Messages Relay now supports `/gemini YOUR INSTRUCTION` and `/codex YOUR INSTRUCTION`. Either command also selects that provider, so `/ask YOUR INSTRUCTION` continues it. Use `/gemini` or `/codex` alone to switch without starting work. `/new gemini` starts a fresh Gemini conversation; `/stop gemini` requests cancellation; `/status` shows both providers.
 
-The Gemini adapter reuses the API key and enabled/default model settings in the existing Task Relay connection. Messages has its own Gemini conversation history and job queue in `private/messages-pilot/providers.sqlite`; it does not import Telegram conversations. Text runs use the same existing read-only project file tools, scoped to this Codex task's project folder. Image, video, speech, attachment intake, and phone approvals are not wired to Messages in this version. Each result carries its source provider label, even if you switch while it is running.
+The Gemini adapter reuses the API key and enabled/default model settings in the existing Task Relay connection. Messages keeps its own Gemini conversation identity in the shared database; it does not import Telegram conversations. The main Relay service executes both channels’ jobs through one Gemini worker. The Messages service only handles the chat interface and delivery. Text runs use the same existing read-only project file tools, scoped to this Codex task's project folder. Image, video, speech, attachment intake, and phone approvals are not wired to Messages in this version. Each result carries its source provider label, even if you switch while it is running.
 
-`Messages Relay.app` is a small menu-bar app (the **scribble logo** menu) supervised by the user's login LaunchAgent `com.personal.taskrelay.messages`. It starts after login, runs without Terminal, and restarts its worker after failure. Keep this project folder in place and the Mac awake and online. Codex tasks need Codex open. Gemini only needs its saved API connection.
+`Messages Relay.app` is a small menu-bar app (the **scribble logo** menu) supervised by the user's login LaunchAgent `com.personal.taskrelay.messages`. It starts after login, runs without Terminal, and restarts its worker after failure. Keep this project folder in place and the Mac awake and online. Codex tasks need Codex open. Gemini needs its saved API connection and the main Relay service running.
 
 The app needs its own **Full Disk Access** permission, because Terminal's permission does not necessarily apply to a login service. Add **Messages Relay.app** from your home **Applications** folder in System Settings → Privacy & Security → Full Disk Access. Allow Messages automation if macOS prompts. The app menu provides a shortcut to the settings and Start / Restart. **Pause** stops work until you resume it; pairing and provider history stay saved. Do not also run the foreground pilot; both use the same exclusive lock.
 
@@ -38,7 +45,7 @@ Checks: 25 tests cover the pilot, the observed Tahoe self-chat format, Gemini/Co
 
 The foreground instructions below remain available for troubleshooting, with `/ask` now using the selected provider.
 
-The direct `/codex` command controls the original Codex task from an iPhone self-chat using the same Apple Account as the Mac. First setup requires an explicit `--task TASK_UUID`; later starts reuse the saved task. The orchestrator can route to other existing tasks. Pilot state lives separately in `private/messages-pilot/state.sqlite`.
+The direct `/codex` command controls the original Codex task from an iPhone self-chat using the same Apple Account as the Mac. First setup requires an explicit `--task TASK_UUID`; later starts reuse the saved task. The orchestrator can route to other existing tasks. Pilot state is stored in the shared database; `private/messages-pilot/` holds its lock, health and retained historical files.
 
 ## Start
 
@@ -74,8 +81,20 @@ python3 messages_pilot.py --ack-delivery 'THE_PRINTED_ID'
 
 This skips the uncertain part, whether or not it arrived. It never sends it again. If you need the missing result, read it in Codex or send a new explicit request after recovery. Stop any running pilot before either recovery command. Use the same Python interpreter as the launcher if `python3` is not installed in your Terminal path.
 
-Only one process can hold the pilot lock. To start a different pilot or replace a stale pairing after a Messages database restore, choose a **new** private state directory and an exact existing task ID:
+Only one process can hold the pilot lock. A Relay installation has one Messages pairing. `--state` does not create a second pairing or database; a separate installation must use its own `TASK_RELAY_DATA_DIR`.
+
+## Consolidating older installations
+
+Stop both services before running the operator migration:
 
 ```sh
-python3 messages_pilot.py --state private/messages-pilot-new --task TASK_UUID
+task-relay storage consolidate-messages
 ```
+
+It holds both service locks, checks for in-flight work and makes integrity-checked SQLite backups under the data directory’s `backups/` folder. It imports the older Messages transport and provider databases in one transaction, preserving exact prompts, conversation IDs, file paths, pending/uncertain deliveries and deduplication records. Existing Telegram preferences remain unchanged. Conflicting record identities or unknown populated tables abort the import.
+
+A generated task emoji may need reassignment to avoid an existing emoji; the receipt records both values. A conflicting custom emoji requires an explicit resolution. Usage identities move with their records so future refreshes do not double-count the same calls.
+
+After commit, the original databases move into the backup folder. An already-migrated legacy orchestration database is archived there too. Restart both services after the command succeeds. Startup refuses unmigrated Messages databases. Rerunning the command after interrupted archival resumes retirement without importing or dispatching work again.
+
+The committed `storage_migrations` receipt records the input snapshots, row counts and any remapping. Backups are recovery copies, never runtime inputs. File artifacts and model response/history files stay at their original paths. To roll back before resuming work, stop both services, restore all database snapshots listed in that receipt (including the main database) to their original paths, and restore the matching old application version together. Never restore a single stale database after new work has started; that would discard newer records or risk replay. Migration itself sends no messages and invokes no providers.

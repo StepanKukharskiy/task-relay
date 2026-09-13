@@ -1,4 +1,4 @@
-"""Explicit, request-scoped Telegram decisions for the local desktop owner.
+"""Explicit, request-scoped Telegram and Task Relay desktop decisions.
 
 Desktop IPC is internal and version checked in bridge.Desktop. The relay never
 edits Codex state or policy, opens tasks while polling, or retries a decision.
@@ -6,6 +6,7 @@ edits Codex state or policy, opens tasks while polling, or retries a decision.
 import hashlib
 import json
 import secrets
+from pathlib import Path
 from task_relay import codex_requests
 
 COMMAND = 'item/commandExecution/requestApproval'
@@ -19,6 +20,8 @@ METHODS = {
 }
 NOTIFY_ONLY = {codex_requests.INPUT}
 MAX_DETAILS = 10000
+MAX_FILE_REPORT = 1_000_000  # UTF-8 bytes, not escaped protocol JSON characters.
+INLINE_FILE_LIMIT = 6000
 
 
 def initialize(db):
@@ -27,6 +30,8 @@ def initialize(db):
         fingerprint TEXT UNIQUE NOT NULL, request_json TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending', can_allow INTEGER NOT NULL,
         decision TEXT)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS codex_approval_reports(
+        token TEXT PRIMARY KEY,path TEXT NOT NULL,sha256 TEXT NOT NULL,media_id TEXT NOT NULL)''')
 
 
 def serialized(value):
@@ -53,21 +58,26 @@ def details(request, snapshot):
 def fingerprint(thread_id, owner, request, snapshot):
     # Version the reviewed presentation so pending legacy desktop-only cards
     # are replaced once, with fresh tokens and complete actionable details.
-    return hashlib.sha256(serialized([2, thread_id, owner, details(request, snapshot)]).encode()).hexdigest()
+    version = 3 if request.get('method') == FILE else 2
+    return hashlib.sha256(serialized([version, thread_id, owner, details(request, snapshot)]).encode()).hexdigest()
 
 
 def can_allow(request, detail):
     p, method = request['params'], request['method']
     if method == codex_requests.MCP:
         return codex_requests.supported(request)
+    if method == FILE:
+        changes = detail.get('fileChange', {}).get('changes')
+        return (isinstance(changes, list) and bool(changes)
+                and all(isinstance(c, dict) and isinstance(c.get('path'), str) and c['path']
+                        and isinstance(c.get('diff'), str) and c['diff'] for c in changes)
+                and len(json.dumps(detail, ensure_ascii=False).encode('utf-8')) <= MAX_FILE_REPORT)
     if len(json.dumps(detail, indent=2, ensure_ascii=True, sort_keys=True)) > MAX_DETAILS:
         return False
     if method == COMMAND:
         choices = p.get('availableDecisions')
         return bool(p.get('command') or p.get('networkApprovalContext')) and (
             choices is None or 'accept' in choices)
-    if method == FILE:
-        return bool(detail.get('fileChange', {}).get('changes'))
     if method == PERMISSIONS:
         return isinstance(p.get('permissions'), dict) and bool(p['permissions'])
     return False
@@ -80,9 +90,26 @@ def queue_card(state, token, thread_id, title, request, detail, allow):
     from task_relay import approval_text
     from task_relay.telegram_text import split_rendered
     readable = codex_requests.render(title, request) if codex_requests.supported(request) else None
-    too_large = len(json.dumps(detail, indent=2, ensure_ascii=True, sort_keys=True)) > MAX_DETAILS
+    too_large = (len(json.dumps(detail, ensure_ascii=False).encode('utf-8')) > MAX_FILE_REPORT if request['method'] == FILE
+                 else len(json.dumps(detail, indent=2, ensure_ascii=True, sort_keys=True)) > MAX_DETAILS)
     text, entities = readable or approval_text.render(title, request, detail, allow, too_large)
     event_id = 'codex-approval:' + token
+    if request['method'] == FILE and not too_large and len(text.encode('utf-8')) > INLINE_FILE_LIMIT:
+        # The full literal review is an immutable attachment. The short card is
+        # only navigation; a summary alone never makes the request approvable.
+        report = state.media_dir.parent / 'approval-reports' / (token + '.txt')
+        report.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        payload = (text + '\n\nRequest identity: ' + token + '\n').encode('utf-8')
+        with report.open('xb') as stream:
+            stream.write(payload)
+        report.chmod(0o400)
+        media_id = event_id + ':report'
+        state.db.execute('INSERT INTO codex_approval_reports VALUES (?,?,?,?)',
+                         (token, str(report), hashlib.sha256(payload).hexdigest(), media_id))
+        state.db.execute('INSERT INTO media_outbox(id,event_id,thread_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?,?)',
+                         (media_id, event_id, thread_id, str(report), 'file-changes-' + token + '.txt', 'original',
+                          'Complete file-change review. Read this document before approving the matching card.'))
+        text, entities = approval_text.file_summary(title, detail, token, allow)
     state.db.execute('INSERT INTO outbox(id,thread_id,text) VALUES (?,?,?)',
                      (event_id, thread_id, text))
     for i, (chunk, selected) in enumerate(split_rendered(text, entities, split_text)):
@@ -118,6 +145,8 @@ def sync(state, thread_id, owner, snapshot, title=''):
                 # Suppress queued obsolete cards. Already delivered cards remain
                 # bound to their spent token and cannot approve a later request.
                 state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', ('codex-approval:' + row['id'],))
+                state.db.execute("UPDATE media_outbox SET status='skipped' WHERE event_id=? AND status='pending'",
+                                 ('codex-approval:' + row['id'],))
 
 
 class Worker:
@@ -126,8 +155,6 @@ class Worker:
         self.cursor = 0
 
     def tick(self):
-        if self.state.get('chat_id') is None:
-            return
         rows = self.state.db.execute("SELECT id,title FROM watched WHERE status='running' OR id IN "
                                      "(SELECT thread_id FROM codex_approvals WHERE status='pending') ORDER BY id").fetchall()
         if not rows:
@@ -140,24 +167,36 @@ class Worker:
         sync(self.state, row['id'], owner, snapshot, row['title'] or '')
 
 
-def decide(state, token, allow, desktop_factory, *, answer=None):
+def decide(state, token, allow, desktop_factory, *, answer=None, desktop_review_fingerprint=None):
     row = state.db.execute('SELECT * FROM codex_approvals WHERE id=?', (token,)).fetchone()
     if row and row['status'] in ('submitting', 'uncertain'):
         raise ValueError('Your decision was recorded, but the relay did not save Codex’s confirmation. '
                          'Codex may already have acted on it. This can happen when an approved command restarts the relay. '
                          'This decision will not be sent again.')
     if row and row['status'] == 'submitted':
-        raise ValueError('This request was already answered through Telegram. The decision will not be sent again.')
+        raise ValueError('This request was already answered. The decision will not be sent again.')
     if not row or row['status'] != 'pending':
         raise ValueError('This Codex request is no longer pending. Check the desktop task.')
     request = json.loads(row['request_json'])
+    desktop_review = desktop_review_fingerprint is not None
+    if desktop_review and desktop_review_fingerprint != row['fingerprint']:
+        raise ValueError('The reviewed request changed. Refresh its approval card.')
     answering = answer is not None and request['method'] == codex_requests.INPUT
     answer_payload = codex_requests.parse_answers(request, answer) if answering else None
     if (not answering and request['method'] not in METHODS) or (allow and not row['can_allow']):
         raise ValueError('This request requires desktop review.')
-    if (allow or answering) and not state.db.execute('SELECT 1 FROM outbox WHERE id=? AND sent=1',
+    if (allow or answering) and not desktop_review and not state.db.execute('SELECT 1 FROM outbox WHERE id=? AND sent=1',
                                      ('codex-approval:' + token,)).fetchone():
         raise ValueError('Wait until all approval details have been delivered before approving.')
+    report = state.db.execute('SELECT r.*,m.status FROM codex_approval_reports r '
+                             'LEFT JOIN media_outbox m ON m.id=r.media_id WHERE r.token=?', (token,)).fetchone()
+    if allow and report:
+        if report['status'] != 'sent' and not desktop_review:
+            raise ValueError('The complete file-change document has not been delivered. Wait for it before approving; denial is still available.')
+        path = Path(report['path'])
+        if (path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_FILE_REPORT * 3
+                or hashlib.sha256(path.read_bytes()).hexdigest() != report['sha256']):
+            raise ValueError('The saved review document changed or is missing. Review this request on desktop.')
     with desktop_factory() as desktop:
         owner = desktop.owner(row['thread_id'])
         snapshot = desktop.approval_snapshot(row['thread_id'], owner)
@@ -166,6 +205,9 @@ def decide(state, token, allow, desktop_factory, *, answer=None):
                 fingerprint(row['thread_id'], owner, match, snapshot) != row['fingerprint']):
             with state.db:
                 state.db.execute("UPDATE codex_approvals SET status='resolved' WHERE id=? AND status='pending'", (token,))
+                state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', ('codex-approval:' + token,))
+                state.db.execute("UPDATE media_outbox SET status='skipped' WHERE event_id=? AND status='pending'",
+                                 ('codex-approval:' + token,))
             raise ValueError('This approval changed or was already answered on desktop. Use the current request.')
         method = codex_requests.INPUT_METHOD if answering else METHODS[request['method']]
         params = {'conversationId': row['thread_id'], 'requestId': request['id']}
@@ -197,4 +239,8 @@ def decide(state, token, allow, desktop_factory, *, answer=None):
             raise ValueError('Decision delivery is uncertain. Check Codex on desktop; the relay will not resend it.') from None
     with state.db:
         state.db.execute("UPDATE codex_approvals SET status='submitted' WHERE id=?", (token,))
+        if desktop_review:
+            state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', ('codex-approval:' + token,))
+            state.db.execute("UPDATE media_outbox SET status='skipped' WHERE event_id=? AND status='pending'",
+                             ('codex-approval:' + token,))
     return row['thread_id'], 'Answer sent to Codex.' if answering else 'Approval sent to Codex.' if allow else 'Denial sent to Codex.'

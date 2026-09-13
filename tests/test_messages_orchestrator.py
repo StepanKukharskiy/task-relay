@@ -53,6 +53,17 @@ class Tests(unittest.TestCase):
         self.pilot.receive(self.msg('Still orchestrator', 'plain-again'))
         self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0], 2)
 
+    def test_browser_setup_command_is_paired_and_bypasses_the_model(self):
+        r=self.router();self.pair()
+        self.pilot.receive(self.msg('/browser connect','wrong',chat_id=99))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM provider_jobs').fetchone()[0],0)
+        self.pilot.receive(self.msg('/browser connect','connect'))
+        self.pilot.receive(self.msg('/browser connect','connect'))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM provider_jobs').fetchone()[0],1)
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        row=r.state.db.execute('SELECT channel FROM browser_setup_requests').fetchone()
+        self.assertEqual(row['channel'],'messages')
+
     def test_service_readiness_and_queue_cap(self):
         r = self.router(ready=True)
         with self.assertRaisesRegex(ValueError, 'offline'): r.submit('a', 'hello')
@@ -109,7 +120,7 @@ class Tests(unittest.TestCase):
             self.append('task_complete', first)
             if first == 'pilot': self.pilot.scan()
             r.tick(self.pilot); self.pilot.scan(); self.drain(); r.acknowledge(self.pilot)
-            self.assertEqual(self.store.db.execute('SELECT count(*) FROM delivery WHERE id=?', (f'{first}:task_complete:1',)).fetchone()[0], 1)
+            self.assertEqual(self.store.db.execute('SELECT count(*) FROM messages_delivery WHERE id=?', (f'{first}:task_complete:1',)).fetchone()[0], 1)
         self.assertEqual(len(self.transport.sent), 3)
 
     def test_prior_outputs_keep_channel_after_ownership_changes(self):

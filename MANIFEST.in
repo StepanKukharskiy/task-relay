@@ -5,6 +5,10 @@ include pyproject.toml MANIFEST.in README.md LICENSE
 include *.py
 recursive-include task_relay *.py
 include task_relay/assets/*.png
+include task_relay/assets/*.html
+include task_relay/assets/*.css
+include task_relay/assets/*.js
+recursive-include task_relay/assets/vendor *.js *.LICENSE *.txt
 include task_relay/assets/requirements-claude*.txt
 include task_relay/assets/macos/*.swift
 include orchestrator/*.py

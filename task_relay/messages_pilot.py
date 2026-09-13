@@ -22,6 +22,7 @@ ROOT = PATHS.install
 HELP = ('Ordinary text goes to the orchestrator.\n'
         '/orchestrator YOUR INSTRUCTION — talk to the orchestrator\n'
         '/choose CODE NUMBER — answer the choices on a card\n'
+        '/browser TASK — plan a browser task; connect|status|cancel — Perplexity sign-in\n'
         '/ping — check Messages connection\n/status — check the task\n'
         '/gemini YOUR INSTRUCTION — talk to Gemini\n/codex YOUR INSTRUCTION — continue this Codex task\n'
         '/ask YOUR INSTRUCTION — continue the selected provider\n'
@@ -48,27 +49,29 @@ def write_health(folder, status, detail=''):
 
 
 class Store:
-    def __init__(self, path):
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.db = sqlite3.connect(path)
-        os.chmod(path, 0o600)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript('''
-            PRAGMA journal_mode=WAL;
-            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS commands(guid TEXT PRIMARY KEY,status TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS delivery(id TEXT PRIMARY KEY,text TEXT NOT NULL,status TEXT NOT NULL);
-        ''')
+    def __init__(self, path=None, *, state=None):
+        from task_relay.messages_storage import initialize
+        if state is None:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.db = sqlite3.connect(path)
+            os.chmod(path, 0o600)
+            self.db.row_factory = sqlite3.Row
+            self.db.execute('PRAGMA journal_mode=WAL')
+            self.db.execute('PRAGMA busy_timeout=5000')
+        else:
+            self.db = state.db
+        initialize(self.db)
+        self.db.commit()
         with self.db:
-            self.db.execute("UPDATE commands SET status='uncertain' WHERE status='submitting'")
-            self.db.execute("UPDATE delivery SET status='uncertain' WHERE status='sending'")
+            self.db.execute("UPDATE messages_commands SET status='uncertain' WHERE status='submitting'")
+            self.db.execute("UPDATE messages_delivery SET status='uncertain' WHERE status='sending'")
 
     def get(self, key, default=None):
-        row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        row = self.db.execute('SELECT value FROM messages_settings WHERE key=?', (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
     def put(self, key, value):
-        self.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
+        self.db.execute('INSERT OR REPLACE INTO messages_settings VALUES (?,?)', (key, json.dumps(value)))
 
 
 class Messages:
@@ -112,7 +115,7 @@ class Pilot:
         self.expires = self.started + 3600
         previous = store.get('task_id')
         if previous and previous != task_id:
-            raise BridgeError('This pilot is paired to another task. Use a separate --state directory.')
+            raise BridgeError('Messages is paired to another task. Preserve or explicitly reset the existing pairing first.')
         with store.db:
             store.put('task_id', task_id)
 
@@ -132,7 +135,7 @@ class Pilot:
         chunks = split_text(text, limit=2800)
         for i, part in enumerate(chunks, 1):
             header = '🤖 ' + provider + (f' ({i}/{len(chunks)})' if len(chunks) > 1 else '')
-            self.store.db.execute('INSERT OR IGNORE INTO delivery VALUES (?,?,?)',
+            self.store.db.execute('INSERT OR IGNORE INTO messages_delivery VALUES (?,?,?)',
                                   (f'{key}:{i}', header + '\n\n' + part, 'pending'))
 
     def receive(self, msg):
@@ -162,7 +165,7 @@ class Pilot:
             with self.store.db:
                 self.baseline()
                 self.store.put('chat', {'id': msg['chat_id'], 'guid': msg['chat_guid']})
-                self.store.db.execute('INSERT OR IGNORE INTO commands VALUES (?,?)', (msg['guid'], 'paired'))
+                self.store.db.execute('INSERT OR IGNORE INTO messages_commands VALUES (?,?)', (msg['guid'], 'paired'))
                 title = self.task()['title'] or self.task_id
                 self.notify('paired', f'Paired to: {title}\n\n' + HELP)
             print('Paired. Waiting for an instruction from your phone.', flush=True)
@@ -173,7 +176,7 @@ class Pilot:
             return  # Reserved relay header on EVERY outgoing part prevents self-chat loops.
         guid = msg['guid']
         with self.store.db:
-            inserted = self.store.db.execute('INSERT OR IGNORE INTO commands VALUES (?,?)',
+            inserted = self.store.db.execute('INSERT OR IGNORE INTO messages_commands VALUES (?,?)',
                                              (guid, 'received')).rowcount
         if not inserted:
             return
@@ -182,6 +185,17 @@ class Pilot:
             return
         words = text.split(maxsplit=1)
         command, argument = words[0].lower(), words[1].strip() if len(words) > 1 else ''
+        if command == '/browser':
+            from .browser_requests import is_request
+            if is_request(raw_text):
+                self.orchestrate(guid,raw_text)
+                return
+            try:
+                if not self.orchestrator:raise ValueError('The shared Relay connection is unavailable.')
+                result=self.orchestrator.browser_setup(guid,argument)
+            except ValueError as exc:result=str(exc)
+            with self.store.db:self.notify(guid,result,provider='Orchestrator')
+            return
         if command == '/orchestrator':
             if argument:
                 self.orchestrate(guid, argument)
@@ -250,10 +264,10 @@ class Pilot:
                 raise ValueError('The orchestrator connection is unavailable. Restart Messages Relay.')
             self.orchestrator.submit(guid, prompt)
             with self.store.db:
-                self.store.db.execute("UPDATE commands SET status='queued' WHERE guid=?", (guid,))
+                self.store.db.execute("UPDATE messages_commands SET status='queued' WHERE guid=?", (guid,))
         except ValueError as exc:
             with self.store.db:
-                self.store.db.execute("UPDATE commands SET status='failed' WHERE guid=?", (guid,))
+                self.store.db.execute("UPDATE messages_commands SET status='failed' WHERE guid=?", (guid,))
                 self.notify(guid, str(exc), provider='Orchestrator')
 
     def route(self, guid, prompt, provider):
@@ -271,7 +285,7 @@ class Pilot:
         except (ValueError, BridgeError) as exc:
             reply, status = str(exc), 'failed'
         with self.store.db:
-            self.store.db.execute('UPDATE commands SET status=? WHERE guid=?', (status, guid))
+            self.store.db.execute('UPDATE messages_commands SET status=? WHERE guid=?', (status, guid))
             self.notify(guid, reply, provider='Gemini')
 
     def submit(self, guid, prompt):
@@ -295,18 +309,18 @@ class Pilot:
                     self.orchestrator.bind_task(self.task_id)
                 # Persist before IPC. A timeout or process crash must never replay an instruction.
                 with self.store.db:
-                    self.store.db.execute("UPDATE commands SET status='submitting' WHERE guid=?", (guid,))
+                    self.store.db.execute("UPDATE messages_commands SET status='submitting' WHERE guid=?", (guid,))
                     self.store.put('pending', {'guid': guid, 'since': time.time()})
                 phase = 'submitting'
                 desktop.start(self.task_id, prompt, owner)
             with self.store.db:
-                self.store.db.execute("UPDATE commands SET status='submitted' WHERE guid=?", (guid,))
+                self.store.db.execute("UPDATE messages_commands SET status='submitted' WHERE guid=?", (guid,))
                 self.notify(guid, 'Sent to Codex. The final reply will arrive here. '
                             'If it needs permission or asks a question, answer in Codex on the Mac.')
         except Exception:
             with self.store.db:
                 uncertain = phase == 'submitting'
-                self.store.db.execute('UPDATE commands SET status=? WHERE guid=?',
+                self.store.db.execute('UPDATE messages_commands SET status=? WHERE guid=?',
                                       ('uncertain' if uncertain else 'failed', guid))
                 self.notify(guid, 'Codex acceptance is uncertain. Check the Mac before resending.' if uncertain
                             else 'Could not connect to an idle Codex task. Your instruction was not sent.')
@@ -343,7 +357,7 @@ class Pilot:
                 if kind not in ('task_complete', 'turn_aborted') or not turn:
                     continue
                 event_key = f'{turn}:{kind}'
-                if self.store.db.execute('SELECT 1 FROM delivery WHERE id=?', (event_key + ':1',)).fetchone():
+                if self.store.db.execute('SELECT 1 FROM messages_delivery WHERE id=?', (event_key + ':1',)).fetchone():
                     continue
                 pending = self.store.get('pending')
                 if not pending or timestamp(event.get('timestamp')) >= pending['since']:
@@ -358,26 +372,29 @@ class Pilot:
         if not chat:
             return
         # Stop after an ambiguous part instead of transmitting later parts out of order.
-        row = self.store.db.execute("SELECT * FROM delivery WHERE status!='sent' ORDER BY rowid LIMIT 1").fetchone()
+        row = self.store.db.execute("SELECT * FROM messages_delivery WHERE status!='sent' ORDER BY rowid LIMIT 1").fetchone()
         if not row or row['status'] != 'pending':
             return
         with self.store.db:
-            self.store.db.execute("UPDATE delivery SET status='sending' WHERE id=?", (row['id'],))
+            self.store.db.execute("UPDATE messages_delivery SET status='sending' WHERE id=?", (row['id'],))
         try:
             self.transport.send(chat, row['text'])
         except Exception:
             with self.store.db:
-                self.store.db.execute("UPDATE delivery SET status='uncertain' WHERE id=?", (row['id'],))
+                self.store.db.execute("UPDATE messages_delivery SET status='uncertain' WHERE id=?", (row['id'],))
             raise BridgeError('Message delivery is uncertain. Check Messages and Automation permission. '
                               'No automatic resend. See docs/messages-pilot.md for recovery.') from None
         with self.store.db:
-            self.store.db.execute("UPDATE delivery SET status='sent' WHERE id=?", (row['id'],))
+            self.store.db.execute("UPDATE messages_delivery SET status='sent' WHERE id=?", (row['id'],))
 
 
 def run(args):
     from task_relay.messages_providers import ProviderRouter
     from task_relay.messages_orchestrator import OrchestratorRouter
     folder = Path(args.state).resolve()
+    if folder != PATHS.messages.resolve():
+        raise BridgeError('Messages uses one shared Relay database. Use TASK_RELAY_DATA_DIR for a separate installation; '
+                          '--state cannot create a second pairing against the same database.')
     binary = shutil.which('imsg') or '/opt/homebrew/bin/imsg'
     result = subprocess.run([binary, 'chats', '--limit', '1', '--json'], stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=15)
@@ -391,18 +408,22 @@ def run(args):
             HOST.lock(lock)
         except BlockingIOError:
             raise BridgeError('The Messages pilot is already running.') from None
-        store = Store(folder / 'state.sqlite')
+        from task_relay.messages_storage import require_consolidated
+        require_consolidated(PATHS.state, folder)
+        from task_relay.bridge import State
+        shared = State(PATHS.state)
+        store = Store(state=shared)
         provider_router = None
         orchestrator_router = None
         try:
-            provider_router = ProviderRouter(folder / 'providers.sqlite')
-            orchestrator_router = OrchestratorRouter(PATHS.state)
+            provider_router = ProviderRouter(state=shared)
+            orchestrator_router = OrchestratorRouter(state=shared)
             pilot = Pilot(store, Messages(binary), args.task, providers=provider_router, orchestrator=orchestrator_router)
             task = pilot.task()
             print('Messages pilot — ' + (task['title'] or pilot.task_id), flush=True)
             if args.ack_delivery:
                 with store.db:
-                    count = store.db.execute("UPDATE delivery SET status='sent' WHERE id=? AND status='uncertain'",
+                    count = store.db.execute("UPDATE messages_delivery SET status='sent' WHERE id=? AND status='uncertain'",
                                              (args.ack_delivery,)).rowcount
                 if not count:
                     raise BridgeError('No uncertain delivery matches that ID.')
@@ -411,7 +432,7 @@ def run(args):
                     raise BridgeError('Cannot clear the pending marker while the task is not idle.')
                 with store.db:
                     store.put('pending', None)
-            uncertain = store.db.execute("SELECT id FROM delivery WHERE status='uncertain'").fetchall()
+            uncertain = store.db.execute("SELECT id FROM messages_delivery WHERE status='uncertain'").fetchall()
             if uncertain:
                 print('Uncertain deliveries: ' + ', '.join(r['id'] for r in uncertain), flush=True)
                 raise BridgeError('Check these messages on your phone, then use --ack-delivery ID to skip them. '
@@ -461,7 +482,6 @@ def run(args):
                         except queue.Empty:
                             pass
                         pilot.scan()
-                        provider_router.tick(pilot)
                         orchestrator_router.tick(pilot)
                         pilot.deliver()
                         if time.monotonic() - last_health > 5:
@@ -485,7 +505,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task', help='Codex task ID for first setup; later starts use the saved task')
-    parser.add_argument('--state', default=str(PATHS.messages))
+    parser.add_argument('--state', default=str(PATHS.messages), help='Messages lock/health directory; records use the shared Relay database')
     parser.add_argument('--ack-delivery', help='After inspecting Messages, skip this uncertain delivery without resending')
     parser.add_argument('--clear-pending', action='store_true', help='After inspecting Codex, clear an uncertain instruction marker; never resubmit')
     parser.add_argument('--background', action='store_true', help='Run as the Messages Relay login service')
@@ -496,7 +516,7 @@ def main():
         write_health(Path(args.state), 'stopped')
     except KeyboardInterrupt:
         print('\nMessages pilot stopped.')
-    except (BridgeError, OSError, subprocess.SubprocessError) as exc:
+    except (BridgeError, OSError, ValueError, subprocess.SubprocessError) as exc:
         write_health(Path(args.state), 'needs_attention', str(exc))
         print('\n' + str(exc), flush=True)
         raise SystemExit(1)

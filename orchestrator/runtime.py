@@ -289,6 +289,9 @@ class Runtime:
                     from .execution import available
                     try:
                         available(spec)
+                        if spec['execution']['capability']=='rhino.render':
+                            from .rhino_render import bind_registered
+                            bind_registered(self,spec)
                         if spec['execution']['capability']=='blender.animate':
                             from .blender_animation import bind_registered
                             bind_registered(self,spec)
@@ -323,6 +326,13 @@ class Runtime:
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
+                if spec.get('execution',{}).get('capability','').startswith('rhino.'):
+                    from task_relay import rhino_host,host_apps
+                    frozen['rhino_host_sources']={m.__name__:file_hash(Path(m.__file__)) for m in (rhino_host,host_apps)}
+                    from task_relay.host_evidence import application_signature
+                    rhino_app=host_apps.rhino()
+                    frozen['rhino_application']={'signature':application_signature(rhino_app['executable']),
+                        'major':rhino_app.get('major',8),'version':rhino_app.get('version')}
                 for item in frozen['inputs']:
                     artifact = self.artifact(item['artifact']) if 'artifact' in item else self.output(run, item['from_task'], item['output'])
                     if file_hash(artifact['blob']) != artifact['sha256']:
@@ -554,7 +564,7 @@ class Runtime:
         for attempt in self.db.execute("SELECT session FROM production_attempts WHERE run=? AND state='cancelling'", (run,)).fetchall():
             self.factory.cancel(json.loads(attempt['session']))
 
-    def select(self, run, tid, artifact, purpose, note):
+    def select(self, run, tid, artifact, purpose, note, artifacts=None):
         with self.transaction():
             row=self.db.execute('SELECT status FROM production_runs WHERE id=?',(run,)).fetchone()
             if not row or row['status']!='active':
@@ -562,10 +572,22 @@ class Runtime:
             task = self.task(run, tid); spec = self.spec(task); a = self.artifact(artifact)
             if task['status'] != 'awaiting_user' or a['attempt'] != task['latest'] or purpose != spec.get('user_gate'):
                 raise ValueError('Selection must match the current delivered artifact and exact decision purpose')
+            members=[self.artifact(i) for i in (artifacts if artifacts is not None else [artifact])]
+            expected=spec.get('selection_outputs',[a['path']])
+            if (not members or artifact not in [m['id'] for m in members]
+                or len(members)!=len(expected) or {m['path'] for m in members}!=set(expected)
+                or any(m['attempt']!=task['latest'] or m['task']!=tid or m['run']!=run for m in members)):
+                raise ValueError('Select the complete declared output set from the current attempt')
+            for member in members:
+                blob=safe_file(self.root,str(Path(member['blob']).relative_to(self.root)))
+                if file_hash(blob)!=member['sha256'] or blob.stat().st_size!=member['bytes']:
+                    raise ValueError('A selected output changed')
             c.nonempty(note, 'user decision note')
-            self.db.execute('INSERT INTO production_decisions VALUES (?,?,?,?,?,?,?)', (uid(), run, tid, artifact, purpose, note, time.time()))
+            for member in members:
+                self.db.execute('INSERT INTO production_decisions VALUES (?,?,?,?,?,?,?)', (uid(), run, tid, member['id'], purpose, note, time.time()))
             self.db.execute("UPDATE production_tasks SET status='completed' WHERE run=? AND id=?", (run, tid))
-            self.event(run, tid, task['latest'], 'user_selected', {'artifact': artifact, 'sha256': a['sha256'], 'purpose': purpose, 'note': note})
+            self.event(run, tid, task['latest'], 'user_selected', {'artifact': artifact, 'sha256': a['sha256'], 'purpose': purpose, 'note': note,
+                'members':[{'artifact':m['id'],'sha256':m['sha256'],'path':m['path']} for m in members]})
 
     def artifact_lineage(self, artifact, limit=100):
         from .artifact_dependencies import trace

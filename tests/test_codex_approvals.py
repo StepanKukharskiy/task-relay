@@ -293,6 +293,77 @@ class ApprovalTests(unittest.TestCase):
         approvals.decide(self.state, token, False, self.factory)
         self.assertEqual(self.calls[0][1]['decision'], 'decline')
 
+    def large_file(self):
+        self.request['method'] = approvals.FILE
+        self.request['params'] = {'threadId': 'task', 'turnId': 'turn', 'itemId': 'item',
+                                  'grantRoot': '/extra-access', 'reason': 'Review the complete patch'}
+        diff = '+print("Точный текст 🚀 **literal**")\n' * 500
+        self.snapshot['turns'] = [{'turnId': 'turn', 'items': [{
+            'id': 'item', 'type': 'fileChange', 'changes': [{'path': '/project/a.py', 'diff': diff}]}]}]
+        return diff
+
+    def test_large_file_report_delivery_gates_exact_once_approval(self):
+        diff = self.large_file()
+        token, telegram, bridge = self.deliver()
+        report = self.state.db.execute('SELECT * FROM codex_approval_reports').fetchone()
+        self.assertIsNotNone(report)
+        text = Path(report['path']).read_text()
+        self.assertIn(diff, text)
+        self.assertIn('/extra-access', text)
+        self.assertIn('Review the complete patch', text)
+        self.assertEqual(len(telegram.sent), 1)
+        self.assertNotIn('too large', telegram.sent[0][1])
+        with self.assertRaisesRegex(ValueError, 'document has not been delivered'):
+            approvals.decide(self.state, token, True, self.factory)
+        self.assertFalse(self.calls)
+        bridge.flush_media()
+        self.assertTrue(Path(report['path']).exists())
+        bridge.process({'update_id': 92, 'message': {'from': {'id': 43},
+                       'chat': {'id': 42, 'type': 'private'}, 'text': '/allow',
+                       'reply_to_message': {'message_id': len(telegram.sent)}}})
+        with self.assertRaises(ValueError):
+            approvals.decide(self.state, token, True, self.factory)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_missing_or_changed_report_cannot_grant_but_deny_still_works(self):
+        self.large_file()
+        token, _, bridge = self.deliver()
+        bridge.flush_media()
+        report = self.state.db.execute('SELECT * FROM codex_approval_reports').fetchone()
+        Path(report['path']).chmod(0o600)
+        Path(report['path']).write_text('Different review')
+        with self.assertRaisesRegex(ValueError, 'changed or is missing'):
+            approvals.decide(self.state, token, True, self.factory)
+        with self.state.db:
+            self.state.db.execute('DELETE FROM media_outbox WHERE id=?', (report['media_id'],))
+        with self.assertRaisesRegex(ValueError, 'not been delivered'):
+            approvals.decide(self.state, token, True, self.factory)
+        approvals.decide(self.state, token, False, self.factory)
+        self.assertEqual(self.calls[0][1]['decision'], 'decline')
+
+    def test_changed_large_patch_expires_card_and_unsent_attachment(self):
+        self.large_file()
+        token = self.queue()
+        self.snapshot['turns'][0]['items'][0]['changes'][0]['diff'] += '+another change\n'
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            approvals.decide(self.state, token, False, self.factory)
+        self.assertEqual(self.state.db.execute('SELECT status FROM media_outbox WHERE event_id=?',
+                         ('codex-approval:' + token,)).fetchone()[0], 'skipped')
+        self.queue(False)
+        # sync suppresses resolved reports, including decisions detected stale by decide.
+        self.snapshot['requests'] = []
+        approvals.sync(self.state, 'task', 'owner', self.snapshot)
+        self.assertFalse(self.calls)
+
+    def test_huge_file_still_requires_desktop_without_message_flood(self):
+        self.large_file()
+        self.snapshot['turns'][0]['items'][0]['changes'][0]['diff'] = '+' * (approvals.MAX_FILE_REPORT + 1)
+        token, telegram, _ = self.deliver()
+        self.assertEqual(len(telegram.sent), 1)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM codex_approval_reports').fetchone()[0], 0)
+        with self.assertRaisesRegex(ValueError, 'desktop review'):
+            approvals.decide(self.state, token, True, self.factory)
+
     def test_file_change_accept_routes_to_file_handler(self):
         self.request['method'] = approvals.FILE
         self.snapshot['turns'] = [{'turnId': 'turn', 'items': [{

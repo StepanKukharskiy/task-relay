@@ -27,9 +27,12 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         path=safe_file(workspace,item['path']);total+=path.stat().st_size
         if total>spec['input_bytes']:raise ValueError('Registered operation input byte limit exceeded.')
         if file_hash(path)!=item['sha256']:raise ValueError('Frozen input content changed.')
-        text=None if item['media_type'] in ('application/x-blender','image/png','image/jpeg','application/zip') else path.read_bytes().decode('utf-8')
+        text=None if item['media_type'] in ('application/x-blender','application/vnd.rhino','image/png','image/jpeg','application/zip') else path.read_bytes().decode('utf-8')
         documents.append({'artifact':item['artifact'],'path':item['path'],'sha256':item['sha256'],
                           'purpose':item['purpose'],'authority':item['authority'],'text':text})
+    if frozen['execution']['capability'].startswith('rhino.'):
+        from orchestrator.rhino_execution import execute as rhino_execute
+        return rhino_execute(frozen,control,documents)
     if frozen['execution']['capability']=='blender.inspect':
         from orchestrator.blender_inspection import execute as inspect_host
         return inspect_host(frozen,control,documents)

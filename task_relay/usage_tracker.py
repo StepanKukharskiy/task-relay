@@ -127,7 +127,7 @@ def collect_relay(db,source_path):
                 frozen=unpack(row['frozen'],{});receipt=unpack(row['receipt'],{})
                 backend=frozen.get('backend',{});execution=frozen.get('execution',{})
                 if execution.get('kind')=='procedure' or execution.get('capability')=='text.bundle':continue
-                provider='gemini' if backend.get('type')=='gemini-agent' or execution.get('capability')=='gemini.text' else 'codex'
+                provider='gemini' if backend.get('type') in ('gemini-agent','gemini-browser') or execution.get('capability')=='gemini.text' else 'codex'
                 usage=receipt.get('usage') or [{}]
                 if isinstance(usage,dict):usage=[usage]
                 for n,u in enumerate(usage):
@@ -205,7 +205,6 @@ def render(value):
 def refresh(db,data=PATHS.data,local=True,max_bytes=32000000,roots=None):
     from task_relay.usage_sources import collect_local, default_roots
     collect_relay(db,Path(data)/'state.sqlite')
-    collect_relay(db,Path(data)/'messages-pilot/providers.sqlite')
     if local:collect_local(db,roots if roots is not None else default_roots(),max_bytes=max_bytes)
 
 

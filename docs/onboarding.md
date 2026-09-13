@@ -1,22 +1,43 @@
 # Installation and first setup
 
+The [macOS companion pilot](../desktop/README.md) bundles Python and the Relay
+runtime, with a compact menu-bar setup/settings window. Everyday work stays in
+Telegram; the companion handles connections, status, exact local decisions and
+recovery. Existing source and Messages services require a separate reviewed
+handoff before the companion manages them. The local `.app` is not a signed public
+distribution and has not passed clean-host provider/Telegram acceptance. Use the
+source installer below for the supported installation path.
+
 Use macOS with Python 3.11+ for the primary supported path. The source installer
 also supports Linux, whose live provider, Telegram and systemd activation
-qualification remains open. Windows execution is unavailable. Install Python and
-Git first if they are missing; the installer does not install system packages or
-require administrator access. Package installation needs access to Python package
-indexes for build dependencies.
+qualification remains open. Windows execution is unavailable. Install Python 3.11+
+first if it is missing. Git is needed to clone the repository; downloading the
+source ZIP avoids that prerequisite. The source installer creates a dedicated
+virtual environment, installs Relay and its required Python build/runtime packages,
+and verifies the CLI. It does not install Python or system packages or require
+administrator access. Package installation needs access to Python package indexes.
+
+On macOS, [download the public source ZIP](https://github.com/StepanKukharskiy/task-relay/archive/refs/heads/main.zip),
+extract it, then double-click **Setup.command** in its folder. That script locates
+its own folder and runs installation; users do not need to type `cd` or a shell
+command. If installation fails, the window stays open with the error and can be
+retried after fixing it. Keep the extracted folder because it holds the dedicated
+environment. macOS may ask for confirmation before opening a downloaded script.
+
+The terminal path is available on macOS and Linux:
 
 ```sh
 git clone https://github.com/StepanKukharskiy/task-relay.git
 cd task-relay
 sh install.sh
-export PATH="$PWD/.venv-relay/bin:$PATH"
 ```
 
-The PATH command applies to this terminal. In a new terminal, activate the saved
-environment or add its absolute `bin` directory to your shell configuration.
-You can also invoke the `task-relay` executable by its full path.
+The installer opens a loopback HTML setup page in your browser. Complete its steps,
+then close the launcher with Ctrl+C in the installer window. The installed CLI path
+is printed. Terminal users may use the printed PATH command for that terminal; in
+a new terminal, activate the saved environment or use the executable by its full
+path. Double-click **Setup.command** to reopen the setup page without typing a
+command.
 
 The installer owns `.venv-relay` and refuses unrelated environments. Use
 `--venv /absolute/new/environment` for a different location or `--no-setup` to
@@ -25,7 +46,28 @@ same source. Keep the environment at its original path once a service uses it.
 
 ## Guided setup
 
-Run `task-relay setup` to begin or resume:
+Opening `task_relay/assets/launcher.html` directly shows an install guide. The
+browser cannot read Relay configuration or run `install.sh` from `file://`; the
+guide does not show invented status or active controls. When the installer opens
+the loopback server, the launcher shows the installed version, saved project,
+provider and Telegram status, local diagnostics, cached release information and
+detected tools. Its header uses the Task Relay blue-on-white logo. The setup page
+explains which dependencies the installer handles and which tools are optional. Browser automation
+needs the separate Playwright package and Chromium installation described in
+[general browser setup](general-browser.md); managed Claude uses its dedicated
+runtime and account setup. Codex, Blender and FFmpeg are only needed for workflows
+that use them. The launcher does not install external applications. Its download
+button retrieves the **public source ZIP** from GitHub; it does not export
+local projects, tasks or credentials. Reopen it with `task-relay launcher` (or
+`task-relay launcher --no-open` to print its local URL). The server listens only on
+127.0.0.1 with a per-run private URL; closing the terminal stops it. Page load only
+reads local status. An explicit provider submission checks the model catalog, an
+explicit Telegram submission checks bot identity and webhook status, and **Check
+updates** contacts GitHub. No task or message is sent by these controls. Each
+completed setting is saved for interruption recovery.
+
+Use `task-relay setup` or `sh install.sh --terminal-setup` for the CLI wizard. The
+same setup order applies to either interface:
 
 1. Inspect the application data directory printed before setup. Installed packages
    default to `~/.task-relay`; direct source invocations use the checkout's
@@ -71,7 +113,7 @@ service and retains application data.
 
 ## Recovery and troubleshooting
 
-- **Interrupted setup:** rerun `task-relay setup`. Each completed setting is saved
+- **Interrupted setup:** reopen `task-relay launcher` or rerun `task-relay setup`. Each completed setting is saved
   atomically. Saved keys, project selection and pairing survive; unfinished checks
   can be retried. An expired unpaired link is renewed while preserving its token
   source. A second simultaneous setup is rejected.

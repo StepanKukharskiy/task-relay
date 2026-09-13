@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Task Relay",
+  "version": "0.12.1",
+  "identifier": "com.taskrelay.desktop",
+  "build": {
+    "beforeDevCommand": "npm run sync-ui",
+    "beforeBuildCommand": "npm run sync-ui",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{
+      "title": "Task Relay",
+      "width": 480,
+      "height": 620,
+      "minWidth": 380,
+      "minHeight": 400
+    }]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.icns", "icons/icon.png"],
+    "resources": ["resources/runtime/**/*"]
+  }
+}

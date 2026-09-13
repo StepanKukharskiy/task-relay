@@ -33,8 +33,9 @@ a frozen worker assignment. Use the existing reference/import controls for that.
 '''
 
 
-def definitions(roots, web=None):
-    return (capabilities.file_definitions(roots) if roots else []) + (web.definitions() if web else [])
+def definitions(roots, web=None, context=None):
+    return ((capabilities.file_definitions(roots) if roots else []) + (web.definitions() if web else [])
+            + (context.definitions() if context else []))
 
 
 def final_text(text):
@@ -45,20 +46,22 @@ def final_text(text):
     return match[1] if match else text
 
 
-def execute(roots, call, web=None):
+def execute(roots, call, web=None, context=None):
+    if context and call['name'] == 'context_read':
+        return context.execute(call)
     if web and call['name'] in ('web_search','web_fetch'):
         return web.execute(call)
     return capabilities.read(roots, call)
 
 
-def run(name, client, endpoint, request, roots, receipt, web=None):
+def run(name, client, endpoint, request, roots, receipt, web=None, context=None):
     """Reads may repeat within a turn; interrupted model submissions never auto-replay.
 
     Parent chat's sending/uncertain state owns restart handling. Persist every
     request/response and read result before allowing a final action interpretation.
     """
     request = copy.deepcopy(request)
-    specs = definitions(roots, web)
+    specs = definitions(roots, web, context)
     if name == 'gemini':
         request['tools'] = [{'functionDeclarations':[
             {'name':d['name'],'description':d['description'],'parametersJsonSchema':d['parameters']} for d in specs]}]
@@ -71,7 +74,7 @@ def run(name, client, endpoint, request, roots, receipt, web=None):
     def save():
         gemini.atomic_bytes(receipt, json.dumps(journal, ensure_ascii=False).encode())
     for step in range(MAX_ROUNDS + 1):
-        if len(json.dumps(request).encode()) > MAX_CONTEXT:
+        if len(json.dumps(request, ensure_ascii=False).encode()) > MAX_CONTEXT:
             raise ValueError('Project evidence exceeds the conversation read limit. Narrow the request.')
         record = {'step':step,'submitted_at':time.time(),'request':copy.deepcopy(request)}
         journal.append(record); save()
@@ -96,7 +99,7 @@ def run(name, client, endpoint, request, roots, receipt, web=None):
             raise ValueError('Research tool budget exhausted. No action was taken; narrow the request.')
         if any(c['name'] not in {d['name'] for d in specs} for c in calls):
             raise ValueError('The model requested an unavailable tool. No action was taken.')
-        results = [execute(roots,c,web) for c in calls]
+        results = [execute(roots,c,web,context) for c in calls]
         record['reads'] = [{'call':c,'result':r,'read_at':time.time(),
                             'result_sha256':hashlib.sha256(json.dumps(r,sort_keys=True).encode()).hexdigest()}
                            for c,r in zip(calls,results)]
@@ -115,5 +118,5 @@ def run(name, client, endpoint, request, roots, receipt, web=None):
                 request['toolConfig'] = {'functionCallingConfig':{'mode':'NONE'}}
                 request['systemInstruction']['parts'][0]['text'] += '\nRead budget exhausted. Answer from evidence, disclosing remaining gaps.'
         else:
-            api.continue_request(name,request,response,calls,[json.dumps(r) for r in results],exhausted)
+            api.continue_request(name,request,response,calls,[json.dumps(r, ensure_ascii=False) for r in results],exhausted)
     raise ValueError('No final answer within the project-read budget.')

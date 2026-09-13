@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Task Relay · Get started</title>
+  <link rel="stylesheet" href="launcher.css">
+  <script src="vendor/marked.umd.js" defer></script>
+  <script src="vendor/purify.min.js" defer></script>
+  <script src="vendor/highlight.min.js" defer></script>
+  <script src="rich-text.js" defer></script>
+  <script src="launcher.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Task Relay home"><img class="brand-mark" src="messages-icon.png" width="36" height="36" alt=""><span>Task Relay</span></a>
+      <div class="top-right"><span class="local-indicator"><span class="dot"></span><span id="mode-label">Setup guide</span></span><span class="version" id="version">Install guide</span></div>
+    </header>
+
+    <nav class="app-tabs" id="app-tabs" role="tablist" aria-label="Task Relay sections" hidden>
+      <button class="app-tab" id="tab-tasks" role="tab" aria-controls="app-tasks-panel" aria-selected="false" type="button" data-tab="tasks">Jobs</button>
+      <button class="app-tab" id="tab-workflows" role="tab" aria-controls="app-workflows-panel" aria-selected="false" type="button" data-tab="workflows">Workflows</button>
+      <button class="app-tab" id="tab-tools" role="tab" aria-controls="app-tools-panel" aria-selected="false" type="button" data-tab="tools">Automations & tools</button>
+      <button class="app-tab" id="tab-usage" role="tab" aria-controls="app-usage-panel" aria-selected="false" type="button" data-tab="usage">Usage</button>
+      <button class="app-tab" id="tab-setup" role="tab" aria-controls="app-setup-panel" aria-selected="false" type="button" data-tab="setup">Setup</button>
+      <button class="app-tab" id="tab-system" role="tab" aria-controls="app-system-panel" aria-selected="false" type="button" data-tab="system">System</button>
+    </nav>
+
+    <main id="top">
+      <section class="app-tab-panel" id="app-tasks-panel" role="tabpanel" aria-labelledby="tab-tasks" hidden></section>
+      <section class="app-tab-panel" id="app-workflows-panel" role="tabpanel" aria-labelledby="tab-workflows" hidden>
+        <div class="section-heading"><div><p class="eyebrow">PLANS & EXECUTION</p><h2>Workflows</h2></div><p>Saved workflows, execution runs and plans from every Relay channel.</p></div>
+        <div class="library-toolbar"><label>Show <select id="workflow-kind"><option value="linked">Linked workflows</option><option value="runs">Execution runs</option><option value="plans">All saved plans</option></select></label><button id="workflow-refresh" class="text-button" type="button">Refresh ↻</button></div>
+        <p class="fine" id="workflow-count"></p><div id="workflow-library" class="library-list"></div><button id="workflow-more" class="button button-secondary" type="button" hidden>Load more</button>
+        <p class="fine">History is available here for inspection. Continue linked workflows and make production output decisions in their original Relay channel. Create and review a new desktop draft below.</p>
+      </section>
+      <section class="app-tab-panel" id="app-tools-panel" role="tabpanel" aria-labelledby="tab-tools" hidden>
+        <div class="section-heading"><div><p class="eyebrow">REUSABLE OPERATIONS</p><h2>Automations & tools</h2></div><p>Registered operations with detected availability and execution limits.</p></div>
+        <div class="panel"><h3>From repeated work to a reusable tool</h3><p>Relay does not yet extract automations from project history or schedule recurring jobs. Existing workflows are saved executions; they do not automatically become reusable tools.</p><p>For reels, candidate steps include checking source files, applying a known caption format, and validating exports. First review the repeated step, its inputs, outputs and failure cases. A tested script can then become a versioned registered operation for future plans.</p><button id="reels-draft" type="button" class="button button-secondary">Draft a reels automation assessment</button><p class="fine">This fills a request you can edit. Generate draft uses your planning provider; it does not install tools or start production.</p></div>
+        <div class="panel-title"><h3>What you can do</h3><button id="tools-refresh" type="button" class="text-button">Refresh ↻</button></div><div id="capability-actions" class="library-list"></div><h3>Agents & browser execution</h3><div id="capability-executors" class="library-list"></div><h3>Registered operations</h3><div id="automation-tools" class="library-list"></div>
+      </section>
+      <section class="app-tab-panel" id="app-usage-panel" role="tabpanel" aria-labelledby="tab-usage" hidden><div class="section-heading"><div><p class="eyebrow">LOCAL RECORDS</p><h2>Usage & storage</h2></div><p>Recorded tokens, disk space and reviewed cleanup.</p></div></section>
+      <section class="app-tab-panel" id="app-setup-panel" role="tabpanel" aria-labelledby="tab-setup" hidden></section>
+      <section class="app-tab-panel" id="app-system-panel" role="tabpanel" aria-labelledby="tab-system" hidden>
+        <div class="section-heading"><div><p class="eyebrow">RELAY ON THIS COMPUTER</p><h2>System</h2></div><p>Service, diagnostics, optional tools and updates.</p></div>
+        <p class="fine" id="tasks-location"></p>
+      </section>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">YOUR WORK, CONNECTED</p>
+          <h1 id="hero-title">One place to get <em>everything</em> moving.</h1>
+          <p class="lead" id="hero-lead">Task Relay connects a project, your chosen AI provider, and a Telegram inbox. Download it, install it, then finish setup in the local page that opens.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" id="source-download" href="https://github.com/StepanKukharskiy/task-relay/archive/refs/heads/main.zip" download>↓ Download source files</a>
+            <button class="button button-primary" id="setup-start-link" type="button" hidden>Continue setup ↓</button>
+            <a class="button button-primary" id="desktop-tasks-link" href="#desktop-workspace" hidden>View jobs ↓</a>
+            <a class="button button-secondary" href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/onboarding.md" target="_blank" rel="noopener noreferrer">Read full setup guide ↗</a>
+          </div>
+          <p class="fine" id="source-download-note">The download contains public Task Relay source. Your local credentials, job history and project files stay on this computer.</p>
+          <p class="feedback" id="desktop-feedback" role="status" hidden></p>
+          <button class="text-button" id="desktop-retry" type="button" hidden>Retry local status ↻</button>
+          <div class="install-note" id="install-note"><strong>No terminal command needed on macOS.</strong> Extract the source ZIP, then double-click <code>Setup.command</code> inside its folder. It finds that folder, installs Relay’s required Python packages, and opens the live setup page. Python 3.11+ must already be installed.</div>
+        </div>
+        <div class="overview" id="install-overview" aria-label="Installation overview">
+          <div class="overview-head"><span>INSTALLATION</span><span>macOS</span></div>
+          <div class="overview-row"><span class="icon">01</span><span><strong>Get the files</strong><small>Download and extract the public source ZIP.</small></span></div>
+          <div class="overview-row"><span class="icon">02</span><span><strong>Check Python</strong><small>Install Python 3.11 or newer if needed.</small></span></div>
+          <div class="overview-row"><span class="icon">03</span><span><strong>Double-click Setup.command</strong><small>Installation and live setup start automatically.</small></span></div>
+          <div class="overview-foot">This file is an install guide. Local status appears only after Task Relay starts its setup server.</div>
+        </div>
+        <div class="overview" id="live-overview" aria-label="Setup overview" hidden>
+          <div class="overview-head"><span>SETUP OVERVIEW</span><span id="platform">Checking host…</span></div>
+          <div class="overview-row"><span class="icon">01</span><span><strong>Default folder</strong><small id="project-summary">Checking…</small></span><span class="state" id="project-state">·</span></div>
+          <div class="overview-row"><span class="icon">02</span><span><strong>Provider</strong><small id="provider-summary">Checking…</small></span><span class="state" id="provider-state">·</span></div>
+          <div class="overview-row"><span class="icon">03</span><span><strong>Telegram</strong><small id="telegram-summary">Checking…</small></span><span class="state" id="telegram-state">·</span></div>
+          <div class="overview-foot">Settings are saved one step at a time. You can close this page and resume later.</div>
+        </div>
+      </section>
+
+      <section class="install-guide" id="install-guide" aria-labelledby="install-guide-title">
+        <div class="section-heading"><div><p class="eyebrow">INSTALL TASK RELAY</p><h2 id="install-guide-title">From download to first job</h2></div><p id="launch-feedback">A browser cannot run a shell command from an HTML file. The macOS setup file starts the installer when you open it from Finder.</p></div>
+        <div class="guide-grid">
+          <div class="panel">
+            <p class="eyebrow">MACOS · PRIMARY PATH</p>
+            <h3>Install without typing commands</h3>
+            <ol>
+              <li>Use <strong>Download source files</strong> above, then open the ZIP to extract its folder.</li>
+              <li>If Python 3.11+ is missing, <a href="https://www.python.org/downloads/macos/" target="_blank" rel="noopener noreferrer">install Python for macOS ↗</a>.</li>
+              <li>Open the extracted <strong>job-relay</strong> folder in Finder and double-click <code>Setup.command</code>. macOS may ask you to confirm opening a downloaded script.</li>
+              <li>Wait for the local setup page to open. Choose a project, connect a provider and Telegram bot, then follow its start instructions.</li>
+            </ol>
+            <p class="fine">Keep the installation folder: it contains Relay’s dedicated Python environment. Reopen setup later by double-clicking <code>Setup.command</code> again.</p>
+          </div>
+          <div class="panel">
+            <p class="eyebrow">BEFORE YOU START</p>
+            <h3>What you need</h3>
+            <ul>
+              <li><strong>Python 3.11+</strong> on the computer. The installer cannot run before Python exists.</li>
+              <li><strong>A project folder</strong> and an API provider key for new provider jobs, or existing Codex jobs.</li>
+              <li><strong>A dedicated Telegram bot</strong> from <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">BotFather ↗</a> if you want Telegram delivery.</li>
+            </ul>
+            <p class="fine">The installer installs Relay and its required Python packages. Git is only needed to clone, not for the ZIP. Claude, browser automation, Blender and FFmpeg are optional. Linux uses <code>sh install.sh</code> from the extracted folder; Windows execution is not yet supported.</p>
+          </div>
+        </div>
+      </section>
+
+      <div id="live-setup" hidden>
+      <section class="section-heading" id="setup"><div><p class="eyebrow">GET STARTED</p><h2>Set up in a few steps</h2></div><p>Only the actions you choose below contact a provider or Telegram. No job or message is sent during setup.</p></section>
+
+      <div class="steps">
+        <details class="step" id="setup-project" aria-labelledby="step-project-title">
+          <summary><span class="step-number">01</span><span class="step-header"><span><strong id="step-project-title">Choose a project</strong><small>Use an existing folder on this computer.</small></span><span class="pill" id="project-pill">Waiting</span></span></summary>
+          <div class="step-body">
+            <p class="fine">Relay saves this folder for new jobs; choosing it does not grant a worker access.</p>
+            <div class="current-project" id="current-project">No project selected yet.</div>
+            <form id="project-form" class="form-row"><label class="sr-only" for="project-path">Absolute project folder</label><input id="project-path" name="path" type="text" placeholder="/absolute/path/to/your/project" autocomplete="off" required><button class="button button-secondary" id="project-browse" type="button" hidden>Choose folder…</button><button class="button button-dark" type="submit">Save project</button></form>
+            <p class="feedback" id="project-feedback" role="status"></p>
+          </div>
+        </details>
+
+        <details class="step" id="setup-provider" aria-labelledby="step-provider-title">
+          <summary><span class="step-number">02</span><span class="step-header"><span><strong id="step-provider-title">Connect a provider</strong><small>Use an API provider, or choose Later for existing Codex jobs.</small></span><span class="pill" id="provider-pill">Waiting</span></span></summary>
+          <div class="step-body">
+            <p class="fine">Connecting checks the model catalog without generating content.</p>
+            <form id="provider-form" class="form-grid">
+              <label>Provider<select id="provider-name" name="name"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="later">Later / existing Codex jobs</option></select></label>
+              <label id="key-field">API key<input id="provider-key" name="key" type="password" autocomplete="new-password" placeholder="Saved privately on this computer"></label>
+              <label id="model-field">Text model ID <span class="optional">optional</span><input id="provider-model" name="model" type="text" autocomplete="off" placeholder="Use a catalog default"></label>
+              <label id="endpoint-field" hidden>Qwen HTTPS endpoint <span class="optional">optional</span><input id="provider-endpoint" name="endpoint" type="url" autocomplete="off" placeholder="Default: Singapore"></label>
+              <div class="form-actions"><a id="provider-key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Where to get a key ↗</a><button class="button button-dark" type="submit">Save provider</button></div>
+            </form>
+            <p class="fine">An already configured provider is retained. Use Telegram <code>/providers</code> or the CLI for deliberate changes.</p>
+            <p class="feedback" id="provider-feedback" role="status"></p>
+          </div>
+        </details>
+
+        <details class="step" id="setup-telegram" aria-labelledby="step-telegram-title">
+          <summary><span class="step-number">03</span><span class="step-header"><span><strong id="step-telegram-title">Connect Telegram</strong><small>Connect a dedicated bot for replies and pairing.</small></span><span class="pill" id="telegram-pill">Waiting</span></span></summary>
+          <div class="step-body">
+            <p class="fine">Create a dedicated bot with BotFather. Relay checks its identity and webhook status, then gives you a pairing link.</p>
+            <form id="telegram-form" class="form-row"><label class="sr-only" for="telegram-token">Bot token</label><input id="telegram-token" name="token" type="password" autocomplete="new-password" placeholder="Paste your Telegram bot token"><button class="button button-dark" type="submit">Connect bot</button></form>
+            <div class="form-links"><a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">Open BotFather ↗</a><a id="pairing-link" hidden target="_blank" rel="noopener noreferrer">Open pairing link ↗</a></div>
+            <p class="fine">If a bot is already configured, leave the token blank to keep it and renew an expired unpaired link.</p>
+            <p class="feedback" id="telegram-feedback" role="status"></p>
+          </div>
+        </details>
+
+        <details class="step" id="setup-run" aria-labelledby="step-run-title">
+          <summary><span class="step-number">04</span><span class="step-header"><span><strong id="step-run-title">Start and verify</strong><small id="step-run-description">Run Relay, pair in Telegram, then verify a real reply.</small></span><span class="pill neutral">Manual check</span></span></summary>
+          <div class="step-body">
+            <button class="button button-dark" id="setup-system-link" type="button" hidden>Open System to start Relay →</button>
+            <div class="command" id="service-command"><code>job-relay telegram run</code><button type="button" class="copy" data-copy="task-relay telegram run">Copy</button></div>
+            <p class="fine" id="first-task-hint">Choose a project and provider to get your first-job command, or use <code>/tasks</code> for existing Codex jobs.</p>
+            <div class="command" id="first-task-row" hidden><code id="first-task-command"></code><button type="button" class="copy" id="first-task-copy" data-copy="">Copy</button></div>
+            <p class="fine" id="service-help">After stopping the foreground process, use <code>job-relay telegram install</code> for a supported background service. Sending an instruction authorizes provider work and may incur charges.</p>
+          </div>
+        </details>
+      </div>
+
+      <section class="bottom-grid">
+        <div class="panel"><div class="panel-title"><div><p class="eyebrow">LOCAL STATUS</p><h2>What’s ready</h2></div><button class="text-button" id="refresh" type="button">Refresh ↻</button></div><div id="doctor-list" class="check-list"><p>Checking local configuration…</p></div><p class="fine">These checks do not contact a provider, test delivery or prove service health.</p></div>
+        <div class="panel"><p class="eyebrow">OPTIONAL TOOLS & UPDATES</p><h2>On this computer</h2><p class="fine">These tools are for selected workflows. Missing ones do not block the core Relay setup; the source installer does not install external applications.</p><div id="tool-list" class="check-list"><p>Checking tools…</p></div><div class="update-row"><div><strong id="update-title">Checking releases…</strong><small id="update-detail">Local cache only</small></div><button class="text-button" id="update-check" type="button">Check updates ↗</button></div><p class="feedback" id="update-feedback" role="status"></p><p class="fine">Checking contacts GitHub. Installing an update remains a separate explicit CLI action.</p></div>
+      </section>
+
+      <section class="desktop-workspace" id="desktop-workspace" aria-labelledby="desktop-workspace-title" hidden>
+        <div class="section-heading"><div><p class="eyebrow">YOUR WORK</p><h2 id="desktop-workspace-title">Jobs</h2></div><p>Choose a saved job to see its activity or continue work. Sending an instruction may use a paid provider.</p></div>
+        <div class="usage-panel panel" aria-labelledby="usage-title">
+          <div class="panel-title"><h3 id="usage-title">Usage</h3><button class="text-button" id="usage-refresh" type="button">Refresh ↻</button></div>
+          <div class="usage-grid">
+            <div><span>Through Task Relay · 7 days</span><strong id="usage-tokens">Checking…</strong><small id="usage-token-detail">Recorded API calls and managed workers</small></div>
+            <div><span>All recorded on this Mac · 7 days</span><strong id="usage-all-tokens">Checking…</strong><small id="usage-all-detail">Includes local sessions outside Relay</small></div>
+            <div><span id="usage-storage-label">Relay storage</span><strong id="usage-storage">Checking…</strong><small id="usage-storage-detail">Data, workspaces and generated files</small></div>
+          </div>
+          <p class="fine" id="usage-note">Usage is read from local records. Storage excludes the installed app and unrelated project folders.</p>
+          <details class="storage-details" id="storage-details"><summary>What uses this space? How can I clear it?</summary>
+            <div id="storage-categories" class="storage-categories"><p class="fine">Open to inspect local folders.</p></div>
+            <p class="fine">Workspaces, artifacts, unique backups and the live database may contain job history or recovery evidence. Build output can be regenerated but may be in use. These are excluded from automatic cleanup.</p>
+            <button class="button button-secondary" id="cleanup-preview" type="button">Find verified disposable files</button>
+            <div id="cleanup-review" hidden><p id="cleanup-summary" class="fine"></p><div id="cleanup-kinds" class="storage-categories"></div><p class="fine">Only listed caches and verified duplicate retired databases are eligible. Changed files are skipped; a receipt is saved.</p><button class="button button-dark" id="cleanup-apply" type="button">Delete these verified files</button></div>
+            <p class="feedback" id="cleanup-feedback" role="status"></p>
+          </details>
+        </div>
+        <details class="new-task" id="new-task"><summary>New job</summary><form id="task-create-form" class="form-grid"><label>Provider<select id="task-create-provider"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="claude">Claude</option></select></label><label>Title <span class="optional">optional</span><input id="task-create-title" type="text" maxlength="150" placeholder="What is this task about?"></label><label class="task-project-label">Existing working folder <span class="optional">optional</span><input id="task-create-project" type="text" placeholder="Choose only if this task needs existing files" autocomplete="off"></label><div class="form-actions"><button class="button button-secondary" id="task-create-browse" type="button">Choose folder…</button><button class="button button-dark" id="task-create-button" type="submit">Create job</button></div></form><p class="feedback" id="task-create-feedback" role="status"></p><p class="fine" id="task-create-last"></p><p class="fine">Leave the folder empty for a new Relay workspace. A working folder sets relative-file context; it does not limit Relay’s computer-wide access. Creating a job does not start provider work.</p></details>
+        <details class="new-task" id="new-workflow"><summary>Plan a workflow</summary>
+          <p class="fine">Describe one bounded outcome. Relay will save a draft with steps, outputs, checks and limits for your review. Generating a draft uses your configured planning API provider; workers do not start.</p>
+          <form id="plan-create-form" class="workflow-form">
+            <label for="plan-goal">What should this workflow produce?</label><textarea id="plan-goal" rows="3" maxlength="9000" required placeholder="Describe the outcome and any existing work to build on"></textarea>
+            <label for="plan-constraints">Constraints and decision points <span class="optional">optional</span></label><textarea id="plan-constraints" rows="2" maxlength="2500" placeholder="Limits, exclusions, required approvals or output choices"></textarea>
+            <label for="plan-project">Existing working folder <span class="optional">optional</span></label><input id="plan-project" type="text" placeholder="Choose only if this plan needs existing files" autocomplete="off">
+            <p class="fine">Leave blank for a new isolated workspace. A folder here sets the plan’s starting context; name any other existing files in your request. OS permissions still apply.</p>
+            <div class="task-actions"><button class="button button-secondary" id="plan-browse" type="button">Choose folder…</button><button class="text-button" id="plan-cancel-revision" type="button" hidden>Cancel revision</button><button class="button button-dark" id="plan-create-button" type="submit" disabled>Generate draft</button></div>
+          </form>
+          <p class="feedback" id="plan-feedback" role="status"></p>
+          <button class="text-button" id="plans-refresh" type="button">Refresh drafts ↻</button>
+          <div id="plans-list" class="tasks-list" aria-label="Saved workflow plans"></div>
+          <div id="plan-detail" class="plan-review" hidden>
+            <h3 id="plan-title">Saved plan</h3><p class="fine" id="plan-status"></p>
+            <div id="plan-preview" class="plan-preview"></div>
+            <div id="plan-documents"></div>
+            <p class="fine" id="plan-review-hint"></p>
+            <div class="task-actions"><button class="button button-secondary" id="plan-revise" type="button" hidden>Revise draft</button><button class="button button-secondary" id="plan-prepare" type="button" hidden>Review for Start</button><button class="button button-dark" id="plan-start" type="button" hidden>Start · continue in Telegram</button><button class="button button-secondary" id="plan-discard" type="button" hidden>Discard draft</button></div>
+          </div>
+        </details>
+        <div class="service-panel panel">
+          <div><h3>Background service</h3><p id="service-status-text">Checking service…</p><p class="fine" id="service-location"></p></div>
+          <div class="service-actions"><button class="button button-dark" id="service-start" type="button" hidden>Start Relay</button><button class="button button-secondary" id="service-stop" type="button" hidden>Stop Relay</button><button class="button button-secondary" id="service-connect" type="button" hidden>Use existing service jobs</button><button class="text-button" id="service-disconnect" type="button" hidden>Use desktop data</button></div>
+          <p class="feedback" id="service-feedback" role="status"></p>
+        </div>
+        <div class="task-grid" id="task-grid">
+          <div class="panel"><div class="panel-title"><h3>Jobs</h3><button class="text-button" id="tasks-refresh" type="button">Refresh ↻</button></div><label class="sr-only" for="job-search">Search jobs</label><input id="job-search" type="search" placeholder="Search jobs" autocomplete="off"><div id="tasks-list" class="tasks-list"><p class="fine">Checking job history…</p></div></div>
+          <div class="panel" id="task-panel"><h3 id="task-title">Choose a job</h3><p class="fine" id="task-meta">Saved job details and recent activity appear here.</p><div class="task-current" id="task-current" hidden><strong id="task-current-status"></strong><span id="task-current-detail"></span></div><p id="approval-status" class="fine" role="status"></p><section class="approval-list" id="task-approvals" aria-label="Pending approvals" hidden></section><p class="task-latest" id="task-latest"></p><details class="task-history" id="task-history" open><summary>Conversation</summary><div id="task-events" class="task-events"></div><p id="history-note" class="fine"></p></details><form id="task-send-form" hidden><label for="task-instruction">Continue this job</label><textarea id="task-instruction" rows="4" maxlength="12000" placeholder="Write a follow-up…"></textarea><div class="task-file-row"><button class="text-button" id="task-file-browse" type="button">Attach text file…</button><span id="task-file-name"></span><button class="text-button" id="task-file-clear" type="button" hidden>Remove</button></div><p class="fine">Text attachments: UTF-8 .txt or .md, up to 9 KB. The selected bytes are frozen when you send.</p><div class="task-actions"><button class="button button-dark" id="task-send-button" type="submit">Send instruction</button><button class="button button-secondary" id="task-stop-button" type="button" hidden>Request stop</button></div></form><p class="feedback" id="task-feedback" role="status"></p><details class="task-history" id="task-receipts"><summary>Submission receipts</summary><div id="task-commands" class="task-events"></div></details></div>
+        </div>
+      </section>
+      </div>
+    </main>
+    <footer><span id="footer-copy">Task Relay installs and runs locally. Your setup state stays on this computer.</span><a href="https://github.com/StepanKukharskiy/task-relay" target="_blank" rel="noopener noreferrer">View project on GitHub ↗</a></footer>
+  </div>
+</body>
+</html>

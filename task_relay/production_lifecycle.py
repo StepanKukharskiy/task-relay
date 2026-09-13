@@ -23,6 +23,7 @@ def controls(state,event,run):
     view=next(v for v in pc.inspect(state,run,include_files=False) if v['name']==run)
     verbs=[]
     if view['status']=='paused':verbs.append(('resume','Resume'))
+    elif pc.review_resume_digest(state,run,view,legacy=True):verbs.append(('resume','Resume remaining work'))
     elif view['status'] in ('active','uncertain') and view['scheduler_enabled']:verbs.append(('pause','Pause scheduling'))
     if view['status'] not in ('completed','cancelled'):verbs.append(('cancel','Cancel stage'))
     buttons=[]
@@ -63,12 +64,15 @@ def apply(state,token,chat_id,message_id):
         rt.pause(run)
         result='Scheduling paused. Running workers may finish; no further task will start until you resume.'
     elif card['verb']=='resume':
-        if state.get('production-enabled:'+run)!=digest:raise ValueError('The scheduling authorization changed. Review the saved stage before resuming.')
-        rt.resume(run)
-        result='Scheduling resumed within the existing stage authorization.'
+        if state.get('production-enabled:'+run)!=digest:
+            result=pc.resume_review(state,run,legacy=True)
+        else:
+            rt.resume(run)
+            result='Scheduling resumed within the existing stage authorization.'
     else:
         rt.request_cancel(run)
         state.put('production-enabled:'+run,False)
+        state.put('production-review-grant:'+run,False)
         state.db.execute("UPDATE production_revisions SET status='failed',error='Stage cancelled by user' WHERE run=? AND status='queued'",(run,))
         state.db.execute("UPDATE production_continuations SET status='failed',error='Parent stage cancelled by user' WHERE parent=? AND status='queued'",(run,))
         pending=any(a['state']=='cancelling' for a in rt.status(run)['attempts'])

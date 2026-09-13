@@ -15,6 +15,15 @@ __pycache__/
 node_modules/
 /dist/
 /build/
+/desktop/ui/
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/icons/android/
+/desktop/src-tauri/icons/ios/
+/desktop/src-tauri/resources/python/task-relay-bridge/
+/desktop/src-tauri/resources/runtime/
+/desktop/.venv-build/
+/desktop/build/
 *.egg-info/
 .env
 .env.*

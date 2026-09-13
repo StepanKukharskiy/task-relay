@@ -52,7 +52,7 @@ def assignment(value):
     if 'execution' in a:
         from .execution import validate
         validate(a)
-    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files']):
+    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser']):
         raise ValueError('Use a supported files or files + shell capability profile')
     outputs = a.get('outputs')
     if not isinstance(outputs, list) or not 1 <= len(outputs) <= 30:
@@ -84,6 +84,17 @@ def assignment(value):
             label(entry['from_task']); relative(entry['output'])
             if entry['from_task'] not in deps:
                 raise ValueError('Artifact producer must be an explicit dependency')
+    if a.get('tools')==['files','browser']:
+        from .browser_contract import validate
+        policy=validate(a.get('browser'))
+        resource='browser-'+hashlib.sha256(policy['profile'].encode()).hexdigest()
+        if a.setdefault('resource',resource)!=resource:raise ValueError('Browser resource ownership must match its profile')
+        if not set(policy['uploads'])<=set(i['path'] for i in inputs) or not set(policy['downloads'])<=set(o['path'] for o in outputs):
+            raise ValueError('Browser transfers must name declared input/output paths')
+        if a.get('review_of') and (policy['interaction_scope'] or policy['uploads'] or policy['downloads']):
+            raise ValueError('Independent browser reviewers may only read/navigate')
+        if a.setdefault('max_attempts',1)!=1:raise ValueError('Browser work permits one attempt; revisions require a new explicit stage')
+    elif 'browser' in a:raise ValueError('Browser authority requires the browser executor profile')
     criteria = a.get('criteria')
     if not isinstance(criteria, list) or not 1 <= len(criteria) <= 30:
         raise ValueError('Specify 1–30 review criteria')
@@ -104,6 +115,12 @@ def assignment(value):
             raise ValueError('Reviewer must depend on its producer; user gate belongs to producer')
     if a.get('user_gate'):
         nonempty(a['user_gate'], 'user decision purpose')
+    if 'selection_outputs' in a:
+        selected=a['selection_outputs']
+        if (not a.get('user_gate') or not isinstance(selected,list) or not 2<=len(selected)<=6
+            or any(not isinstance(p,str) for p in selected) or len(set(selected))!=len(selected)
+            or not set(selected)<=set(o['path'] for o in outputs)):
+            raise ValueError('A selection set requires a user gate and 2–6 distinct declared output paths')
     if a.get('resource'):
         label(a['resource'])
     if len(encoded(a)) > 180000:
@@ -124,7 +141,7 @@ def plan(value):
     for a in p['tasks']:
         if a.get('execution'):continue
         if a['tools']!=profile:raise ValueError('Assignment tools do not match the selected execution provider.')
-        if backend['type']=='gemini-agent':
+        if backend['type'] in ('gemini-agent','gemini-browser'):
             if any(a['limits'][k]>v for k,v in GEMINI_LIMITS.items()):raise ValueError('Gemini assignment exceeds its bounded file-executor limits.')
             if any(o.get('media_type','text/plain') not in ('text/plain','text/markdown','application/json') for o in a['outputs']):
                 raise ValueError('Gemini file executor produces UTF-8 text only.')

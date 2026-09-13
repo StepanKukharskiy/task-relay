@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Local Task Relay setup window only",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {"url": "https://github.com/StepanKukharskiy/task-relay*"},
+        {"url": "https://aistudio.google.com/apikey"},
+        {"url": "https://platform.openai.com/api-keys"},
+        {"url": "https://www.alibabacloud.com/help/en/model-studio/get-api-key"},
+        {"url": "https://platform.deepseek.com/api_keys"},
+        {"url": "https://openrouter.ai/settings/keys"},
+        {"url": "https://t.me/*"}
+      ]
+    }
+  ]
+}

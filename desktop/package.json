@@ -1,0 +1,21 @@
+{
+  "name": "task-relay-desktop",
+  "license": "Apache-2.0",
+  "private": true,
+  "version": "0.12.1",
+  "scripts": {
+    "sync-ui": "node scripts/sync-ui.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@highlightjs/cdn-assets": "11.12.0",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "dompurify": "3.4.15",
+    "marked": "18.0.12"
+  }
+}

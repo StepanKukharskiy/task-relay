@@ -18,10 +18,10 @@ def validate(backend):
         if not isinstance(backend.get('model'),str) or not backend['model'].strip():raise ValueError('Specify a fixed model.')
         if backend.get('reasoning') not in ('low','medium','high','xhigh','max','ultra'):raise ValueError('Specify reasoning effort')
         return ['files','shell']
-    if backend.get('type') == 'gemini-agent':
+    if backend.get('type') in ('gemini-agent','gemini-browser'):
         if set(backend) != {'type','model'} or not isinstance(backend['model'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}',backend['model']):
             raise ValueError('Gemini execution requires an exact model and no unsupported backend options.')
-        return ['files']
+        return ['files','browser'] if backend['type']=='gemini-browser' else ['files']
     raise ValueError('Unsupported execution provider; no fallback is allowed.')
 
 
@@ -63,6 +63,11 @@ def probe():
 def available(backend):
     validate(backend)
     if backend['type']=='codex-cli':return
+    if backend['type']=='gemini-browser':
+        from task_relay.host import HOST
+        from task_relay.relay_paths import PATHS
+        HOST.browser_python(PATHS.install,PATHS.data)
+        return available({'type':'gemini-agent','model':backend['model']})
     config,current=configured()
     if backend!=current:raise ValueError('The selected Gemini model changed; no fallback is allowed.')
     try:r=json.loads(receipt_path().read_text())
@@ -91,7 +96,15 @@ def catalog(state=None):
     try:
         _,entry['backend']=configured();available(entry['backend']);entry['available']=True
     except ValueError as exc:entry['blocker']=str(exc)
-    result.append(entry);return result
+    result.append(entry)
+    browser={**entry,'id':'gemini-browser','backend':({'type':'gemini-browser','model':entry['backend']['model']} if entry['backend'] else None),
+        'tools':['files','browser'],'available':False,
+        'permissions':'Declared text files and general browser tools in dedicated profiles. Exact origins, interaction scope and transfer grants required. Website contents go to the selected model; no shell/cookie/credential tools.'}
+    try:
+        if browser['backend'] is None:raise ValueError('Connect and verify Gemini first')
+        available(browser['backend']);browser['available']=True
+    except (ValueError,RuntimeError) as exc:browser['blocker']=str(exc)
+    result.append(browser);return result
 
 
 if __name__=='__main__':

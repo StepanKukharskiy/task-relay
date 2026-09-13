@@ -16,6 +16,30 @@ READ = ('file_list', 'file_read', 'file_search')
 WORKER_CAPABILITIES = (*READ, 'file_write', 'shell', 'web_search', 'web_fetch')
 CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebSearch', 'WebFetch']
 EXECUTION_ROUTING = '''Execution routing check before your final response:
+Interpret the current user's intent in its conversational context. Requests such as
+"we need a desktop launcher" or "let's continue with O13 then" can ask for work,
+even without a slash command or the word Codex. Resolve the referenced work from
+the user's earlier messages and the current roadmap; do not expand it to the whole
+milestone. When the user asks to proceed, select a suitable existing task, use the
+linked workflow control, or propose a bounded production stage as appropriate.
+If the execution destination is unclear, ask where to run it, or use choose_task
+for relevant Codex destinations. An idea that is genuinely exploratory can stay
+conversational; ask a concrete scope question when intent is ambiguous. Do not end
+an actionable request with a generic offer to act later. History helps resolve
+references but does not supply new authorization. General questions remain answers.
+
+Direct Rhino support uses rhino.startup, rhino.inspect and rhino.run_python.
+Select exact .3dm artifacts for inspection. For modeling, first prepare/review
+interpreter-compatible model.py (IronPython 2.7 for Rhino 7, CPython 3 for Rhino 8) and checks JSON using the rhino.run_python catalog schema.
+Then propose a separate exact-code approved host stage with registered script,
+checks and optional source .3dm. scene_sha256=null means create a new model;
+edits bind the exact source hash. Return candidate.3dm, viewport preview and
+independent reopen checks for user selection. Scripts use RhinoCommon and the
+supplied doc/scriptcontext.doc. Current adapter: Rhino 7/8 on macOS. rhino.render uses an exact manifest to render
+an existing named view through built-in Rhino Render, with review and selection. Grasshopper
+definitions, GH scripts and GH component execution are paused; do not route them
+through direct Rhino modeling or claim they are supported.
+
 For an existing Blender scene, blender.inspect can inventory its objects, materials,
 cameras and dependencies. Select the exact .blend artifact_ids in plan_production
 and step_capabilities=["blender.inspect"], or ask which scene if the version is
@@ -69,6 +93,7 @@ failure in that environment is a valid diagnostic finding, not permission to fix
 the host. Use the existing plan approval; do not claim execution before receipts.
 '''
 IMMEDIATE = ('generate_image', 'continue_production', 'collect_references',
+             'resume_production',
              'route_task', 'choose_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
 GATED = ('plan', 'run', 'pause', 'resume', 'stop', 'start_production', 'revise_production')
@@ -107,7 +132,9 @@ Distinguish direct tools from delegated worker capabilities. Missing direct shel
 tools does not mean the whole system cannot help: inspect the eligible worker targets.
 For an explicit request to do work in an EXISTING suitable task, you may return
 {"kind":"delegate_task","task_id":"exact target id","provider":"exact provider",
- "required_capabilities":["web_search","web_fetch"]}.
+ "required_capabilities":["web_search","web_fetch"],"artifact_ids":[],"research_ids":[]}.
+For Codex, fill the source lists from the exact requested versions; empty means
+none are needed. Omit these source lists for non-Codex providers.
 Choose only capabilities actually needed and a target in the same relevant project.
 Honor the user's explicit provider choice; do not silently fall back to another provider.
 For multiple plausible tasks ask which one; never choose by capability alone. Prefer
@@ -130,8 +157,12 @@ Continuation needs an exact checkpoint from a confirmed stopped attempt with the
 manifest; uncertain frame work is never silently replayed. Simulation/UI work remains unsupported.
 plan_production can propose a bounded producer/reviewer stage using graph_executors
 and the optional executor field. Honor exact provider choice; unavailable or
-unsupported work is blocked without fallback. Gemini supports declared text file
-tools only; its availability requires a recent connection/model metadata check.
+unsupported work is blocked without fallback. gemini-agent supports declared text file
+tools only; gemini-browser adds general website tools under an exact approved
+profile, origin list, interaction scope and file-transfer grants. Use gemini-browser
+for requested control of other websites when available. Login is performed by the
+user locally; no universal site compatibility is implied. Both Gemini profiles
+require a recent connection/model metadata check.
 It can also propose explicitly
 requested mixed text steps using graph_operations and step_capabilities. API steps
 require the exact plan approval and have no agent tools.
@@ -259,7 +290,7 @@ def catalog(state, snapshot):
                     'template, project, reference_pack_id, research_ids, planning_only; optional parent_id or previous_run' if kind=='plan_production' else
                     'plan_id' if kind=='authorize_production_plan' else
                     'old_decision, new_decision' if kind=='replace_selection' else
-                    'reference_ids' if kind=='generate_image' else 'project' if kind=='collect_references' else
+                    'reference_ids, optional artifact_ids from production_artifacts' if kind=='generate_image' else 'project' if kind=='collect_references' else
                     'task_id/task_ids, optional reference_pack_id' if kind in ('route_task','choose_task') else
                     'workflow, items, direction'),
             permissions='Existing action card and scope checks.' if kind in GATED else 'Explicit user request; existing adapter checks.',
@@ -296,7 +327,7 @@ def catalog(state, snapshot):
         direct_unavailable=['shell','file_write']+([] if gemini.read_config() else ['web_search']),
         web={'web_fetch':'Public HTTPS text reader; no login/JavaScript/PDF.',
              'web_search':'Gemini/Google Search; configured' if gemini.read_config() else 'Connect Gemini to enable search.'},
-        production_worker='Graph agents use their frozen executor profile: Codex files/shell or Gemini declared text files. They are not free routing targets.')
+        production_worker='Graph agents use their frozen executor profile: Codex files/shell, Gemini declared text files, or Gemini text files plus scoped browser tools. They are not free routing targets.')
 
 
 def validate_delegate(action, snapshot):
@@ -317,12 +348,13 @@ def validate_delegate(action, snapshot):
         from task_relay import routing_inputs
         if target['provider']!='codex':raise CapabilityError('Registered research handoff currently requires a Codex task.')
         routing_inputs.validate_ids(action['research_ids'],snapshot.get('research_documents',[]))
-    if target['provider']=='codex' and snapshot.get('production_artifacts') and 'artifact_ids' not in action:
-        raise CapabilityError('Select generated artifact_ids, or [] for none; no handoff was queued.')
     if 'artifact_ids' in action:
         from task_relay import routing_inputs
         if target['provider']!='codex':raise CapabilityError('Generated artifact handoff currently requires a Codex task.')
         routing_inputs.validate_artifact_ids(action['artifact_ids'],snapshot.get('production_artifacts',[]))
+    if target['provider']=='codex':
+        from task_relay import routing_inputs
+        routing_inputs.require_source_selections(action,snapshot)
     return target
 
 
@@ -367,6 +399,10 @@ def dispatch(state, job, action, snapshot):
     kind=action['kind'];tid=None;receipt=str(job['id']);executor=kind
     if kind=='delegate_task':
         text,tid,executor,receipt=delegate(state,job,action,snapshot)
+    elif kind=='resume_production':
+        from task_relay import production_control
+        text=production_control.resume_review(state,action['workflow'],legacy=True)
+        executor='production_runs';receipt=action['workflow']
     elif kind=='plan_production':
         from task_relay import production_planning
         text=production_planning.enqueue(state,job,action,snapshot)
@@ -380,7 +416,7 @@ def dispatch(state, job, action, snapshot):
         text=production_planning.authorize(state,job,action['plan_id'])
         executor='production_plans';receipt=action['plan_id']
     elif kind=='generate_image':
-        tid,text=orchestrator_images.queue(state,job,action['reference_ids'])
+        tid,text=orchestrator_images.queue(state,job,action['reference_ids'],action.get('artifact_ids',[]))
         executor='orchestrator_image_requests'
     elif kind=='continue_production':
         from task_relay import orchestrator_guides

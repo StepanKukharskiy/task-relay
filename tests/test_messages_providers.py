@@ -10,16 +10,9 @@ import gemini_runner
 from messages_pilot import Pilot, Store
 from messages_providers import ProviderRouter
 from messages_service import definition
+from messages_orchestrator import OrchestratorRouter
+from bridge import State
 from tests.test_messages_pilot import Desktop, Transport
-
-
-class Worker:
-    def __init__(self, state, backend):
-        self.state = state
-    def tick(self):
-        pass
-    def close(self):
-        pass
 
 
 class Tests(unittest.TestCase):
@@ -28,8 +21,10 @@ class Tests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.config = patch('gemini.read_config', return_value={'api_key': 'test-only', 'models': gemini.DEFAULT_MODELS})
         self.config.start()
-        self.store = Store(self.root / 'pilot/state.sqlite')
-        self.router = ProviderRouter(self.root / 'provider/state.sqlite', worker_factory=Worker)
+        self.shared = State(self.root / 'state.sqlite')
+        self.store = Store(state=self.shared)
+        self.router = ProviderRouter(state=self.shared, require_ready=False)
+        self.exporter = OrchestratorRouter(state=self.shared, require_ready=False)
         self.transport, self.desktop = Transport(), Desktop()
         log = self.root / 'rollout.jsonl'
         log.write_text(json.dumps({'type': 'event_msg', 'payload': {'type': 'task_complete'}}) + '\n')
@@ -84,8 +79,8 @@ class Tests(unittest.TestCase):
         self.send('/codex Continue the implementation')
         self.assertEqual(self.desktop.starts, [('codex-task', 'Continue the implementation')])
         self.complete('A Gemini answer')
-        self.router.tick(self.pilot)
-        rows = self.store.db.execute("SELECT text FROM delivery WHERE id LIKE 'backend:%'").fetchall()
+        self.exporter.tick(self.pilot)
+        rows = self.store.db.execute("SELECT text FROM messages_delivery WHERE id LIKE 'backend:%'").fetchall()
         self.assertTrue(rows)
         self.assertTrue(all(r['text'].startswith('🤖 Gemini') for r in rows))
         self.assertTrue(any('A Gemini answer' in r['text'] for r in rows))
@@ -108,7 +103,7 @@ class Tests(unittest.TestCase):
             self.send('/gemini Hello')
         self.assertIsNone(self.job())
         self.assertEqual(self.desktop.starts, [])
-        self.assertIn('not connected', self.store.db.execute('SELECT text FROM delivery').fetchone()[0])
+        self.assertIn('not connected', self.store.db.execute('SELECT text FROM messages_delivery').fetchone()[0])
 
     def test_cancel_and_new_conversation(self):
         self.send('/gemini Hello')
@@ -125,19 +120,19 @@ class Tests(unittest.TestCase):
     def test_outbox_recovery_deduplicates_result(self):
         self.send('/gemini Hello')
         self.complete()
-        self.router.tick(self.pilot)
-        count = self.store.db.execute('SELECT count(*) FROM delivery').fetchone()[0]
+        self.exporter.tick(self.pilot)
+        count = self.store.db.execute('SELECT count(*) FROM messages_delivery').fetchone()[0]
         with self.router.state.db:
             self.router.state.db.execute('UPDATE outbox SET sent=0')
-        self.router.tick(self.pilot)
-        self.assertEqual(self.store.db.execute('SELECT count(*) FROM delivery').fetchone()[0], count)
+        self.exporter.tick(self.pilot)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM messages_delivery').fetchone()[0], count)
 
     def test_restart_keeps_selected_provider_and_gemini_conversation(self):
         self.send('/gemini Hello')
         self.complete()
         tid = self.job()['thread_id']
         self.router.close()
-        self.router = ProviderRouter(self.root / 'provider/state.sqlite', worker_factory=Worker)
+        self.router = ProviderRouter(state=self.shared, require_ready=False)
         self.pilot.providers = self.router
         self.send('/ask Follow up after restart')
         self.assertEqual(self.job()['thread_id'], tid)
