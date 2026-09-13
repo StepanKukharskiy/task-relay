@@ -2,6 +2,14 @@
 
 ## 0.12.1 — unreleased
 
+- The companion now has one Channels panel for Telegram and Messages, with
+  per-channel switches and Pause all messaging in the menu bar. Saved policy
+  gates incoming commands and outgoing text/media; existing work continues,
+  queued replies retain their destination, and uncertain sends are not replayed.
+  Resume skips old requests and drains undated Telegram button clicks once.
+  Release notices have a separate Off/Telegram/Messages destination. The UI
+  distinguishes saved policy from current runtime acknowledgement; old services
+  need updating/restarting. Future messengers remain unavailable until implemented.
 - Licensed Task Relay under Apache-2.0, with the full license in the source
   distribution and Python wheel, and matching Python package metadata.
 - Packaged services write launchd logs under Library/Logs so protected Documents

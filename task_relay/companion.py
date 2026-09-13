@@ -65,11 +65,13 @@ def status():
     from .desktop_macos import DesktopService
     from .desktop_messages import MessagesService
     from .desktop_approvals import inbox
+    from .channel_policy import snapshot
     info = launcher.status()
     # No task catalog, conversation history, tool discovery beyond launcher status,
     # recursive storage scans, provider calls or mutable state initialization.
     result = {'setup': info, 'conversation': conversation()}
     for name, operation in (('service', lambda: DesktopService().status()),
+                            ('channels', snapshot),
                             ('messages', lambda: MessagesService().status()),
                             ('decisions', inbox)):
         try:

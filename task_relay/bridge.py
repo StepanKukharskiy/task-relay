@@ -42,6 +42,7 @@ from task_relay import production_control
 from task_relay import task_routing
 from task_relay import reference_packs
 from task_relay import relay_channels
+from task_relay import channel_policy
 from task_relay import usage_tracker
 
 from task_relay.relay_paths import PATHS
@@ -201,8 +202,12 @@ class Telegram:
         return self.request(method, json.dumps(params).encode(), 'application/json')
 
     def request(self, method, data, content_type, timeout=15):
+        if hasattr(self, 'policy_path') and method.startswith(('send', 'edit', 'delete', 'answer')):
+            channel_policy.require_outgoing(self.policy_path, 'telegram')
         if method.startswith('send'):
             self.pacer.wait()
+            if hasattr(self, 'policy_path'):
+                channel_policy.require_outgoing(self.policy_path, 'telegram')
         req = urllib.request.Request(
             f'https://api.telegram.org/bot{self.token}/{method}',
             data=data, headers={'Content-Type': content_type})
@@ -720,10 +725,22 @@ class Bridge:
     def __init__(self, state, telegram, config, desktop_factory=Desktop):
         self.state, self.telegram, self.config = state, telegram, config
         self.desktop_factory = desktop_factory
+        telegram.policy_path = channel_policy.database_path(state.db)
 
     def send(self, text, thread_id=None):
-        for part, entities in telegram_text.parts(text, split_text):
-            response = self.send_part(part, thread_id, entities)
+        parts = list(telegram_text.parts(text, split_text))
+        for index, (part, entities) in enumerate(parts):
+            try:
+                if not channel_policy.outgoing(self.state.db, 'telegram'):
+                    raise channel_policy.ChannelPaused()
+                response = self.send_part(part, thread_id, entities)
+            except channel_policy.ChannelPaused:
+                ident = 'held-reply:' + secrets.token_hex(16)
+                with self.state.db:
+                    self.state.db.execute('INSERT INTO outbox(id,thread_id,text) VALUES (?,?,?)',
+                        (ident, thread_id, text if index == 0 else ''.join(p[0] for p in parts[index:])))
+                    self.state.db.execute('INSERT INTO relay_event_channels VALUES (?,?)', (ident, 'telegram'))
+                return
             if thread_id:
                 with self.state.db:
                     self.state.remember(self.state.get('chat_id'), response['message_id'], thread_id)
@@ -752,11 +769,14 @@ class Bridge:
         return self.state.get('selected')
 
     def flush(self, include_media=True):
+        channel_policy.heartbeat(self.state, 'telegram', 'delivery')
         with self.state.db:
             self.state.put('health:messages-routing', {'version': 1, 'last_success': time.time()})
             for row in relay_channels.pending(self.state, 'desktop', limit=50):
                 self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', (row['id'],))
         if self.state.get('chat_id') is None:
+            return
+        if not channel_policy.outgoing(self.state.db, 'telegram'):
             return
         for row in relay_channels.pending(self.state, 'telegram'):
             # Freeze boundaries once. A later failed part or service restart
@@ -770,7 +790,14 @@ class Bridge:
             last_part = self.state.db.execute('SELECT max(part) FROM outbox_parts WHERE event_id=?', (row['id'],)).fetchone()[0]
             for part in self.state.db.execute('SELECT * FROM outbox_parts WHERE event_id=? AND sent=0 ORDER BY part', (row['id'],)).fetchall():
                 markup = (controls[1] if controls else orchestration_controls) if part['part'] == last_part else None
-                response = self.send_part(part['text'], row['thread_id'], json.loads(part['entities'] or '[]'), markup)
+                try:
+                    if not channel_policy.outgoing(self.state.db, 'telegram'):
+                        return
+                    if row['id'].startswith('proactive:') and channel_policy.read(self.state.db)['proactive'] == 'none':
+                        break
+                    response = self.send_part(part['text'], row['thread_id'], json.loads(part['entities'] or '[]'), markup)
+                except channel_policy.ChannelPaused:
+                    return
                 with self.state.db:
                     if row['thread_id']:
                         self.state.remember(self.state.get('chat_id'), response['message_id'], row['thread_id'])
@@ -779,11 +806,14 @@ class Bridge:
                     orchestrator_chat.remember(self.state, row['id'], self.state.get('chat_id'), response['message_id'])
                     self.state.db.execute('UPDATE outbox_parts SET sent=1 WHERE event_id=? AND part=?', (row['id'], part['part']))
             with self.state.db:
-                self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', (row['id'],))
+                self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=? AND NOT EXISTS '
+                    '(SELECT 1 FROM outbox_parts WHERE event_id=? AND sent=0)', (row['id'], row['id']))
         if include_media:
             self.flush_media()
 
     def flush_media(self):
+        if not channel_policy.outgoing(self.state.db, 'telegram'):
+            return
         if self.state.get('chat_id') is None:
             return
         rows = self.state.db.execute(
@@ -793,9 +823,13 @@ class Bridge:
         rows = [r for r in rows if relay_channels.event_channel(self.state, r['event_id']) == 'telegram'][:6]
         for row in rows:
             try:
+                if not channel_policy.outgoing(self.state.db, 'telegram'):
+                    return
                 response = self.telegram.send_media(self.state.get('chat_id'), row['path'],
                                                      row['filename'], row['kind'],
                                                      self.decorate(row['caption'], row['thread_id']) if row['thread_id'] else row['caption'])
+            except channel_policy.ChannelPaused:
+                return
             except (BridgeError, OSError) as exc:
                 if row['kind'] in ('video', 'audio') and isinstance(exc, TelegramError) and exc.status == 400:
                     # Codec/container rejected for inline playback: retain the
@@ -841,7 +875,10 @@ class Bridge:
                 if path.parent.resolve() == self.state.media_dir.resolve():
                     path.unlink(missing_ok=True)
 
-    def process(self, update):
+    def process(self, update, received_at=None):
+        created = update.get('message', {}).get('date', received_at)
+        if not channel_policy.accepting(self.state.db, 'telegram', created):
+            return
         if 'callback_query' in update:
             if orchestrator_chat.callback(self, update):
                 return
@@ -1454,18 +1491,31 @@ class BackgroundWorkers:
 def receive_updates(bridge):
     """Commands are polled independently of scans, notifications and uploads."""
     state = bridge.state
+    channel_policy.heartbeat(state, 'telegram', 'intake')
+    polled_at = time.time()
     updates = bridge.telegram.call('getUpdates', offset=state.get('offset', 0),
-                                   timeout=5, allowed_updates=['message', 'callback_query'])
+                                   timeout=5, limit=100, allowed_updates=['message', 'callback_query'])
+    accept_after = channel_policy.read(state.db)['accept_after']['telegram']
+    # Telegram callbacks have no click timestamp. Drain the first batch after
+    # re-enabling before admitting callbacks, including after an offline pause.
+    drain_callbacks = state.get('channel:telegram:accept_after', 0) < accept_after
     for update in updates:
         started = time.monotonic()
         received = time.time()
-        bridge.process(update)
+        try:
+            if not (drain_callbacks and 'callback_query' in update):
+                bridge.process(update, received_at=polled_at)
+        except channel_policy.ChannelPaused:
+            # A reply/ack was stopped before transport. Never replay its command.
+            pass
         with state.db:
             state.put('offset', update['update_id'] + 1)
             state.put('health:commands', {
                 'last_success': time.time(), 'seconds': round(time.monotonic() - started, 3),
                 'delivery_lag_seconds': max(0, round(received - update.get('message', {}).get('date', received), 3))})
     with state.db:
+        if polled_at >= accept_after and len(updates) < 100:
+            state.put('channel:telegram:accept_after', accept_after)
         state.put('health:poll', {'last_success': time.time()})
     from .desktop_tasks import process_commands
     process_commands(bridge)

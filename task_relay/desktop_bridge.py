@@ -24,6 +24,12 @@ def _cleanup_paths():
 
 
 def dispatch(action, value):
+    if action == 'channel-update':
+        from .channel_policy import update
+        return update(value)
+    if action == 'channel-status':
+        from .channel_policy import snapshot
+        return snapshot()
     if action == 'companion-status':
         from .companion import status
         return status()

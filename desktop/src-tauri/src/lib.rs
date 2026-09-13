@@ -9,6 +9,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
 const ACTIONS: &[&str] = &["status", "project", "provider", "telegram", "update-check",
+    "channel-update", "channel-status",
     "companion-status", "conversation", "approval-detail", "messages-start", "messages-stop",
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",
     "service-status", "service-start", "service-stop", "service-connect", "service-disconnect",
@@ -185,9 +186,11 @@ pub fn run() {
             let chat = MenuItem::with_id(app, "conversation", "Open Telegram", true, None::<&str>)?;
             let review = MenuItem::with_id(app, "review", "Review decisions…", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+            let channels = MenuItem::with_id(app, "channels", "Channels…", true, None::<&str>)?;
+            let pause = MenuItem::with_id(app, "pause-messaging", "Pause all messaging", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit companion (Relay stays running)", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&status, &chat, &review, &settings, &separator, &quit])?;
+            let menu = Menu::with_items(app, &[&status, &chat, &review, &channels, &pause, &settings, &separator, &quit])?;
             TrayIconBuilder::with_id("relay-companion")
                 .icon(tauri::include_image!("icons/menu-template.png"))
                 .icon_as_template(true)

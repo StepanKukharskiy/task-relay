@@ -100,6 +100,16 @@ Runtime restaging clears retired generated sources; unused platform icon exports
 are removed from the macOS pilot. Active standalone helpers remain required until
 a successful reviewed handoff verifies their bundled replacement.
 
+**Shared channel controls — controlled implementation.** Channels exposes
+Telegram and Messages switches, a global messaging pause and a separate proactive
+release-notice destination. Intake and transport check the shared, revisioned
+policy. Paused channels retain queued replies at their original destination;
+resuming does not replay old requests or uncertain sends. Telegram drains its
+first callback batch after resume because clicks have no reliable timestamp.
+The UI requires fresh intake/delivery acknowledgement before reporting controls
+as active. Existing service upgrades and live enforcement require separate checks;
+adding WhatsApp, Slack or Discord adapters remains deferred.
+
 The companion includes a hidden optional Messages helper. Existing Relay and
 Messages services are preserved until an explicit reviewed handoff: exact service
 and runtime identities, in-flight-work checks, unload before replacement, a fresh

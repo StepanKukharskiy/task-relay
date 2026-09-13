@@ -23,6 +23,12 @@ function message(text, error = false) {
 }
 function text(id, value) { $(id).textContent = value ?? ''; }
 function openSettings(section) {
+  if (['channels-settings', 'telegram-settings', 'messages-settings'].includes(section)) {
+    $('channels-settings').open = true;
+    if (section !== 'channels-settings') $(section).open = true;
+    $(section).scrollIntoView({block: 'nearest'});
+    return;
+  }
   $('settings').open = true;
   if (section) {
     for (const child of $('settings').children) if (child.tagName === 'DETAILS') child.open = child.id === section;
@@ -45,12 +51,30 @@ function nextSetup() {
 function render(info) {
   snapshot = info;
   const {setup, service = {}, messages = {}, decisions = {}} = info;
+  const channels = info.channels || {};
+  const policy = channels.policy;
+  const paired = {telegram: setup.telegram.paired, messages: messages.paired};
+  const pending = ['telegram', 'messages'].filter(c => paired[c] && !channels.runtime?.[c]);
+  for (const channel of ['telegram', 'messages']) {
+    const button = $('channel-' + channel);
+    const enabled = !!policy?.enabled[channel];
+    button.disabled = mutating || !channels.available || !paired[channel];
+    button.setAttribute('aria-checked', String(enabled && !!paired[channel]));
+    button.textContent = !paired[channel] ? 'Set up' : enabled ? 'On' : 'Off';
+  }
+  $('messaging-pause').disabled = mutating || !channels.available;
+  text('messaging-pause', policy?.paused ? 'Resume messaging' : 'Pause all messaging');
+  text('channels-summary', policy?.paused ? (pending.length ? 'Pause pending' : 'Paused') : policy ? `${Object.keys(paired).filter(c => paired[c] && policy.enabled[c]).length} enabled` : 'Setup needed');
+  text('channel-enforcement', channels.error || (pending.length ? `Waiting for ${pending.join(' and ')} to confirm these controls. Older services need a restart; saved switches alone do not stop them.` : policy?.paused ? 'New requests and outgoing messages are paused. Running work continues.' : 'Changes apply before the next request or send. A message already being sent can finish.'));
+  $('proactive-destination').disabled = mutating || !channels.available;
+  if (policy) $('proactive-destination').value = policy.proactive;
+  for (const option of $('proactive-destination').options) option.disabled = option.value !== 'none' && !paired[option.value];
   const connected = Object.keys(setup.providers).filter(name => setup.providers[name]);
   const providerReady = connected.length > 0 || setup.selected_provider === 'later';
   const ready = providerReady && setup.telegram.paired;
   text('version', 'Version ' + setup.version);
   text('status-title', service.error ? 'Connection needs attention' : service.healthy ? 'Relay is running' : service.loaded ? 'Checking Relay connection' : 'Relay is stopped');
-  text('status-detail', service.error || (service.healthy ? 'Send instructions and receive results in Telegram.' : service.detail));
+  text('status-detail', service.error || (policy?.paused ? (pending.length ? 'Messaging pause is waiting for service confirmation. Check Channels.' : 'Messaging is paused. Work already started can continue.') : service.healthy ? 'Work in your enabled messengers. Manage delivery in Channels.' : service.detail));
   $('status-dot').className = 'dot ' + (service.healthy ? 'ready' : service.loaded || service.error ? 'attention' : '');
   $('open-conversation').disabled = !info.conversation?.url;
   $('service-action').hidden = !!service.error || service.owner === 'other';
@@ -111,6 +135,7 @@ async function refresh() {
     $('status-dot').className = 'dot attention';
     $('service-action').hidden = true;
     $('open-conversation').disabled = true;
+    for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination']) $(id).disabled = true;
     $('grant-data-access').hidden = false;
     message(String(error), true);
   } finally { refreshing = false; $('refresh').disabled = false; }
@@ -220,6 +245,14 @@ $('close-review').onclick = () => { $('review').hidden = true; };
 $('service-action').onclick = () => {
   if (snapshot?.service && !snapshot.service.error) change(snapshot.service.loaded ? 'service-stop' : 'service-start', {}, $('service-action'));
 };
+async function updateChannels(values, button) {
+  if (!snapshot?.channels?.policy) return;
+  await change('channel-update', {revision: snapshot.channels.policy.revision, ...values}, button);
+}
+for (const channel of ['telegram', 'messages']) $('channel-' + channel).onclick = () =>
+  updateChannels({channel, enabled: !snapshot?.channels?.policy?.enabled[channel]}, $('channel-' + channel));
+$('messaging-pause').onclick = () => updateChannels({paused: !snapshot?.channels?.policy?.paused}, $('messaging-pause'));
+$('proactive-destination').onchange = () => updateChannels({proactive: $('proactive-destination').value}, $('proactive-destination'));
 $('provider-form').onsubmit = async event => {
   event.preventDefault();
   const values = {name: $('provider-name').value, key: $('provider-key').value, model: $('provider-model').value, endpoint: $('provider-endpoint').value};
@@ -301,6 +334,12 @@ document.addEventListener('click', async event => {
 window.addEventListener('unhandledrejection', event => message(String(event.reason), true));
 if (native) {
   native.event.listen('companion-navigate', async ({payload}) => {
+    if (payload === 'channels') return openSettings('channels-settings');
+    if (payload === 'pause-messaging') {
+      await refresh();
+      if (snapshot?.channels?.policy && !snapshot.channels.policy.paused) await updateChannels({paused: true}, $('messaging-pause'));
+      return openSettings('channels-settings');
+    }
     if (payload === 'conversation') return openConversation();
     if (payload === 'review') return reviewDecisions();
     if (payload === 'settings') return openSettings();
