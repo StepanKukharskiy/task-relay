@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Task Relay coordinates AI agents, local tools and project workflows from your messenger. Review plans, choose outputs and keep your work moving.">
+  <meta name="theme-color" content="#174ee8">
+  <meta property="og:title" content="Task Relay — Your tools. One conversation.">
+  <meta property="og:description" content="Coordinate AI agents, local tools and project workflows from your messenger.">
+  <meta property="og:type" content="website">
+  <title>Task Relay — Your tools. One conversation.</title>
+  <link rel="icon" type="image/png" href="/logo.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="page">
+    <header>
+      <a class="wordmark" href="#" aria-label="Task Relay home"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a>
+      <nav aria-label="Main navigation">
+        <a href="#tools">Tools</a>
+        <a href="#workflows">Workflows</a>
+        <a href="#download">Download <span aria-hidden="true">↓</span></a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="intro" aria-labelledby="title">
+        <p class="eyebrow">Open source · Runs on your computer</p>
+        <h1 id="title">Your tools.<br>One conversation.</h1>
+        <p class="lede">Give a task. Review a plan. Get the result.</p>
+        <p class="intro-copy">Task Relay coordinates AI agents, local applications and multi-step project work from Telegram. It keeps track of the handoffs, files and decisions, so you can focus on the work.</p>
+        <a class="text-link" href="#download">Get Task Relay <span aria-hidden="true">↗</span></a>
+      </section>
+
+      <section class="section" aria-labelledby="about-title">
+        <div class="section-label"><span>01 / Overview</span><h2 id="about-title">From request<br>to reviewed result.</h2></div>
+        <div class="section-content">
+          <p>Send a request in your messenger. Relay finds the right task or helps you prepare a workflow, with clear inputs, outputs and steps to review before work starts.</p>
+          <p>Agents and tools do their part. You choose an output, ask for a revision, pause or continue. Original requests, file versions and decisions stay attached to the work, even after a restart.</p>
+          <p>Relay runs on your computer. Your selected AI providers handle the work; Telegram brings back progress, files and questions. An optional Apple Messages text pilot is available on macOS.</p>
+        </div>
+      </section>
+
+      <section id="tools" class="section" aria-labelledby="tools-title">
+        <div class="section-label"><span>02 / Tools</span><h2 id="tools-title">Bring the tools<br>you already use.</h2></div>
+        <div class="section-content tool-list">
+          <article><h3>AI agents</h3><p>Codex desktop tasks and CLI workers, managed Claude sessions, and Gemini workers. Use capable workers for project files, code changes and shell commands.</p></article>
+          <article><h3>Text providers</h3><p>OpenAI, Gemini, Qwen, DeepSeek and OpenRouter. Direct text routes can read project files; editing and command execution depend on the selected worker.</p></article>
+          <article><h3>3D &amp; local applications</h3><p>Registered Blender operations and direct Rhino 7/8 on macOS: inspect models, prepare reviewed edits, produce native candidates and check previews.</p></article>
+          <article><h3>Browser &amp; production tools</h3><p>Bounded browser tasks, an optional Perplexity account-browser pilot, and file or media tools available to your configured worker.</p></article>
+          <p class="note">Connect your own accounts and install the tools you need. Availability depends on your host and worker. Relay does not automate every application; Grasshopper support is paused.</p>
+        </div>
+      </section>
+
+      <section id="workflows" class="section" aria-labelledby="workflows-title">
+        <div class="section-label"><span>03 / Workflows</span><h2 id="workflows-title">A starting point<br>for the next task.</h2></div>
+        <div class="section-content">
+          <p class="workflow-intro">These example workflows show the direction of current development. Starter selection is not included in this downloadable beta; begin with an instruction in Telegram and review the available next steps.</p>
+          <ol class="workflows">
+            <li><h3>Research → evidence → report</h3><p>Check sources, collect evidence and turn selected findings into an editable report.</p></li>
+            <li><h3>Architecture → model → presentation</h3><p>Research constraints, review a concept, build in Blender or Rhino, and prepare a presentation.</p></li>
+            <li><h3>Native model → revision → checked candidate</h3><p>Inspect an existing model, review an exact edit, then check the candidate and its preview.</p></li>
+            <li><h3>Approved carousel → reel → review</h3><p>Plan an adaptation from selected cards and assets, then produce and inspect a reel with configured media tools.</p></li>
+            <li><h3>Data → analysis → charts → presentation</h3><p>Validate a dataset, make reproducible calculations and build an editable presentation from the results.</p></li>
+          </ol>
+          <p class="note">Starters describe the steps and required tools. Each stage needs its own agreed scope; choosing a starter does not start the whole workflow or install missing integrations. These starters are part of current development.</p>
+        </div>
+      </section>
+
+      <section id="download" class="download" aria-labelledby="download-title">
+        <p class="eyebrow">04 / Get started</p>
+        <h2 id="download-title">Make room for the work.</h2>
+        <p>Download the Mac beta and follow the setup in the app.<br>Prefer a terminal? The CLI is available below.</p>
+        <div class="downloads">
+          <div class="download-option">
+            <a class="button primary" href="/downloads/Task-Relay-0.12.1-beta.1-arm64.dmg" aria-describedby="mac-status">Download for Mac <span aria-hidden="true">↓</span></a>
+            <p id="mac-status">Beta 0.12.1 · Apple Silicon · macOS 14+</p>
+          </div>
+          <div class="download-option">
+            <button class="button unavailable" type="button" disabled aria-describedby="windows-status">Download for Windows <span aria-hidden="true">↓</span></button>
+            <p id="windows-status">Coming later · Execution not supported yet</p>
+          </div>
+        </div>
+        <ol class="install-steps"><li><strong>Install.</strong> Open the DMG, drag Task Relay into Applications, then eject the disk.</li><li><strong>Connect.</strong> Open the app and follow its saved setup steps: AI access, Telegram bot, background service and pairing.</li><li><strong>Start a conversation.</strong> Send your first instruction in Telegram. The companion stays in the menu bar for settings and controls.</li></ol>
+        <p class="setup-note"><strong>Early beta:</strong> this build has no Apple Developer ID or notarization. After trying to open it, macOS may require <strong>Privacy &amp; Security → Open Anyway</strong>. Only approve the download if you trust it. <a href="https://support.apple.com/guide/mac-help/mh40616/mac">Apple’s opening instructions</a>. Updates may require refreshing permissions; managed Macs may block this beta.</p>
+        <p class="setup-note">Python is included. You’ll need your own AI access and a dedicated Telegram bot; provider usage may cost money. First-time Messages setup remains a separate pilot. Optional tools such as Blender are installed separately.</p>
+        <p class="note"><a href="/downloads/Task-Relay-0.12.1-beta.1-arm64.dmg.sha256">DMG checksum</a></p>
+        <details class="cli-install"><summary>Install with CLI instead</summary>
+          <p>For developers on macOS or Linux. Requires Python 3.11+, curl and tar. Download this beta’s source, then run the guided terminal setup:</p>
+          <pre><code>curl -fLO https://task-relay-website-production.up.railway.app/downloads/Task-Relay-0.12.1-beta.1-source.tar.gz
+tar -xzf Task-Relay-0.12.1-beta.1-source.tar.gz
+cd task-relay-0.12.1-beta.1
+sh install.sh --terminal-setup</code></pre>
+          <p>The installer creates its own environment and prints the installed CLI path. Keep that folder in place. Setup saves connections without starting provider work. Follow the printed instructions to start Relay and pair Telegram.</p>
+          <p>The CLI honors the data connection already selected in the companion. Existing login services are preserved; switching their owner requires a reviewed handoff. Linux service support depends on an available user service manager.</p>
+          <a href="/downloads/Task-Relay-0.12.1-beta.1-source.tar.gz">Download CLI source</a> · <a href="/downloads/Task-Relay-0.12.1-beta.1-source.tar.gz.sha256">Source checksum</a>
+        </details>
+        <a class="text-link" href="https://github.com/StepanKukharskiy/task-relay#readme">Read the setup guide <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+    <footer>
+      <span>Task Relay <span class="footer-divider">/</span> Apache-2.0</span>
+      <div><a href="https://github.com/StepanKukharskiy/task-relay">GitHub</a><a href="https://github.com/StepanKukharskiy/task-relay/releases">Releases</a><a href="https://github.com/StepanKukharskiy/task-relay/blob/main/ROADMAP.md">Roadmap</a></div>
+    </footer>
+  </div>
+</body>
+</html>

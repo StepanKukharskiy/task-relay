@@ -2,6 +2,18 @@
 
 ## 0.12.1 — unreleased
 
+- Companion settings show configured folders with their purpose and a macOS
+  permissions shortcut, without implying an enforced folder sandbox. Usage loads
+  on expansion; cleanup stays in troubleshooting. Removed unsupported-channel copy.
+
+- Added direct Mac beta DMG packaging with Applications shortcut, installation
+  notes and checksums. The website offers the DMG first and guided CLI installation
+  as an alternative, with explicit Apple Silicon/macOS 14 and unsigned-beta limits.
+- Companion onboarding now presents AI access, Telegram bot, service startup and
+  pairing as saved, sequential steps. Failed startup does not advance to pairing;
+  saving credentials never starts the next action. The CLI honors a previously
+  selected companion data binding without replacing services.
+
 - The companion now has one Channels panel for Telegram and Messages, with
   per-channel switches and Pause all messaging in the menu bar. Saved policy
   gates incoming commands and outgoing text/media; existing work continues,

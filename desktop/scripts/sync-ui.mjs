@@ -12,6 +12,7 @@ for (const [from, to] of [
   ['companion.html', 'index.html'],
   ['companion.css', 'companion.css'],
   ['companion.js', 'companion.js'],
+  ['companion-setup.js', 'companion-setup.js'],
   ['messages-icon.png', 'messages-icon.png'],
 ]) copyFileSync(join(source, from), join(target, to));
 console.log('Copied the minimal Task Relay companion UI.');

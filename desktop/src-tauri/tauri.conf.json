@@ -20,6 +20,7 @@
   },
   "bundle": {
     "active": true,
+    "macOS": {"minimumSystemVersion": "14.0"},
     "targets": ["app"],
     "icon": ["icons/icon.icns", "icons/icon.png"],
     "resources": ["resources/runtime/**/*"]

@@ -2,9 +2,27 @@
   "version": 2,
   "groups": [
     {
+      "kind": "website",
+      "release": false,
+      "patterns": [
+        "website/README.md",
+        "website/package.json",
+        "website/server.mjs",
+        "website/Dockerfile",
+        "website/.dockerignore",
+        "website/.railwayignore",
+        "website/railway.json",
+        "website/public/*.html",
+        "website/public/*.css",
+        "website/public/*.png"
+      ]
+    },
+    {
       "kind": "license",
       "release": true,
-      "patterns": ["LICENSE"]
+      "patterns": [
+        "LICENSE"
+      ]
     },
     {
       "kind": "application",
@@ -71,7 +89,8 @@
       "release": false,
       "patterns": [
         "tests/*.py",
-        "tests/fixtures/*.sql"
+        "tests/fixtures/*.sql",
+        "tests/*.cjs"
       ]
     },
     {

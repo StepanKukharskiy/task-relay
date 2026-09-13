@@ -69,7 +69,15 @@ def status():
     info = launcher.status()
     # No task catalog, conversation history, tool discovery beyond launcher status,
     # recursive storage scans, provider calls or mutable state initialization.
-    result = {'setup': info, 'conversation': conversation()}
+    folders = [
+        {'name': 'Relay data', 'path': str(PATHS.data), 'purpose': 'Saved connections, task history and settings'},
+        {'name': 'Task workspaces', 'path': str(PATHS.workspaces), 'purpose': 'Files created while working on tasks'},
+        {'name': 'Generated files', 'path': str(PATHS.generated), 'purpose': 'Task outputs and exports'},
+    ]
+    project = info.get('project', {}).get('path')
+    if project:
+        folders.append({'name': 'Selected project', 'path': project, 'purpose': 'Default folder selected for new work'})
+    result = {'setup': info, 'conversation': conversation(), 'folders': folders}
     for name, operation in (('service', lambda: DesktopService().status()),
                             ('channels', snapshot),
                             ('messages', lambda: MessagesService().status()),

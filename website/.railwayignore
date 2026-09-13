@@ -1,0 +1,16 @@
+*
+!Dockerfile
+!.dockerignore
+!railway.json
+!server.mjs
+!package.json
+!public/
+!public/index.html
+!public/style.css
+!public/logo.png
+
+!downloads/
+!downloads/Task-Relay-0.12.1-beta.1-arm64.dmg
+!downloads/Task-Relay-0.12.1-beta.1-arm64.dmg.sha256
+!downloads/Task-Relay-0.12.1-beta.1-source.tar.gz
+!downloads/Task-Relay-0.12.1-beta.1-source.tar.gz.sha256

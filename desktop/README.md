@@ -121,3 +121,34 @@ Applications, and open it. The app bundles Python and Relay; its compact setup
 guides provider and bot configuration without a terminal. No desktop disk image
 is published yet. Until that release path passes the gates above, use the source
 installer in the main README.
+
+## Downloadable Mac beta and CLI alternative
+
+The website's primary download is `Task-Relay-0.12.1-beta.1-arm64.dmg`, for Apple
+Silicon and macOS 14+. Drag Task Relay into Applications and eject the disk before
+opening the app. Python and the Relay runtime are included. The beta uses ad hoc
+signing, not Developer ID or notarization; macOS may require its per-app Open Anyway
+flow. Never disable Gatekeeper. Managed hosts may prohibit this beta, and updates
+may require refreshing existing permission grants. A signed public release remains
+an open gate.
+
+First-run setup presents one active form at a time: AI access, a dedicated Telegram
+bot, explicit service startup, then Telegram pairing. Saved state determines the
+next step after interruption. Saving a form never automatically starts a service
+or a provider task. Existing services are offered for reuse/review instead of being
+replaced. Paired users return to the normal companion. A first actual instruction
+and reply remain the user's end-to-end check; pairing alone does not verify AI work.
+First-time Messages enrollment retains its separate pilot procedure.
+
+The secondary website route downloads the same beta's source and runs
+`sh install.sh --terminal-setup` with Python 3.11+. CLI commands honor the data
+binding explicitly selected in the companion; explicit path overrides still win.
+Neither route silently replaces an existing login service.
+
+Build the reviewed runtime and app, then ad hoc sign and verify the app. Package
+it using `python3 desktop/scripts/package-beta.py --app /absolute/Task\ Relay.app
+--output /absolute/Task-Relay-0.12.1-beta.1-arm64.dmg` (on one line). The packager
+refuses to replace an existing artifact, creates the Applications shortcut and
+installation notes, verifies the disk image, and emits its SHA-256 checksum.
+Do not package an installed personal app or local configuration. Download files
+are generated artifacts, excluded from Git; the website serves only named files.
