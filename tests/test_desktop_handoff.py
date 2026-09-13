@@ -54,9 +54,9 @@ class HandoffTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.runtime = self.root / 'runtime'
+        self.runtime = self.root / 'Task Relay.app/Contents/Resources/resources/runtime'
         self.paths = Paths(self.runtime / 'app', self.root / 'data', self.root / 'work', self.root / 'generated')
-        for name in ('python/bin/python3', 'app/bridge.py', 'helpers/Messages Relay.app/Contents/MacOS/MessagesRelay'):
+        for name in ('python/bin/python3', 'app/bridge.py', '../../../MacOS/task-relay-desktop'):
             path = self.runtime / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture runtime')
@@ -99,6 +99,19 @@ class HandoffTests(unittest.TestCase):
         service.path.write_bytes(raw)
         self.host.loaded[spec['Label']] = loaded
         return service, raw
+
+    def test_owned_messages_status_identifies_bundled_permission_target(self):
+        from task_relay.desktop_messages import MessagesService
+        service=MessagesService(self.runtime,self.paths,self.host,self.root,lambda:self.now,self.tick)
+        service.path.parent.mkdir(parents=True,exist_ok=True)
+        service.path.write_bytes(plistlib.dumps(service._spec()))
+        self.paths.messages.mkdir(parents=True,exist_ok=True)
+        (self.paths.messages/'health.json').write_text(json.dumps({'status':'needs_attention','updated_at':self.now,'detail':'Full Disk Access denied'}))
+        self.host.loaded['com.personal.taskrelay.messages']=True
+        state=service.status()
+        self.assertTrue(state['managed']);self.assertFalse(state['healthy'])
+        self.assertEqual(state['permission_app'],str(self.root/'Task Relay.app'))
+        self.assertIn('Full Disk Access denied',state['detail'])
 
     def test_readonly_inspection_creates_nothing(self):
         self.assertEqual(self.handoff.inspect(), {'items': []})

@@ -2,8 +2,13 @@
 
 [Live website](https://task-relay-website-production.up.railway.app)
 
-One static, text-first page describing Relay, supported tools, five development
-workflow starters and current download availability. No dependencies or build step.
+One static, text-first page describing Relay, supported programs, input/saved file
+formats, five development workflow examples and current download availability.
+The program/format list describes implemented support, including dedicated editable
+PPTX generation. A beta.1 package-content notice separates the older download from
+newly implemented features; other document exports are worker-dependent. Check the
+actual published source archive before claiming an operation is in the beta.
+No dependencies or build step.
 The website process serves only the public page, stylesheet, favicon and health
 endpoint. It does not start Relay, connect providers or access local task data.
 

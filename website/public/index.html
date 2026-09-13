@@ -18,7 +18,8 @@
     <header>
       <a class="wordmark" href="#" aria-label="Task Relay home"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a>
       <nav aria-label="Main navigation">
-        <a href="#tools">Tools</a>
+        <a href="#tools">Programs</a>
+        <a href="#formats">File formats</a>
         <a href="#workflows">Workflows</a>
         <a href="#download">Download <span aria-hidden="true">↓</span></a>
       </nav>
@@ -42,18 +43,49 @@
       </section>
 
       <section id="tools" class="section" aria-labelledby="tools-title">
-        <div class="section-label"><span>02 / Tools</span><h2 id="tools-title">Bring the tools<br>you already use.</h2></div>
+        <div class="section-label"><span>02 / Programs</span><h2 id="tools-title">What Relay<br>supports today.</h2></div>
         <div class="section-content tool-list">
-          <article><h3>AI agents</h3><p>Codex desktop tasks and CLI workers, managed Claude sessions, and Gemini workers. Use capable workers for project files, code changes and shell commands.</p></article>
-          <article><h3>Text providers</h3><p>OpenAI, Gemini, Qwen, DeepSeek and OpenRouter. Direct text routes can read project files; editing and command execution depend on the selected worker.</p></article>
-          <article><h3>3D &amp; local applications</h3><p>Registered Blender operations and direct Rhino 7/8 on macOS: inspect models, prepare reviewed edits, produce native candidates and check previews.</p></article>
-          <article><h3>Browser &amp; production tools</h3><p>Bounded browser tasks, an optional Perplexity account-browser pilot, and file or media tools available to your configured worker.</p></article>
-          <p class="note">Connect your own accounts and install the tools you need. Availability depends on your host and worker. Relay does not automate every application; Grasshopper support is paused.</p>
+          <p>These integrations are implemented in Task Relay. Connect your own accounts and install the tools you want to use. Recently added features need an updated Relay runtime; see the download’s version notes below.</p>
+          <article><h3>Blender — modeling, rendering &amp; animation</h3><p>Create scenes from geometry data, inspect and revise selected models, import textures and objects, render previews, and animate transforms or cameras. Saves editable Blender files. Video encoding also needs FFmpeg and ffprobe.</p></article>
+          <article><h3>Rhino 7 &amp; 8 — modeling &amp; rendering</h3><p>Create, inspect and revise native Rhino models with reviewed Python scripts. Save in the selected Rhino version and render named views with Rhino Render. Requires Rhino and a usable license on macOS.</p></article>
+          <article><h3>PowerPoint presentations — editable PPTX generation</h3><p>Create presentations with editable text, shapes, tables, charts and images. Relay saves a native <code>.pptx</code> file without requiring PowerPoint or a Google account. Implemented in the updated Relay runtime with presentation support installed.</p></article>
+          <article><h3>Codex, Claude &amp; Gemini — agent work</h3><p>Continue Codex desktop tasks, run Codex CLI workers, use managed Claude sessions, or use Gemini file workers. Codex and Claude can edit files and run commands within their permissions; Gemini’s file-worker route writes declared text files.</p></article>
+          <article><h3>OpenAI, Gemini, Qwen, DeepSeek &amp; OpenRouter — text APIs</h3><p>Run text conversations and read project files. A direct text API connection does not itself provide application control or file editing.</p></article>
+          <article><h3>Gemini &amp; Veo — images, speech &amp; video</h3><p>Use configured Gemini models for image generation/editing and speech, and Veo for video. The available output depends on your selected model and account access.</p></article>
+          <article><h3>Browser research &amp; messaging</h3><p>Bounded browser tasks and an optional Perplexity account-browser pilot, with their own setup. Telegram is the main task and file-delivery interface; Apple Messages is a separate macOS text pilot.</p></article>
+          <p class="note">Direct local application execution is currently supported on macOS. Windows task execution is not supported yet. Grasshopper is paused; there is no native Keynote, Word, Excel or PowerPoint application-control integration.</p>
         </div>
       </section>
 
+      <section id="formats" class="format-section" aria-labelledby="formats-title">
+        <div class="section-label"><span>03 / File formats</span><h2 id="formats-title">What you can open, create and save.</h2></div>
+        <p class="formats-intro">These file routes are implemented in Relay. Each row names the tool that produces the file. Native models and PowerPoint presentations remain editable.</p>
+        <div class="format-table-wrap" role="region" aria-label="Supported input and output file formats" tabindex="0">
+          <table class="format-table">
+            <caption>Implemented support: inputs and saved outputs</caption>
+            <thead><tr><th scope="col">Program / task</th><th scope="col">Inputs</th><th scope="col">Creates and saves</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Blender models &amp; assets</th><td><code>.blend</code> scenes/libraries; <code>.png</code> and <code>.jpg</code> textures; prepared <code>.json</code> geometry or reviewed <code>.py</code> scripts</td><td>Editable <code>.blend</code>, <code>.png</code> previews, <code>.json</code> checks; asset import can also save a <code>.zip</code> bundle</td></tr>
+              <tr><th scope="row">Blender animation</th><td>Selected <code>.blend</code> and a prepared <code>.json</code> animation manifest</td><td>Editable <code>.blend</code>, H.264 <code>.mp4</code> video and <code>.png</code> frames/preview</td></tr>
+              <tr><th scope="row">Rhino 7 / 8</th><td><code>.3dm</code> models; reviewed <code>.py</code> scripts and <code>.json</code> modeling/render settings</td><td>Editable <code>.3dm</code> in Rhino 7 or 8 format, <code>.png</code> previews/renders and <code>.json</code> checks</td></tr>
+              <tr><th scope="row">PowerPoint presentations</th><td>Prepared <code>.json</code> slide content and selected <code>.png</code>/<code>.jpg</code> images</td><td>Editable <code>.pptx</code> with native text, shapes, tables and charts. Requires the updated runtime with presentation support; absent from beta.1.</td></tr>
+              <tr><th scope="row">Gemini images</th><td>Text prompts and supported <code>.png</code>, <code>.jpg</code> or <code>.webp</code> references</td><td><code>.png</code>, <code>.jpg</code> or <code>.webp</code>, according to the model’s returned image format</td></tr>
+              <tr><th scope="row">Gemini speech</th><td>Text and configured voice/model</td><td><code>.wav</code>; also <code>.mp3</code> when FFmpeg conversion is available</td></tr>
+              <tr><th scope="row">Veo video</th><td>A video prompt with a configured Veo model</td><td><code>.mp4</code></td></tr>
+              <tr><th scope="row">Text, data &amp; code workers</th><td>Project text files and your instructions</td><td>Text files such as <code>.md</code>, <code>.txt</code>, <code>.csv</code>, <code>.json</code>, <code>.py</code>, <code>.js</code>, <code>.html</code> and <code>.css</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="format-notes">
+          <article><h3>Documents, spreadsheets &amp; other exports</h3><p><code>.docx</code>, <code>.xlsx</code>, <code>.pdf</code> and <code>.svg</code> need a capable Codex/Claude worker with the appropriate libraries or export tools. These are worker-dependent outputs. PowerPoint <code>.pptx</code> generation has its own implemented Relay operation, listed above; it does not include existing-template editing or PDF export.</p></article>
+          <article><h3>Additional image providers</h3><p>OpenAI and OpenRouter image-generation stages are also implemented and save PNG candidates. They need an updated Relay runtime and the relevant provider credentials/model access. These stages are not included in the beta.1 download.</p></article>
+          <article><h3>Formats without a built-in route</h3><p>Native Keynote <code>.key</code> and Grasshopper <code>.gh</code>/<code>.ghx</code> are not supported. CAD/mesh exchange formats such as <code>.dwg</code>, <code>.dxf</code>, <code>.obj</code>, <code>.stl</code>, <code>.fbx</code> and <code>.glb</code> are not standard Relay export operations; any such export needs a separately scoped tool or script.</p></article>
+        </div>
+        <p class="note">A program’s ability to open a format does not mean Relay can automate it. Support depends on the operation, installed tools and selected files.</p>
+      </section>
+
       <section id="workflows" class="section" aria-labelledby="workflows-title">
-        <div class="section-label"><span>03 / Workflows</span><h2 id="workflows-title">A starting point<br>for the next task.</h2></div>
+        <div class="section-label"><span>04 / Workflows</span><h2 id="workflows-title">A starting point<br>for the next task.</h2></div>
         <div class="section-content">
           <p class="workflow-intro">These example workflows show the direction of current development. Starter selection is not included in this downloadable beta; begin with an instruction in Telegram and review the available next steps.</p>
           <ol class="workflows">
@@ -68,9 +100,10 @@
       </section>
 
       <section id="download" class="download" aria-labelledby="download-title">
-        <p class="eyebrow">04 / Get started</p>
+        <p class="eyebrow">05 / Get started</p>
         <h2 id="download-title">Make room for the work.</h2>
         <p>Download the Mac beta and follow the setup in the app.<br>Prefer a terminal? The CLI is available below.</p>
+        <p class="setup-note"><strong>Package contents:</strong> beta.1 was built before dedicated PowerPoint generation and the OpenAI/OpenRouter image stages were added. Those features are implemented, but require an updated runtime; the downloads below do not include them yet.</p>
         <div class="downloads">
           <div class="download-option">
             <a class="button primary" href="/downloads/Task-Relay-0.12.1-beta.1-arm64.dmg" aria-describedby="mac-status">Download for Mac <span aria-hidden="true">↓</span></a>

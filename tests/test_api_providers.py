@@ -60,9 +60,14 @@ class Tests(unittest.TestCase):
             p.stop()
         self.temp.cleanup()
 
-    def send(self, text, reply=None):
+    def send(self, text, reply='task'):
         self.uid += 1
         message = {'message_id': self.uid, 'chat': {'id': 123, 'type': 'private'}, 'from': {'id': 123}, 'text': text}
+        # Provider fixtures continue an explicit task; fresh messages route to orchestration.
+        if reply == 'task':
+            row = self.state.db.execute('SELECT message_id FROM messages WHERE thread_id=? ORDER BY message_id DESC LIMIT 1',
+                                        (self.state.get('selected'),)).fetchone() if not text.startswith('/') else None
+            reply = row[0] if row else None
         if reply is not None:
             message['reply_to_message'] = {'message_id': reply}
         self.bridge.process({'update_id': self.uid, 'message': message})

@@ -8,8 +8,10 @@ import sys
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
-SUITES=['tests.test_browser_pipeline','tests.test_browser_requests','tests.test_general_browser','tests.test_browser_executor',
-        'tests.test_browser_jobs','tests.test_browser_setup','tests.test_perplexity_browser']
+SUITES=['tests.test_browser_pipeline','tests.test_browser_requests','tests.test_general_browser','tests.test_browser_executor','tests.test_browser_providers',
+        'tests.test_browser_jobs','tests.test_browser_setup','tests.test_perplexity_browser','tests.test_perplexity_chrome',
+        'tests.test_managed_browser','tests.test_managed_research',
+        'tests.test_browser_login','tests.test_browser_login_dom','tests.test_browser_sites','tests.test_browser_accounts_dom']
 
 
 def run_tests():
@@ -36,7 +38,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out',type=Path,default=ROOT/'outputs/browser-pipeline'/time.strftime('%Y%m%d-%H%M%S'))
     args=parser.parse_args();out=args.out.resolve();out.mkdir(parents=True,exist_ok=False)
-    env={**os.environ,'TASK_RELAY_LOCAL_BROWSER_FIXTURE':'1','RELAY_BROWSER_PIPELINE_OUTPUT':str(out)}
+    env={**os.environ,'TASK_RELAY_LOCAL_BROWSER_FIXTURE':'1','TASK_RELAY_LOGIN_BROWSER_FIXTURE':'1','RELAY_BROWSER_PIPELINE_OUTPUT':str(out)}
     command=[sys.executable,'-c','from scripts.test_browser_pipeline import run_tests; run_tests()']
     print('Running real Chromium, CLI and supervised workers with a scripted model transport. Evidence: '+str(out),flush=True)
     start=time.time()

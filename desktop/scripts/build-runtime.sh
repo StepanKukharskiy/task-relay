@@ -17,7 +17,7 @@ runtime="$desktop_dir/src-tauri/resources/runtime"
 rm -rf "$runtime"
 mkdir -p "$runtime"
 tar -xzf "$archive" -C "$runtime"
+"$runtime/python/bin/python3" -m pip install --only-binary=:all: --require-hashes -r "$desktop_dir/scripts/requirements-runtime.txt"
 python3 "$desktop_dir/scripts/stage-runtime.py"
-python3 "$desktop_dir/scripts/build-messages-helper.py"
 "$runtime/python/bin/python3" "$runtime/app/bridge.py" --help >/dev/null
 echo 'Bundled Python and Task Relay runtime are ready.'

@@ -73,6 +73,11 @@ class DesktopServiceTests(unittest.TestCase):
                        ('health:poll', json.dumps({'last_success': self.now})))
             db.commit()
 
+    def test_shutdown_waits_for_launchd_to_finish(self):
+        service=DesktopService(sleep=lambda _:None)
+        with patch.object(service,'_loaded',side_effect=[True,True,False]):
+            self.assertTrue(service._wait_unloaded())
+
     def test_start_waits_for_fresh_poll_and_stop_preserves_definition(self):
         def ready(seconds):
             self.tick(seconds)

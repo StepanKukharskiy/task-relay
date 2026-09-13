@@ -48,11 +48,18 @@ def profile_lock(data,profile):
 
 
 class PlaywrightDriver:
-    def __init__(self,context,policy):
+    def __init__(self,context,policy,access=None,attached=False):
         self.context=context;self.policy=policy;self.pages={};self.dialogs=[];self.navigation_blocks={};self.redirects={}
+        self.access=access;self.attached=attached
         context.route('**/*',self.route)
         # Unexpected popup tabs are not given implicit assignment ownership.
-        context.on('page',self.new_page)
+        if not attached:context.on('page',self.new_page)
+
+    def detach(self):
+        self.context.unroute('**/*',self.route)
+        if not self.attached:self.context.remove_listener('page',self.new_page)
+        for page in self.pages.values():
+            if not page.is_closed():page.close()
 
     def new_page(self,page):
         page.on('dialog',lambda dialog:self.dismiss(dialog))
@@ -64,6 +71,14 @@ class PlaywrightDriver:
 
     def route(self,route):
         request=route.request
+        if self.attached:
+            try:owner=request.frame.page
+            except Exception:return route.fallback()
+            if owner not in self.pages.values():
+                # Only popups from Relay-owned tabs are blocked. Unrelated tabs
+                # and user-created tabs retain their existing handlers.
+                if owner.opener in self.pages.values():return route.abort()
+                return route.fallback()
         main=request.is_navigation_request() and request.frame==request.frame.page.main_frame
         def block(url,reason='outside permitted website origins'):
             if main:
@@ -75,6 +90,9 @@ class PlaywrightDriver:
             return route.abort()
         try:
             if main and origin(request.url) not in self.policy['origins']:return block(request.url)
+            if main and self.access:
+                try:self.access.check(request.url)
+                except ValueError:return block(request.url,'manual site verification required')
             if not self.policy['interaction_scope'] and request.method not in ('GET','HEAD','OPTIONS'):
                 return route.abort()
         except ValueError:return block(request.url)
@@ -106,6 +124,11 @@ class PlaywrightDriver:
 
     def open(self,tab,url):
         page=self.context.new_page();self.pages[tab]=page
+        if self.attached:
+            page.on('dialog',lambda dialog:self.dismiss(dialog))
+            page.on('popup',lambda popup:popup.close())
+        if self.access:
+            page.on('download',lambda download:download.cancel() if not self.policy['downloads'] else None)
         self.goto(page,url)
 
     def goto(self,page,url):
@@ -132,6 +155,10 @@ class PlaywrightDriver:
         page=self.managed_page(tab)
         if page in self.navigation_blocks:raise NavigationBlocked(self.navigation_blocks[page])
         if origin(page.url) not in self.policy['origins']:raise ValueError('Tab left its permitted website')
+        if self.access:
+            self.access.check(page.url)
+            from .host_browser_accounts import login_required
+            if login_required(page):self.access.require_manual(page.url)
         return page
 
     def snapshot(self,tab):
@@ -199,6 +226,11 @@ class PlaywrightDriver:
 @contextmanager
 def browser(data,policy,*,headless=False):
     validate(policy)
+    from .browser_sites import PROFILE
+    if policy['profile']==PROFILE:
+        from .host_browser_accounts import browser as accounts_browser
+        with accounts_browser(data,policy,headless) as driver:yield driver
+        return
     with profile_lock(data,policy['profile']) as root:
         try:from playwright.sync_api import sync_playwright,Error
         except ImportError:raise ValueError('Install the browser extra and Chromium; see docs/general-browser.md') from None
@@ -300,6 +332,12 @@ class Session:
             return result
         except Exception as exc:
             self.observations.pop(tab,None)
+            from .browser_sites import VerificationRequired
+            if isinstance(exc,VerificationRequired) and not interactive:
+                result={'error':str(exc),'outcome':'manual_verification_required','tab':tab,
+                        'next_step':str(exc)+' Continue only after explicit manual confirmation; do not replay prior submissions.'}
+                self.journal.finish(self.profile,self.job,ident,'observed',result)
+                return result
             if isinstance(exc,NavigationBlocked) and not interactive:
                 result={'error':str(exc),'outcome':'blocked','tab':tab,'blocked_navigation':exc.detail,
                         'next_step':'Use another permitted URL or report the missing website scope; do not repeat this blocked navigation.'}

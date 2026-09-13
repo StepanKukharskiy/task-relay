@@ -305,7 +305,9 @@ class ReleaseTests(unittest.TestCase):
         self.data = Path(temp.name).resolve() / 'data'
         self.store = releases.Store(self.data)
         self.addCleanup(self.store.close)
-        self.release = dict(version='0.13.0', url=releases.WEB + 'tag/v0.13.0')
+        major, minor, patch_version = releases.version(releases.VERSION)
+        future = f'{major}.{minor}.{patch_version + 1}'
+        self.release = dict(version=future, url=releases.WEB + 'tag/v' + future)
 
     def test_daily_check_survives_restart_and_failure_is_throttled(self):
         calls = []

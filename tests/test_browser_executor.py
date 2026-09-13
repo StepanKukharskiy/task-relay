@@ -70,6 +70,8 @@ class Tests(unittest.TestCase):
         with closing(sqlite3.connect(':memory:')) as db:
             result=run(frozen,self.control,db,self.root,client=client,config_reader=lambda:(CONFIG,frozen['backend']),driver_context=nullcontext(driver))
             self.assertEqual(result['decision'],'delivered');self.assertEqual(len(client.calls),5)
+            from orchestrator.browser_contract import WEBSITE_TASK_INSTRUCTIONS
+            self.assertIn(WEBSITE_TASK_INSTRUCTIONS,client.calls[0]['systemInstruction']['parts'][0]['text'])
             self.assertEqual([a[0] for a in driver.actions],['fill','click'])
             receipt=json.loads((self.control/'browser-result.json').read_text())
             self.assertEqual(len(receipt['actions']),3);self.assertFalse(receipt['uncertain_actions'])

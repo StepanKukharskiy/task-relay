@@ -34,6 +34,13 @@ class DesktopService:
     def _loaded(self):
         return self._command(['print', f'gui/{os.getuid()}/{LABEL}']).returncode == 0
 
+    def _wait_unloaded(self):
+        # launchctl bootout may return before the owned process has exited.
+        for _ in range(60):
+            if not self._loaded(): return True
+            self.sleep(.25)
+        return not self._loaded()
+
     def _spec(self):
         return {
             'Label': LABEL,
@@ -185,7 +192,7 @@ class DesktopService:
         attempt = str(uuid.uuid4())
         self._receipt(attempt, 'stop', 'intent', 'Stopping the owned service.')
         self._command(['bootout', f'gui/{os.getuid()}', str(self.path)])
-        if self._loaded():
+        if not self._wait_unloaded():
             self._receipt(attempt, 'stop', 'failed', 'launchd kept the service loaded.')
             raise DesktopServiceError('macOS could not stop the owned service. It remains loaded.')
         self._receipt(attempt, 'stop', 'stopped', 'Owned service unloaded; its definition remains for next login.')

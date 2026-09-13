@@ -20,7 +20,7 @@ from task_relay.bridge import Desktop, BridgeError, local_tasks, recent_status, 
 from task_relay.relay_paths import PATHS
 ROOT = PATHS.install
 HELP = ('Ordinary text goes to the orchestrator.\n'
-        '/orchestrator YOUR INSTRUCTION — talk to the orchestrator\n'
+        '/orchestrator YOUR INSTRUCTION — talk to the orchestrator\n/routing — where your messages go\n'
         '/choose CODE NUMBER — answer the choices on a card\n'
         '/browser TASK — plan a browser task; connect|status|cancel — Perplexity sign-in\n'
         '/ping — check Messages connection\n/status — check the task\n'
@@ -183,6 +183,25 @@ class Pilot:
         if not text or text.startswith('🤖'):
             return  # Reserved relay header on EVERY outgoing part prevents self-chat loops.
         guid = msg['guid']
+        from . import browser_research
+        if browser_research.request_text(raw_text) is not None:
+            if self.store.db.execute('SELECT 1 FROM messages_commands WHERE guid=?', (guid,)).fetchone():
+                return
+            try:
+                if not self.orchestrator:
+                    raise ValueError('The shared Relay connection is unavailable.')
+                from orchestrator.storage import transaction
+                # Commit the exact request first. A legacy separate store can
+                # replay this receipt safely if command acknowledgement is lost.
+                with transaction(self.orchestrator.state.db):
+                    browser_research.enqueue(self.orchestrator.state, 'messages:' + guid, raw_text, 'messages')
+                    if self.store.db is self.orchestrator.state.db:
+                        self.store.db.execute('INSERT INTO messages_commands VALUES (?,?)', (guid, 'received'))
+                if self.store.db is not self.orchestrator.state.db:
+                    with self.store.db:self.store.db.execute('INSERT OR IGNORE INTO messages_commands VALUES (?,?)', (guid, 'received'))
+            except ValueError as exc:
+                with self.store.db:self.notify(guid, str(exc), provider='Perplexity')
+            return
         with self.store.db:
             inserted = self.store.db.execute('INSERT OR IGNORE INTO messages_commands VALUES (?,?)',
                                              (guid, 'received')).rowcount
@@ -193,6 +212,12 @@ class Pilot:
             return
         words = text.split(maxsplit=1)
         command, argument = words[0].lower(), words[1].strip() if len(words) > 1 else ''
+        if command == '/templates':
+            from .workflow_library import describe
+            try:result=describe(argument)
+            except ValueError as exc:result=str(exc)
+            with self.store.db:self.notify(guid,result,provider='Orchestrator')
+            return
         if command == '/browser':
             from .browser_requests import is_request
             if is_request(raw_text):
@@ -203,6 +228,11 @@ class Pilot:
                 result=self.orchestrator.browser_setup(guid,argument)
             except ValueError as exc:result=str(exc)
             with self.store.db:self.notify(guid,result,provider='Orchestrator')
+            return
+        if command == '/routing' or (command == '/orchestrator' and argument == 'off'):
+            with self.store.db:
+                self.notify(guid, 'New messages go to the orchestrator. /codex and /gemini address those agents directly. '
+                            '/ask continues the provider selected explicitly; selecting a provider does not redirect ordinary text.', provider='Orchestrator')
             return
         if command == '/orchestrator':
             if argument:
@@ -420,6 +450,8 @@ def run(args):
     result = subprocess.run([binary, 'chats', '--limit', '1', '--json'], stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=15)
     if result.returncode:
+        if os.environ.get('TASK_RELAY_MESSAGES_OWNER')=='task-relay-app':
+            raise BridgeError('Messages access is blocked. In Task Relay → Channels → Messages → Permissions, add Task Relay.app to Full Disk Access, then stop/start the Messages connection in Task Relay.')
         launcher = 'Messages Relay' if args.background else 'Terminal'
         raise BridgeError(f'Messages access is blocked. Enable {launcher} in System Settings → Privacy & Security → '
                           f'Full Disk Access, then restart {launcher}.')

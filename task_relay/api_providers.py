@@ -66,7 +66,8 @@ def stored(provider):
 def read_config(provider):
     if provider not in SPECS:raise ValueError('Unknown API provider')
     from .credentials import configuration, CredentialError
-    try:return configuration(gemini.DATA/(provider+'.json'))
+    from .capability_defaults import overlay
+    try:return overlay(provider, configuration(gemini.DATA/(provider+'.json')), gemini.DATA/'state.sqlite')
     except CredentialError:return None
 
 
@@ -103,16 +104,18 @@ class Client:
         self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), gemini.NoRedirect())
 
     def request(self, path, payload=None):
-        if path not in ('models', 'key', 'responses', 'chat/completions') and not re.fullmatch(r'models\?(?:after=[A-Za-z0-9._%-]+|page_no=\d+&page_size=100&capabilities=TG&providers=qwen)', path):
+        media = (self.provider=='openai' and path in ('images/generations','images/edits')) or (self.provider=='openrouter' and path=='images')
+        if not media and not (self.provider=='openrouter' and path=='images/models') and path not in ('models', 'key', 'responses', 'chat/completions') and not re.fullmatch(r'models\?(?:after=[A-Za-z0-9._%-]+|page_no=\d+&page_size=100&capabilities=TG&providers=qwen)', path):
             raise ValueError('Unsupported API operation')
         data = json.dumps(payload).encode() if payload is not None else None
         base = self.base.removesuffix('/compatible-mode/v1') + '/api/v1' if self.provider == 'qwen' and path.startswith('models') else self.base
         req = urllib.request.Request(base + '/' + path, data=data,
             headers={'Authorization': 'Bearer ' + self.key, 'Content-Type': 'application/json'})
         try:
-            with self.opener.open(req, timeout=180 if data else 30) as res:
-                raw = res.read(MAX_CONTEXT + 1)
-            if len(raw) > MAX_CONTEXT:
+            limit=70_000_000 if media else MAX_CONTEXT
+            with self.opener.open(req, timeout=300 if media else 180 if data else 30) as res:
+                raw = res.read(limit + 1)
+            if len(raw) > limit:
                 raise gemini.ProviderError('response-too-large', uncertain=data is not None)
             result = json.loads(raw)
             if not isinstance(result, dict) or result.get('error') or result.get('success') is False:
@@ -171,6 +174,18 @@ def catalog(provider, key, base_url=None):
     return sorted(names)
 
 
+def image_catalog(provider, key, base_url=None):
+    if provider not in ('openai','openrouter'): return []
+    result=Client(provider,key,base_url).request('images/models' if provider=='openrouter' else 'models')
+    names=[]
+    for row in result.get('data',[]):
+        try: name=model_name(row.get('id'))
+        except (ValueError,AttributeError): continue
+        if provider=='openai' and name.startswith('gpt-image-'): names.append(name)
+        if provider=='openrouter' and 'image' in row.get('architecture',{}).get('output_modalities',[]): names.append(name)
+    return sorted(set(names))
+
+
 def configure(provider, key, names, base_url=None, preserve_reference=False):
     config = stored(provider)
     default = config.get('model', SPECS[provider]['model'])
@@ -188,8 +203,9 @@ def prepare_run(state, jid, info, prompt):
     config = read_config(provider)
     if not config:
         raise ValueError(f'Connect {SPECS[provider]["name"]} first through /providers.')
-    history = []
+    history = []; turns = []
     for row in state.db.execute('SELECT prompt,answer FROM api_history WHERE thread_id=? ORDER BY created_at,rowid', (info['id'],)):
+        turns.append({'request':row['prompt'],'response':row['answer']})
         history.extend([{'role': 'user', 'content': row['prompt']}, {'role': 'assistant', 'content': row['answer']}])
     history.append({'role': 'user', 'content': prompt})
     model = model_name(info['model'])
@@ -200,6 +216,14 @@ def prepare_run(state, jid, info, prompt):
     else:
         payload = {'model': model, 'messages': [{'role': 'system', 'content': FILE_SYSTEM}] + history, 'stream': False,
                    'tools': [{'type': 'function', 'function': d} for d in file_tools.DEFINITIONS]}
+    if len(json.dumps(payload).encode()) > MAX_CONTEXT and turns:
+        from . import context_handoff
+        definition=context_handoff.DEFINITION
+        payload['tools'].append({'type':'function',**definition,'strict':True} if provider=='openai' else {'type':'function','function':definition})
+        def render(text):
+            view=[{'role':'user','content':text},{'role':'user','content':prompt}]
+            return {**payload,**({'input':view} if provider=='openai' else {'messages':[{'role':'system','content':FILE_SYSTEM}]+view})}
+        payload=context_handoff.fit(turns,render,MAX_CONTEXT-min(64000,MAX_CONTEXT//4),state.media_dir.parent/'api-runs'/(jid+'.context.json'),provider=provider,can_read=True)
     encoded = encode_request(payload)
     return (jid, model, endpoint(provider, config.get('base_url')),
             str(state.media_dir.parent / 'api-runs' / (jid + '.json')), encoded)

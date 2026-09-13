@@ -51,13 +51,16 @@ class Tests(unittest.TestCase):
         self.bridge.process({'update_id':100,'callback_query':{'id':'cb','data':f'orch:{verb}:{token}',
             'from':{'id':user},'message':{'chat':{'id':7,'type':'private'},'message_id':1}}})
 
-    def test_mode_is_explicit_persistent_and_can_exit(self):
+    def test_legacy_off_explains_routing_without_disabling_new_messages(self):
         self.message('/orchestrator')
         self.assertTrue(self.state.get('orchestrator_mode'))
         self.message('Why is Spellshape blocked?',2)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],1)
         self.message('/orchestrator off',3)
-        self.assertFalse(self.state.get('orchestrator_mode'))
+        self.message('Another question',4)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],2)
+        self.bridge.flush(False)
+        self.assertIn('New messages always go', self.telegram.sent[-1][1])
 
     def test_auth_and_duplicate_delivery(self):
         self.message('/orchestrator why?',user=8)
@@ -220,10 +223,45 @@ class Tests(unittest.TestCase):
         self.assertEqual(tuple(row),('@orchestrator','pending'))
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM codex_inputs').fetchone()[0],0)
 
-    def test_use_exits_conversation_mode(self):
+    def test_use_selects_commands_without_redirecting_new_messages(self):
         with self.state.db:self.state.db.execute('INSERT INTO watched(id,title) VALUES (?,?)',('s','Strategy'))
         self.message('/orchestrator');self.message('/use s',2)
-        self.assertFalse(self.state.get('orchestrator_mode'))
+        self.assertEqual(self.state.get('selected'),'s')
+        self.assertIn('Selected for commands: Strategy',self.telegram.sent[-1][1])
+        self.message('Start new research',3)
+        self.assertEqual(self.state.db.execute('SELECT prompt FROM orchestrator_chats').fetchone()[0],'Start new research')
+
+    def test_persisted_old_selection_cannot_bypass_orchestrator_after_restart(self):
+        with self.state.db:
+            self.state.put('orchestrator_mode',False)
+            self.state.put('selected','busy')
+            self.state.db.execute("INSERT INTO watched(id,title,status) VALUES ('busy','Old selected task','running')")
+        restarted=State(Path(self.temp.name)/'state.sqlite')
+        try:
+            bridge=Bridge(restarted,self.telegram,{})
+            original='Can you start a new Codex task to research Keynote? Or HTML to PDF?'
+            update={'update_id':42,'message':{'text':original,'chat':{'id':7,'type':'private'},'from':{'id':7}}}
+            with patch.object(bridge,'submit_text') as submit:
+                bridge.process(update);bridge.process(update)
+            submit.assert_not_called()
+            rows=restarted.db.execute('SELECT prompt FROM orchestrator_chats').fetchall()
+            self.assertEqual([row[0] for row in rows],[original])
+        finally:restarted.db.close()
+
+    def test_missing_provider_never_falls_back_to_selected_task(self):
+        with self.state.db:self.state.put('selected','busy')
+        with patch.object(chat,'provider',side_effect=ValueError('Connect a conversation provider first.')), patch.object(self.bridge,'submit_text') as submit:
+            self.message('Start a new research task')
+        submit.assert_not_called()
+        self.assertIn('Connect a conversation provider',self.telegram.sent[-1][1])
+
+    def test_routing_reports_command_target_without_model_or_dispatch(self):
+        with self.state.db:
+            self.state.put('selected','s')
+            self.state.db.execute("INSERT INTO watched(id,title) VALUES ('s','Strategy')")
+        self.message('/routing')
+        self.assertIn('Selected target for commands: Strategy',self.telegram.sent[-1][1])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
 
     def test_run_budget_is_only_applied_after_user_tap(self):
         row=self.prepare('run')

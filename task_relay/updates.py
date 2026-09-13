@@ -20,7 +20,7 @@ import zipfile
 from . import credentials, releases, migrations
 from .filesystem import FILES, Grant
 from .host import HOST
-from .host_updates import Service
+from .host_updates import Service, packaged_runtime, require_source_update
 from .relay_paths import PATHS
 
 SAFE_STATES = frozenset(('done', 'completed', 'failed', 'cancelled', 'canceled', 'rejected', 'accepted',
@@ -86,6 +86,8 @@ def current(paths=PATHS):
 
 
 def verify_target(target):
+    if packaged_runtime(target['install'], target['python']):
+        raise ValueError('The source updater cannot select an app bundle as a runtime.')
     if target['protocol'] not in (1, releases.PROTOCOL) or not Path(target['python']).is_file():
         raise ValueError('This installation cannot be switched by this updater.')
     if code_hash(target['install']) != target['code_hash']:
@@ -131,6 +133,7 @@ def validate_wheel(path, release):
 
 
 def prepare(release, paths=PATHS, downloader=download):
+    require_source_update(paths)
     root = paths.data.with_name(paths.data.name.lstrip('.') + '-releases')
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     folder = root / (release['version'] + '-' + release['sha256'][:16])
@@ -235,6 +238,7 @@ def compatible(target, source, paths):
 
 def migration_plan(target, paths=PATHS):
     HOST.require_posix('Migration planning')
+    require_source_update(paths)
     if not paths.state.is_file():
         raise ValueError('Initialize an installation before planning its data migration.')
     if paths.messages.exists():
@@ -357,6 +361,7 @@ def restore(record, service, paths, waiter=wait_ready):
 
 def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready, migration=None):
     HOST.require_posix('Release activation')
+    require_source_update(paths)
     path = activation_path(paths)
     with lock(path.parent / 'update.lock'):
         record = load(path)
@@ -453,6 +458,7 @@ def activate(target, paths=PATHS, service_factory=Service, waiter=wait_ready, mi
 
 
 def recover(paths=PATHS):
+    require_source_update(paths)
     with lock(activation_path(paths).parent / 'update.lock'):
         record = load(activation_path(paths))
         if not record or record['phase'] == 'active':
@@ -466,7 +472,7 @@ def recover(paths=PATHS):
 def redirect(argv):
     # Installed launchers continue to work after a switch; update commands retain the controller.
     from .relay_paths import CHECKOUT
-    if CHECKOUT or (argv and argv[0] == 'update'):
+    if packaged_runtime(PATHS.install) or CHECKOUT or (argv and argv[0] == 'update'):
         return
     record = load(activation_path(PATHS))
     if record and record['bindings'] != PATHS.environment():
@@ -499,6 +505,8 @@ def main():
     try:
         if args.command != 'status':
             HOST.require_posix('Release update/check operations')
+        if args.command in ('apply', 'plan', 'rollback', 'recover'):
+            require_source_update(PATHS)
         if args.command in (None, 'check'):
             store = releases.Store()
             try:

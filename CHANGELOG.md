@@ -1,6 +1,236 @@
 # Changelog
 
-## 0.12.1 — unreleased
+## 0.13.0 — unreleased
+
+- Browser use now shares the Telegram and Messages switch styling. Models by task
+  adds Runway and Higgsfield API connections for image/video generation, plus Meshy
+  text-to-3D producing untextured GLB assets. Registered operations freeze the
+  actual generation brief/model, require independent review and candidate selection,
+  retain remote task IDs and download hashed artifacts through existing production
+  records. Interrupted or uncertain submissions never automatically regenerate.
+  Initial models and reference limits are documented in media workflows; Meshy
+  texturing and image-to-3D remain pending. Controlled tests cover transport,
+  recovery, artifacts and settings; live API access and paid generation are unverified.
+
+- Desktop Settings → Models by task exposes independent conversation, image and
+  video-clip defaults using existing provider credentials and saved model catalogs.
+  Preferences and their revisions are committed atomically; stale windows cannot
+  overwrite newer choices. Existing task overrides, frozen jobs and approved
+  production plans retain their models and recovery receipts. The orchestrator
+  receives capability defaults and a shared read-only media/modeling job view with
+  original receipt and artifact identities. Gemini video clips retain the direct task
+  path; composition and Blender/Rhino modeling remain separate workflows.
+
+- The orchestrator now writes a self-contained website research query instead of
+  forwarding browser-routing instructions as the search question. Original user
+  text and the submitted query are stored separately and committed with the same
+  receipt; the queue confirmation previews the query. Research scope and explicit
+  constraints must be retained without invented locations or other requirements.
+  Invalid/missing queries stop instead of falling back to copy-paste. Direct
+  `/perplexity QUESTION` keeps its literal question; all natural-language requests
+  go through intent interpretation, including the former direct shortcut. One
+  shared, site-neutral instruction governs both orchestration and Gemini/OpenAI/
+  Qwen browser workers, preserving quoted text and distinguishing searches from
+  other webpage tasks. Existing jobs are not rewritten.
+
+- Browser research no longer treats changing empty-homepage labels as changes to
+  a conversation. URL, turn counts, sign-in, Search mode, dialogs and draft checks
+  remain enforced; existing conversation text stays strict. The worker rechecks
+  context after filling and recognizes completion when the empty composer returns
+  to voice mode. Confirmed stops before invoking Submit are recorded as blocked;
+  click failures remain uncertain and are never replayed automatically. Read-only
+  receipt diagnostics now identify which baseline fields changed.
+
+- The standalone website research worker now uses the visible Search Submit
+  button once after entering the exact request. It no longer relies on Enter,
+  which could leave the text in the composer without starting a search. Missing
+  or ambiguous submission controls retain the draft without a click, and uncertain
+  attempts are still never automatically replayed. The driver waits for Submit to
+  appear after filling because the empty composer initially shows voice mode.
+  Read-only receipt diagnostics inspect visible controls in Relay's existing Chrome
+  tabs without launching another browser, navigating or submitting.
+
+- The orchestrator now exposes the app-managed browser research route to ordinary
+  chat requests. Perplexity Search uses the saved Chrome profile without requiring
+  Gemini/OpenAI/Qwen browser verification or the separate accounts-profile status.
+  It queues the exact current request once, retains its reply channel, and reports
+  actual worker receipts. Sign-in is checked before submission; other websites
+  still require a supported executor. App wording remains site-neutral.
+
+- Browser setup now uses site-neutral wording and a new tab. Open browser / sign
+  in pauses worker access and launches ordinary Chrome without debugging flags;
+  Done signing in enables future jobs using the same saved sessions. Queued
+  research waits during manual sign-in. Profile locks and process ownership
+  checks prevent mode changes from interrupting active work or personal Chrome.
+
+- Rhino drawing preparation validates script byte bounds before review and again
+  before host approval. Oversized drafts remain preserved and cannot be released
+  as ready. Drawing previews can restore an exact saved orthographic named view.
+  Preparation status names unfinished deliverables; after exact output selection,
+  **Plan execution** carries the inputs and original scope into one deduplicated
+  proposal. Host execution still requires approval of its exact code and limits.
+  Preparation guidance handles headless documents without an active viewport.
+  Rhino 8 closes owned workers through native process exit after writing receipts,
+  avoiding a managed shutdown crash; successful receipts and clean exits are both
+  required.
+
+- The website lists editable PowerPoint generation as implemented program/format
+  support. A separate beta.1 package-content notice explains that the existing
+  downloads predate PPTX and the added image stages; no new binaries are implied.
+
+- The macOS companion now includes Settings → Browser use (requires Chrome),
+  automatic private Chrome profile setup and an Open browser / sign in action.
+  The desktop runtime includes the browser driver. Enabled Perplexity chat jobs
+  use that profile through the existing scheduler without an extension or Codex.
+  Saved transport ownership, atomic queue/result records and recovery prevent
+  uncertain submissions from being replayed. Turning off blocks new managed
+  jobs while retaining sign-ins. Controlled Chrome restart and app/queue checks
+  pass. The local app update verified the visible setting and fresh health from
+  both existing messenger services; live Perplexity verification remains open.
+
+- Added local `pptx.create` and `presentation create` for editable PPTX from
+  bounded JSON and selected images. Native text, shapes, tables and charts are
+  checked after reopening. Planning freezes the schema and keeps independent
+  review and selection; failures preserve existing candidates and never replay
+  automatically. Architecture/data starters use the new route. Optional Python
+  dependencies and desktop wheel pins are included. Controlled checks cover
+  creation, validation, restart and supervised execution; a synthetic sample was
+  rendered and visually inspected. Installed-app deployment and Keynote import
+  remain unqualified; PDF/previews are separate operations.
+
+- The website now lists supported programs and explicit input/saved file formats,
+  distinguishing the downloadable beta from worker-dependent document exports and
+  newer-source PPTX/image operations. Unsupported native and CAD exchange formats
+  are labeled without implying universal application or conversion support.
+
+- Perplexity answer completion counts answer action groups instead of every Copy
+  button, preventing quoted-content controls from being mistaken for extra
+  answers. The second existing-Chrome live trial submitted once and recovered its
+  answer through observation-only reconciliation. Eighteen focused checks and
+  the affected standalone CLI integration test pass; unassisted fresh completion
+  remains unqualified.
+
+- New Codex tasks request and verify full history while the creating app-server
+  is still connected. This materializes Codex's deferred empty rollout before
+  desktop handoff; task ID, project, path and empty idle state must agree.
+  Failed reads retain the known task without submitting or replaying work.
+  The creation connection closes before handoff; when no desktop window owns
+  the task, macOS activates Codex so an inactive window can acquire ownership.
+
+- Standalone Perplexity CLI commands can attach to a selected local Chrome
+  debugging endpoint or the existing Chrome 144+ session with `--chrome`, without
+  an extension or per-click model. Chrome controls connection approval. Browser login and
+  task tabs survive worker disconnects; existing exact-request and uncertain-send
+  receipts remain authoritative. Foreign destinations stop before page text is
+  read. Twenty focused controlled checks pass; channel deployment is separate.
+  The existing-session live trial submitted once and recovered the completed
+  answer/URL through observation-only reconciliation. A transient URL capture
+  failure is fixed and regression-tested; a fresh full run after that fix and
+  unattended reconnect remain unqualified.
+
+- New Telegram messages now reach the orchestrator regardless of saved direct-task
+  mode or a selected/busy task. Task replies and explicit commands retain their
+  destination. `/use` selects command targets without disabling the orchestrator;
+  `/routing`, `/status` and selection confirmations explain where messages go.
+  Messages exposes the same routing help; legacy off requests no longer change
+  ordinary-text routing. New-task research requests retain their exact wording.
+
+- Added a standalone Perplexity Search queue and Firefox/Zen native extension
+  adapter using the browser's existing login. Explicit research requests bypass
+  model routing, preserve exact text, and return the observed transcript and saved
+  URL through the originating channel. Durable submit intent and observation-only
+  recovery prevent automatic replay after lost replies. Controlled tests pass;
+  live extension qualification, channel deployment and signed distribution remain
+  open. No live Search or delivery is claimed for this addition.
+
+- Added explicit OpenAI and Qwen browser executors using the existing browser
+  driver, action journal and reviewed production flow. `/browser openai TASK`,
+  `/browser qwen TASK` and local `prepare --provider` select a fixed API model
+  without Gemini or Codex. Native reasoning/call IDs, uncertain-request receipts
+  and provider usage are preserved. Controlled tests cover both transports and
+  plan approval; no live provider or Perplexity run is claimed for this change.
+
+- Desktop version labels distinguish the installed app from cached stable source
+  releases, show the check time, and explain when the local app version is ahead.
+  Source release checks no longer appear to offer desktop app updates.
+
+- Messages now runs through Task Relay's main executable and permission identity;
+  desktop packaging no longer ships a separate Messages Relay.app. Permissions
+  reveals Task Relay.app. Local builds use a persistent signing certificate;
+  migration from ad hoc signing may need a one-time user permission refresh.
+- Local app maintenance preserves the installed app directory and keeps verified
+  ZIP rollback archives outside Applications. Interrupted replacement restores
+  previous Contents before service restart; existing data and pairing are retained.
+  Developer ID/notarization and public app-update qualification remain open.
+
+- Named Codex destinations remain visible when large conversation catalogs are
+  shortened, preserving original evidence pointers and duplicate-title ambiguity.
+  Routing now distinguishes unverified desktop Browser/Computer Use plugins from
+  unavailable tools and honors explicit website execution through a selected
+  desktop task. The existing dispatch and reply path is reused; no new browser
+  driver is introduced. All 34 targeted checks pass and installed modules match
+  source. The live Telegram → Codex desktop → Perplexity Search → Telegram pilot
+  returned a completed answer and saved conversation URL using explicit task
+  selection and user-approved Computer Use calls. Unattended permissions, natural
+  routing and interrupted browser submission remain separate qualification gates.
+
+- Shared context handoffs now cover direct OpenAI, Qwen, DeepSeek and OpenRouter
+  text tasks and Gemini text/image tasks. Exact requests remain visible; older
+  text responses can move to a hash-checked archive with bounded `context_read`
+  retrieval. Native records remain unchanged; active tool-call envelopes are never
+  cut apart and oversized essential instructions still stop before transport.
+- Production validation checks every selected operation and maps declared
+  deliverables to actual reviewed outputs. Exact-input host preparation must name
+  deferred operations explicitly on the approval card and frozen plan.
+- Image providers share artifact, bounds, transport receipt and output validation.
+  Added `openrouter.image` using its dedicated Image API with fallbacks disabled;
+  `/providers` discovers image models separately and saves a distinct image default.
+- Messages status surfaces the actual permission error. Service stop waits for
+  asynchronous launchd unload; macOS grants remain user-controlled.
+- Desktop builds now include the pinned image decoder/converter dependency.
+  Image operations check it before claiming work or submitting an API request;
+  source installations can install the `images` extra. Qualification uses the
+  bundled interpreter as well as host tests.
+- Added `/browser sites` in Telegram/Messages for an explicit account-site list
+  and supervised manual sign-in confirmation. Account tasks reuse the `accounts`
+  session, check site access separately from task scope and pause for new sites
+  or recognized login challenges. Local administration can attach an existing
+  Chromium browser by its explicit loopback debugging endpoint; changing it
+  invalidates site confirmations. Browser workers preserve unrelated tabs and
+  never replay uncertain submissions after sign-in. This source feature still
+  needs deployment and real-account qualification. The browser extra now requires
+  Playwright 1.62 for attachment without applying default browser settings.
+
+- Media replies now use LLM intent routing with exact generated artifact versions,
+  so native Rhino requests can reach planning instead of repeating image generation.
+  Confirmed image edits retain native history; oversized image contexts create a
+  recorded handoff without changing archived responses or signatures. Generated
+  image/video filenames include task/job identity. Added registered Gemini and
+  OpenAI image operations with frozen models, dependent reference files, independent
+  review/selection and no uncertain-submission replay. Selected image operations
+  cannot disappear from a proposed plan. OpenAI image defaults are separate from
+  text defaults in `/providers`; media usage keeps its actual provider/model.
+  Controlled qualification and live limits are recorded in `docs/media-workflows.md`.
+
+- Added experimental Telegram `/browser chat` sign-in with expiring, direct-reply
+  prompts and a process-local credential pipe. Input is consumed before task/model
+  routing, with metadata-only receipts, requested Telegram deletion and no replay
+  after uncertain delivery. The Perplexity adapter recognizes bounded email/code
+  forms and leaves verification or unknown forms to the user. All 78 controlled
+  browser checks passed; live login, deployment and authenticated Search remain
+  unqualified while the dedicated browser shows verification.
+
+- Source update preparation, activation, migration planning and recovery now
+  refuse app-bundled runtimes and matching companion-owned installations before
+  downloads or state changes. Source service capture also respects desktop
+  ownership. Bundled startup ignores old source-release redirects, and new release
+  notices distinguish source packages from app updates. Metadata checks remain
+  available; a signed packaged updater is still an open release gate.
+- Reconciled macOS onboarding qualification: existing-install Telegram and
+  Messages handoffs and refreshed permission recovery were observed successfully.
+  Installed close/reopen retains one companion process, and isolated bundled
+  setup resumes saved settings. Clean-host installation, direct menu-bar operation
+  and actual provider/message acceptance remain separate open gates.
 
 - Companion settings show configured folders with their purpose and a macOS
   permissions shortcut, without implying an enforced folder sandbox. Usage loads
@@ -13,6 +243,23 @@
   pairing as saved, sequential steps. Failed startup does not advance to pairing;
   saving credentials never starts the next action. The CLI honors a previously
   selected companion data binding without replacing services.
+
+- Added a text-first public website with tool descriptions, five development
+  workflow starters and honest platform download status. The macOS button uses
+  the source installer ZIP; Windows remains unavailable. A separate Railway
+  website service serves public assets only, with no Relay data or worker access.
+  The site is deployed on Railway, uses the existing desktop logo, and explicitly
+  labels the macOS download as source rather than an app installer.
+
+- Added explicit new Codex tasks in known local project folders, through an
+  app-server creation queue. Creation and optional first instruction have separate
+  receipts; interrupted calls are not replayed and known IDs survive later failures.
+  New empty tasks support a first reply without inventing a completion event.
+  Connected Codex creation and desktop visibility still need live qualification.
+- Bundled five versioned cross-tool workflow starters, exposed through `/templates`
+  in Telegram/Messages and `task-relay workflows`. Selected stages feed the existing
+  bounded planner; exact definitions survive revisions. Listing or installation
+  starts no work and does not install or qualify missing application integrations.
 
 - The companion now has one Channels panel for Telegram and Messages, with
   per-channel switches and Pause all messaging in the menu bar. Saved policy

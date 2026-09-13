@@ -1,0 +1,30 @@
+name: Browser and media contracts
+on:
+  pull_request:
+    paths: ['task_relay/**', 'orchestrator/**', 'tests/**', 'pyproject.toml', '.github/workflows/browser-media.yml']
+  push:
+    branches: [main]
+    paths: ['task_relay/**', 'orchestrator/**', 'tests/**', 'pyproject.toml', '.github/workflows/browser-media.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  controlled-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: python -m pip install '.[images,presentations]'
+      - name: Check generation, browser handoff and artifact recovery with fixtures
+        run: >-
+          python -m unittest
+          tests.test_cloud_media tests.test_capability_defaults
+          tests.test_managed_research tests.test_perplexity_native
+          tests.test_context_handoff tests.test_media_pipeline
+          tests.test_presentations tests.test_task_creation tests.test_workflow_library
+          tests.test_mixed_planning tests.test_channel_policy

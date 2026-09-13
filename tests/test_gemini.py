@@ -49,9 +49,15 @@ class Tests(unittest.TestCase):
         self.state.db.close()
         self.temp.cleanup()
 
-    def send(self, text='', user=123, reply=None, **extra):
+    def send(self, text='', user=123, reply='task', **extra):
         self.uid += 1
         message = {'chat': {'id': user, 'type': 'private'}, 'from': {'id': user}, 'text': text, **extra}
+        # These provider-execution fixtures continue their task by explicit reply.
+        # Pass reply=None to exercise a fresh orchestrator message instead.
+        if reply == 'task':
+            row = self.state.db.execute('SELECT message_id FROM messages WHERE thread_id=? ORDER BY message_id DESC LIMIT 1',
+                                        (self.state.get('selected'),)).fetchone() if not text.startswith('/') else None
+            reply = row[0] if row else None
         if reply is not None:
             message['reply_to_message'] = {'message_id': reply}
         self.bridge.process({'update_id': self.uid, 'message': message})
@@ -594,7 +600,7 @@ class Tests(unittest.TestCase):
         self.assertIn(b'name="audio"', request.call_args.args[1])
 
 
-    def test_plain_image_reply_preserves_native_image_and_edit_history(self):
+    def test_plain_image_reply_reaches_intent_router_without_generating(self):
         image_response = result([{'inlineData': {'mimeType': 'image/png', 'data': base64.b64encode(PNG).decode()}, 'thoughtSignature': 'original-image-signature'}])
         first=self.queued('/image Make a logo from this drawing')
         self.execute(first,image_response)
@@ -602,18 +608,11 @@ class Tests(unittest.TestCase):
         message=self.state.db.execute('SELECT message_id FROM messages WHERE thread_id=? ORDER BY message_id DESC LIMIT 1',(self.tid,)).fetchone()[0]
         original='No, please make it just a scribble, no need for relay reference nothing like that. Just a nice scribble that will fit on a circle logo or a square logo.'
         self.send(original,reply=message)
-        job=self.state.db.execute('SELECT * FROM backend_jobs ORDER BY created_at DESC LIMIT 1').fetchone()
-        run=self.state.db.execute('SELECT * FROM gemini_runs WHERE job_id=?',(job['id'],)).fetchone()
-        self.assertEqual(run['capability'],'image')
+        job=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(self.uid,)).fetchone()
         self.assertEqual(job['prompt'],original)
-        with self.state.db:self.state.db.execute("UPDATE backend_jobs SET status='running' WHERE id=?",(job['id'],))
-        client=self.execute(job['id'],image_response)
-        payload=client.request.call_args.args[1]
-        self.assertEqual(payload['generationConfig']['responseModalities'],['TEXT','IMAGE'])
-        self.assertEqual(payload['contents'][1]['parts'][0]['thoughtSignature'],'original-image-signature')
-        self.assertEqual(payload['contents'][-1]['parts'][0]['text'],original)
-        files=self.state.db.execute('SELECT kind FROM media_outbox WHERE event_id=?',('backend:'+job['id']+':result',)).fetchall()
-        self.assertEqual({f[0] for f in files},{'preview','original'})
+        self.assertEqual(job['status'],'queued')
+        self.assertEqual(self.state.get('orchestrator-media-reply:'+str(self.uid)),self.tid)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],1)
 
     def test_explicit_text_switch_and_restart_preserve_reply_mode(self):
         image_response=result([{'inlineData': {'mimeType':'image/png','data':base64.b64encode(PNG).decode()}}])
@@ -635,8 +634,48 @@ class Tests(unittest.TestCase):
         self.execute(self.queued('/gemini Old wrong text reply'),result([{'text':'SVG code'}]))
         with self.state.db:self.state.db.execute('DELETE FROM kv WHERE key=?',('gemini-reply-capability:'+self.tid,))
         self.assertEqual(backends.reply_capability(self.state,self.tid),'image')
-        jid=self.queued('Can you make an image of this')
-        self.assertEqual(self.state.db.execute('SELECT capability FROM gemini_runs WHERE job_id=?',(jid,)).fetchone()[0],'image')
+        self.send('Can you make an image of this')
+        self.assertEqual(self.state.db.execute('SELECT status FROM orchestrator_chats WHERE id=?',(self.uid,)).fetchone()[0],'queued')
+
+    def test_text_context_handoff_can_read_exact_earlier_response(self):
+        first=self.queued('Preserve every original constraint.')
+        original='Retained earlier evidence. '*2000
+        self.execute(first,result([{'text':original}]))
+        second=self.queued('Inspect the earlier evidence before continuing.')
+        client=Mock();client.request.side_effect=[file_call('context_read',{'turn':0,'field':'response','offset':3,'limit':40}),result([{'text':'Reviewed earlier evidence.'}])]
+        with patch.object(gemini,'MAX_CONTEXT',12000):
+            gemini_runner.run_job(self.state,second,client=client)
+        self.assertEqual(self.status(second),'completed')
+        saved=json.loads(self.state.db.execute('SELECT result_json FROM api_tool_calls WHERE job_id=?',(second,)).fetchone()[0])
+        self.assertEqual(saved['text'],original[3:43]);self.assertEqual(client.request.call_count,2)
+
+    def test_image_context_handoff_keeps_latest_pixels_exact_instructions_and_archives(self):
+        response=result([{'inlineData':{'mimeType':'image/png','data':base64.b64encode(PNG).decode()},'thoughtSignature':'opaque'*500}])
+        first=self.queued('/image A tower');self.execute(first,response)
+        previous=self.state.db.execute('SELECT * FROM gemini_history').fetchone()
+        original=Path(previous['response_path']).read_bytes()
+        second=self.queued('/image Keep the tower, change the sky')
+        with patch.object(gemini,'MAX_CONTEXT',2000):
+            client=self.execute(second,response)
+        self.assertEqual(self.status(second),'completed')
+        payload=client.request.call_args.args[1]
+        self.assertEqual(len(payload['contents']),1)
+        self.assertIn('A tower',json.dumps(payload))
+        self.assertIn('Keep the tower, change the sky',json.dumps(payload))
+        self.assertIn(base64.b64encode(PNG).decode(),json.dumps(payload))
+        self.assertNotIn('thoughtSignature',json.dumps(payload))
+        self.assertEqual(Path(previous['response_path']).read_bytes(),original)
+        saved=self.state.db.execute('SELECT response_path FROM gemini_runs WHERE job_id=?',(second,)).fetchone()[0]
+        receipt=json.loads(Path(saved).with_suffix('.context.json').read_text())
+        self.assertEqual(receipt['sources'][0]['job_id'],first)
+        self.assertEqual(client.request.call_count,1)
+
+    def test_oversized_current_image_request_never_calls_provider(self):
+        jid=self.queued('/image A tower')
+        with patch.object(gemini,'MAX_CONTEXT',10):
+            client=self.execute(jid,result([{'text':'no'}]))
+        client.request.assert_not_called()
+        self.assertEqual(self.status(jid),'failed')
 
 
 if __name__ == '__main__':

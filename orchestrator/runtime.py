@@ -17,6 +17,7 @@ import uuid
 
 from . import contracts as c
 from . import storage
+from . import execution
 from .adapters import ExecutionFactory
 
 ACTIVE = ('launching', 'running', 'cancelling', 'uncertain')
@@ -326,6 +327,9 @@ class Runtime:
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
+                if frozen.get('execution',{}).get('capability') in execution.CLOUD_MEDIA:
+                    from task_relay import cloud_providers
+                    frozen['runtime_sources']['task_relay/cloud_providers.py'] = file_hash(Path(cloud_providers.__file__))
                 if spec.get('execution',{}).get('capability','').startswith('rhino.'):
                     from task_relay import rhino_host,host_apps
                     frozen['rhino_host_sources']={m.__name__:file_hash(Path(m.__file__)) for m in (rhino_host,host_apps)}
@@ -446,6 +450,11 @@ class Runtime:
             except (ValueError, OSError) as exc:
                 failures.append(str(exc))
         self.event(attempt['run'], attempt['task'], attempt['id'], 'output_delivered', {'artifacts': artifacts})
+        try:
+            from .host_script import validate_prepared
+            validate_prepared(frozen, workspace)
+        except (ValueError, OSError) as exc:
+            failures.append(str(exc))
         for item in frozen['inputs']:
             try:
                 if file_hash(safe_file(workspace, item['path'])) != item['sha256']:

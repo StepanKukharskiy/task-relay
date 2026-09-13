@@ -1,6 +1,9 @@
 """Versioned graph capabilities. Plans choose registered operations, never commands."""
 import copy
+import importlib.util
 import re
+from .media_adapters import PROVIDERS as IMAGE_PROVIDERS
+from .cloud_media import SPECS as CLOUD_MEDIA
 
 TEXT_TYPES = ('text/plain','text/markdown')
 REGISTRY = {
@@ -28,7 +31,30 @@ REGISTRY = {
         'permissions':'Host Blender process with normal OS permissions; fixed Relay code and bounded primitive JSON only; no arbitrary scripts or existing blend inputs.'},
 }
 
+REGISTRY['pptx.create'] = {
+    'version':1, 'kind':'procedure',
+    'input_types':[*TEXT_TYPES,'application/json','image/png','image/jpeg'],
+    'output_type':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'max_inputs':50, 'input_bytes':50000000, 'seconds':120, 'output_bytes':50000000,
+    'criteria':['The bounded slide specification produced a PPTX that reopened with matching editable text, tables, chart data and embedded images; visual layout and Keynote import require separate review.'],
+    'parameters':{}, 'external_requests':0,
+    'cancellation':'Terminate the local process; preserve partial results and never automatically replay.'}
+
 # Separate versioned capability preserves existing primitive-only plan contracts.
+REGISTRY.update(CLOUD_MEDIA)
+REGISTRY['gemini.image'] = {
+    'version':1,'kind':'api','input_types':[*TEXT_TYPES,'image/png','image/jpeg','image/webp'],
+    'output_type':'image/png','max_inputs':20,'input_bytes':11000000,'seconds':600,'output_bytes':50000000,
+    'criteria':['One complete valid generated image was saved as PNG; its visual and geometric fidelity requires separate review.'],
+    'parameters':{'model':'Exact configured image model ID','max_output_tokens':'Integer 1–4096','aspect_ratio':'1:1, 16:9 or 9:16'},
+    'external_requests':1,'cancellation':'Stop local waiting; accepted API work cannot be undone. Unknown submissions are never replayed.'}
+REGISTRY['openai.image'] = {**copy.deepcopy(REGISTRY['gemini.image']),
+    'parameters':{'model':'Exact configured GPT Image model ID','size':'auto, 1024x1024, 1536x1024 or 1024x1536',
+                  'quality':'auto, low, medium or high'}}
+
+REGISTRY['openrouter.image'] = {**copy.deepcopy(REGISTRY['gemini.image']),
+    'parameters': {'model': 'Exact configured OpenRouter image model slug', 'aspect_ratio': '1:1, 16:9 or 9:16'}}
+
 REGISTRY['blender.mesh_scene']={**copy.deepcopy(REGISTRY['blender.scene']),
     'input_bytes':20000000,
     'criteria':['The validated mesh scene is saved, reopened in a separate Blender process, checked against its geometry data and rendered to PNG.'],
@@ -110,13 +136,40 @@ REGISTRY['rhino.render'] = {
     'permissions':'Fixed host rendering with model materials/lighting and normal OS permissions. No arbitrary script, third-party renderer or model save; Grasshopper paused.'}
 
 
+# These operations need already registered versions before execution approval.
+for _capability in ('blender.run_python','blender.import_asset','blender.animate',
+                    'rhino.run_python','rhino.render'):
+    REGISTRY[_capability]['requires_registered_inputs'] = True
+
+
 def catalog():
-    from task_relay import gemini
+    from task_relay import gemini, api_providers
     config=gemini.read_config()
-    result = [dict(id=ident,**copy.deepcopy(spec),available=ident!='gemini.text' or bool(config),
+    result = [dict(id=ident,**copy.deepcopy(spec),available=not ident.startswith('gemini.') or bool(config),
         availability_evidence='Local implementation; provider configuration only, not authentication proof.',
-        configured_model=(config.get('models',{}).get('text',gemini.DEFAULT_MODELS['text']) if config and ident=='gemini.text' else None))
+        configured_model=(config.get('models',{}).get(ident.split('.')[1],gemini.DEFAULT_MODELS[ident.split('.')[1]]) if config and ident.startswith('gemini.') else None))
         for ident,spec in REGISTRY.items()]
+    for entry in result:
+        if entry['id'] in CLOUD_MEDIA:
+            from task_relay.cloud_providers import read_config
+            provider,kind=entry['id'].split('.')
+            selected=read_config(provider)
+            entry.update(available=bool(selected), configured_model=(selected or {}).get('models',{}).get(kind),
+                         availability_evidence='Saved API credential and implemented model adapter; generation access and credits are unverified.')
+            entry['available']=entry['available'] and bool(entry['configured_model'])
+        if entry['id']=='pptx.create':
+            from . import pptx_document
+            entry['slide_schema']=pptx_document.DESCRIPTION
+            try:pptx_document.available()
+            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc))
+            else:entry['availability_evidence']='Local python-pptx dependency available; native-app import and visual quality are not qualified.'
+        if entry['id'] in IMAGE_PROVIDERS and IMAGE_PROVIDERS[entry['id']] != 'gemini':
+            provider=IMAGE_PROVIDERS[entry['id']]; selected=api_providers.read_config(provider)
+            model=(selected or {}).get('models',{}).get('image')
+            entry.update(available=bool(selected and model),configured_model=model,
+                availability_evidence='Configured image model and credentials; account access unverified. Set the image default in /providers.')
+        if (entry['id'] in IMAGE_PROVIDERS or entry['id'] in CLOUD_MEDIA and entry['id'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
+            entry.update(available=False,availability_evidence='Image conversion dependency missing. Install task-relay[images] or use a rebuilt desktop app.')
     from task_relay.host_apps import blender,rhino
     from .blender_host import SCENE_DESCRIPTION,MESH_DESCRIPTION
     app=blender()
@@ -161,6 +214,24 @@ def validate(a):
         raise ValueError('Unknown capability or unsupported execution version.')
     params=e['parameters']
     if not isinstance(params,dict) or set(params)!=set(spec['parameters']):raise ValueError('Invalid registered-operation parameters.')
+    if e['capability'] in CLOUD_MEDIA:
+        from .cloud_media import validate as validate_cloud, OUTPUTS
+        validate_cloud(e['capability'],params,a.get('inputs',[]))
+        if any(not str(o.get('path','')).endswith(OUTPUTS[e['capability'].split('.')[1]][1]) for o in a.get('outputs',[])):
+            raise ValueError('Use the registered media output file extension.')
+    if e['capability']=='openai.image':
+        if not isinstance(params['model'],str) or not re.fullmatch(r'gpt-image-[A-Za-z0-9._-]{1,100}',params['model']):
+            raise ValueError('Choose an exact GPT Image model ID; text models cannot generate through the image adapter.')
+        if params['size'] not in ('auto','1024x1024','1536x1024','1024x1536') or params['quality'] not in ('auto','low','medium','high'):
+            raise ValueError('Unsupported image size or quality.')
+        if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:raise ValueError('Choose at most six image references.')
+    if e['capability']=='openrouter.image':
+        from task_relay.api_providers import model_name
+        model_name(params['model'])
+        if '/' not in params['model'] or params['aspect_ratio'] not in ('1:1','16:9','9:16'):
+            raise ValueError('Choose an exact OpenRouter image model slug and supported aspect ratio.')
+        if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:
+            raise ValueError('Choose at most six image references.')
     if e['capability']=='rhino.render':
         if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):
             raise ValueError('Rhino render requires an exact manifest hash')
@@ -198,12 +269,21 @@ def validate(a):
                 raise ValueError('Blender Python needs exactly one native scene, Python script and checks JSON.')
         if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
             raise ValueError('Blender Python accepts only already registered inputs; prepare scripts in a separate stage before approval.')
-    if e['capability']=='gemini.text':
+    if e['capability'] in ('gemini.text','gemini.image'):
         if not isinstance(params['model'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}',params['model']):
             raise ValueError('Choose an exact Gemini model ID.')
         if type(params['max_output_tokens']) is not int or not 1<=params['max_output_tokens']<=4096:
             raise ValueError('API output token limit must be 1–4096.')
+        if e['capability']=='gemini.image':
+            if params['aspect_ratio'] not in ('1:1','16:9','9:16'):raise ValueError('Unsupported image aspect ratio.')
+            if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:
+                raise ValueError('Choose at most six image references.')
     if a.get('review_of'):raise ValueError('Registered operations cannot impersonate an independent agent reviewer.')
+    if e['capability']=='pptx.create':
+        if sum(i.get('media_type')=='application/json' for i in a.get('inputs',[]) if isinstance(i,dict))!=1:
+            raise ValueError('PPTX creation requires exactly one JSON slide specification.')
+        if any(not isinstance(o,dict) or not str(o.get('path','')).endswith('.pptx') for o in a.get('outputs',[])):
+            raise ValueError('PPTX creation requires a .pptx output path.')
     if a.setdefault('tools',[])!=[]:raise ValueError('Registered operations have no agent tools.')
     if a.get('criteria')!=spec['criteria']:raise ValueError('Use the registered operation criteria; semantic review is a separate agent step.')
     if not isinstance(a.get('inputs'),list) or not 1<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
@@ -223,7 +303,7 @@ def validate(a):
         if e['capability'] in ('blender.scene','blender.mesh_scene') and sum(i['media_type']=='application/json' for i in a['inputs'])!=1:
             raise ValueError('Blender scene needs exactly one application/json scene input; context inputs are text/plain.')
     elif not isinstance(a.get('outputs'),list) or len(a['outputs'])!=1 or not isinstance(a['outputs'][0],dict) or a['outputs'][0].get('media_type')!=spec['output_type']:
-        raise ValueError('Registered operation needs one explicitly typed text output.')
+        raise ValueError('Registered operation needs one output with its declared media type.')
     limits=a.setdefault('limits',{})
     for key,maximum in [('seconds',spec['seconds']),('output_bytes',spec['output_bytes']),('tool_calls',1)]:
         limits.setdefault(key,maximum)
@@ -234,6 +314,11 @@ def validate(a):
 
 def available(a):
     spec=validate(copy.deepcopy(a))
+    if a['execution']['capability']=='pptx.create':
+        from .pptx_document import available as pptx_available
+        pptx_available()
+    if (a['execution']['capability'] in IMAGE_PROVIDERS or a['execution']['capability'] in CLOUD_MEDIA and a['execution']['capability'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
+        raise ValueError('Image conversion dependency is missing; no provider request was sent. Install task-relay[images] or update the desktop app.')
     if spec['kind']=='host':
         from task_relay.host_apps import blender,rhino
         app=rhino() if a['execution']['capability'].startswith('rhino.') else blender()
@@ -242,5 +327,9 @@ def available(a):
             from task_relay.host_apps import video_tools
             if not video_tools()['available']:raise ValueError('Animation needs installed ffmpeg and ffprobe executables')
     if spec['kind']=='api':
-        from task_relay import gemini
-        if not gemini.read_config():raise ValueError('Gemini text capability is unavailable: provider configuration is missing.')
+        from task_relay import gemini, api_providers
+        name=a['execution']['capability'].split('.')[0]
+        from task_relay import cloud_providers
+        config=(cloud_providers.read_config(name) if name in cloud_providers.PROVIDERS else
+                api_providers.read_config(name) if name in api_providers.SPECS else gemini.read_config())
+        if not config:raise ValueError(name+' capability is unavailable: provider configuration is missing.')

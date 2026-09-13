@@ -26,7 +26,7 @@ def package(app, output):
             'Requires an Apple Silicon Mac running macOS 14 or newer.\n'
             'Drag Task Relay into Applications, eject this disk, then open Task Relay.\n'
             'The app includes Python. Follow its four setup steps; no Terminal is needed.\n\n'
-            'This beta is ad hoc signed, without Apple Developer ID or notarization.\n'
+            'This local beta is not an Apple-notarized public release.\n'
             'If macOS blocks it, follow Apple’s instructions for a trusted app:\n'
             'https://support.apple.com/guide/mac-help/mh40616/mac\n'
             'Privacy & Security → Open Anyway may be needed after trying to open it.\n'

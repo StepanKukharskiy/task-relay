@@ -1,4 +1,4 @@
-"""Bounded Gemini tool loop. All filesystem authority comes from the assignment."""
+"""Bounded API tool loop. All filesystem authority comes from the assignment."""
 from contextlib import contextmanager
 from datetime import datetime,timezone
 import hashlib
@@ -26,7 +26,7 @@ class Files:
         for path,item in self.inputs.items():
             raw=self.read_bytes(path);total+=len(raw);raw.decode('utf-8')
             if hashlib.sha256(raw).hexdigest()!=item['sha256']:raise ValueError('Frozen input changed.')
-        if total>executors.MAX_INPUT_BYTES:raise ValueError('Gemini input pack exceeds 512 KB.')
+        if total>executors.MAX_INPUT_BYTES:raise ValueError('API input pack exceeds 512 KB.')
 
     def grant(self):
         from task_relay.filesystem import Grant
@@ -68,7 +68,7 @@ def definitions():
 
 
 def execute(frozen,control,client=None,config_reader=None,browser=None):
-    from task_relay import gemini
+    from task_relay import gemini, api_providers as api
     from task_relay.host import verify_support
     verify_support(frozen)
     control=Path(control);launch=json.loads((control/'launch.json').read_text());files=Files(frozen)
@@ -78,7 +78,8 @@ def execute(frozen,control,client=None,config_reader=None,browser=None):
     reader=config_reader or executors.configured
     config,backend=reader()
     if backend!=frozen['backend'] or executors.fingerprint(config,backend)!=launch['credential_fingerprint']:raise ValueError('Selected provider connection changed before submission.')
-    client=client or gemini.Client(config['api_key']);calls=0
+    provider=backend['type'].removesuffix('-browser') if backend['type'] in ('openai-browser','qwen-browser') else 'gemini'
+    client=client or (gemini.Client(config['api_key']) if provider=='gemini' else api.Client(provider,config['api_key'],config.get('base_url')));calls=0
     tool_definitions=definitions();extra_instructions='';observed_pages=[]
     if browser is not None:
         from orchestrator.browser_contract import definitions as browser_definitions,INSTRUCTIONS
@@ -86,6 +87,7 @@ def execute(frozen,control,client=None,config_reader=None,browser=None):
         extra_instructions+='\nHost UTC time at worker start: '+datetime.now(timezone.utc).isoformat()+'. Use this date, not an assumed knowledge-cutoff date, when interpreting calendars and availability.'
         browser.files=files
     contents=[{'role':'user','parts':[{'text':c.encoded({k:v for k,v in frozen.items() if k not in ('workspace','runtime_sources')})}]}]
+    history=[{'role':'user','content':contents[0]['parts'][0]['text']}]
     for number in range(1,executors.MAX_ROUNDS+1):
         if (control/'cancel.json').exists():raise ValueError('Cancelled before next provider request.')
         current,current_backend=reader()
@@ -106,21 +108,43 @@ def execute(frozen,control,client=None,config_reader=None,browser=None):
             'contents':contents,'tools':[{'functionDeclarations':available_tools}],
             'toolConfig':{'functionCallingConfig':{'mode':'ANY'}},'generationConfig':{'maxOutputTokens':executors.MAX_OUTPUT_TOKENS}}
         payload['systemInstruction']['parts'][0]['text']+=budget_instruction
+        endpoint='models/'+backend['model']+':generateContent'
+        if provider!='gemini':
+            system=payload['systemInstruction']['parts'][0]['text']
+            specs=[{'name':t['name'],'description':t['description'],
+                    'parameters':t.get('parametersJsonSchema',t.get('parameters'))} for t in available_tools]
+            common={'model':backend['model'],'tool_choice':'required'}
+            if provider=='openai':
+                endpoint='responses'
+                payload={**common,'instructions':system,'input':history,'store':False,
+                         'include':['reasoning.encrypted_content'],'max_output_tokens':executors.MAX_OUTPUT_TOKENS,
+                         'tools':[{'type':'function',**t,'strict':False} for t in specs]}
+            else:
+                endpoint='chat/completions'
+                payload={**common,'messages':[{'role':'system','content':system},*history],
+                         'stream':False,'max_tokens':executors.MAX_OUTPUT_TOKENS,
+                         'tools':[{'type':'function','function':t} for t in specs]}
         prefix=control/f'api-{number:02d}'
         # A request intent is durable before transport. Never retry a missing response.
-        with prefix.with_suffix('.request.json').open('x') as stream:stream.write(c.encoded({'model':backend['model'],'payload':payload,'created':time.time()}))
-        try:response=client.request('models/'+backend['model']+':generateContent',payload,timeout=min(120,frozen['limits']['seconds']),max_response_bytes=1000000)
+        with prefix.with_suffix('.request.json').open('x') as stream:stream.write(c.encoded({'provider':provider,'model':backend['model'],'endpoint':endpoint,'payload':payload,'created':time.time()}))
+        try:
+            response=(client.request(endpoint,payload,timeout=min(120,frozen['limits']['seconds']),max_response_bytes=1000000)
+                      if provider=='gemini' else client.request(endpoint,payload))
         except gemini.ProviderError as exc:
             atomic(prefix.with_suffix('.outcome.json'),{'outcome':'uncertain' if exc.uncertain else 'rejected','status':str(exc)})
             raise
         atomic(prefix.with_suffix('.response.json'),response)
-        emit({'type':'turn.completed','usage':response.get('usageMetadata',{})})
-        candidate=(response.get('candidates') or [{}])[0];content=candidate.get('content',{})
-        if candidate.get('finishReason')!='STOP':raise ValueError('Incomplete provider response; retained without retry.')
-        function_calls=[p['functionCall'] for p in content.get('parts',[]) if 'functionCall' in p]
+        emit({'type':'turn.completed','usage':response.get('usageMetadata',response.get('usage',{}))})
+        if provider=='gemini':
+            candidate=(response.get('candidates') or [{}])[0];content=candidate.get('content',{})
+            if candidate.get('finishReason')!='STOP':raise ValueError('Incomplete provider response; retained without retry.')
+            function_calls=[p['functionCall'] for p in content.get('parts',[]) if 'functionCall' in p]
+            contents.append(content)  # Preserve ALL parts, thought signatures and call IDs.
+        else:
+            native_calls=api.tool_calls(provider,response)
+            function_calls=[{'id':t['id'],'name':t['name'],'args':json.loads(t['arguments'])} for t in native_calls]
         if not function_calls:raise ValueError('Provider returned no executable tool/report call.')
         if any(f.get('name')=='finish' for f in function_calls) and len(function_calls)!=1:raise ValueError('finish must be a separate final call.')
-        contents.append(content)  # Preserve ALL parts, thought signatures and call IDs.
         replies=[]
         for index,call in enumerate(function_calls):
             if (control/'cancel.json').exists():raise ValueError('Cancelled before local tool execution.')
@@ -139,7 +163,7 @@ def execute(frozen,control,client=None,config_reader=None,browser=None):
                     if result['decision']!='blocked' and files.outputs!=set(files.written):raise ValueError('Write every declared output before finish.')
                     atomic(Path(frozen['workspace'])/'.relay/result.json',result)
                     record['result']={'report_saved':True};atomic(control/f'tool-{number:02d}-{index:02d}.json',record)
-                    atomic(control/'agent-result.json',{'outcome':'completed','requests':number,'tool_calls':calls,'upstream_id':response.get('responseId')})
+                    atomic(control/'agent-result.json',{'outcome':'completed','requests':number,'tool_calls':calls,'upstream_id':response.get('responseId',response.get('id'))})
                     return result
                 if browser is not None and isinstance(name,str) and name.startswith('browser_'):
                     value=browser.call(f'call-{number:02d}-{index:02d}',name,args)
@@ -156,7 +180,11 @@ def execute(frozen,control,client=None,config_reader=None,browser=None):
             reply={'name':name,'response':value}
             if call.get('id'):reply['id']=call['id']
             replies.append({'functionResponse':reply})
-        contents.append({'role':'user','parts':replies})
+        if provider=='gemini':contents.append({'role':'user','parts':replies})
+        else:
+            api.continue_request(provider,payload,response,native_calls,
+                                 [c.encoded(r['functionResponse']['response']) for r in replies])
+            history=payload['input'] if provider=='openai' else payload['messages'][1:]
     raise ValueError('Provider request budget exhausted; no automatic continuation.')
 
 

@@ -12,6 +12,33 @@ from tests import test_orchestrator_files as file_fixtures
 
 
 class ContextTests(unittest.TestCase):
+    def test_named_task_survives_large_overview_without_changing_source_pointers(self):
+        payload = self.payload()
+        payload['user_message'] = 'Use the existing Codex task "Review and continue roadmap" for Perplexity.'
+        payload['snapshot']['codex_tasks'][0].update(title='Review roadmap next steps', status='running')
+        payload['snapshot']['codex_tasks'][199].update(title='Review and continue roadmap', status='idle', routing_blocker=None)
+        original = copy.deepcopy(payload)
+        small = context.overview(payload)
+        match = small['mentioned_codex_tasks']['matches'][0]
+        self.assertEqual(small['mentioned_codex_tasks']['match_count'], 1)
+        self.assertEqual((match['id'], match['title'], match['status']), ('199', 'Review and continue roadmap', 'idle'))
+        evidence = context.Evidence(payload)
+        full = evidence.execute({'arguments': json.dumps({'pointer':match['catalog_pointer'], 'offset':0, 'limit':context.MAX_PAGE})})
+        self.assertEqual(json.loads(full['text'])['id'], '199')
+        self.assertEqual(payload, original)
+        self.assertLessEqual(len(context.encoded(small).encode()), context.MAX_OVERVIEW)
+
+    def test_duplicate_titles_preserve_ambiguity_and_mentions_are_not_actions(self):
+        payload = {'user_message':'Do not use "Browser pilot". What is its status?',
+                   'snapshot':{'codex_tasks':[{'id':str(i), 'title':'Browser pilot', 'status':'idle'} for i in range(8)]}}
+        small = context.overview(payload)
+        self.assertEqual(small['mentioned_codex_tasks']['match_count'], 8)
+        self.assertFalse(small['mentioned_codex_tasks']['complete'])
+        self.assertEqual(len(small['mentioned_codex_tasks']['matches']), 5)
+        self.assertNotIn('action', small)
+        payload['user_message'] = 'Browser pilots are useful'
+        self.assertEqual(context.task_mentions(payload)['match_count'], 0)
+
     def payload(self):
         return {'user_message': '  Use my exact direction.\nKeep the acceptance criteria.  ',
                 'snapshot': {'focus': 'chosen', 'production_runs': [

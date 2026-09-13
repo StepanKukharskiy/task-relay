@@ -40,6 +40,7 @@ from task_relay import workflows
 from task_relay import orchestrator_chat
 from task_relay import production_control
 from task_relay import task_routing
+from task_relay import task_creation
 from task_relay import reference_packs
 from task_relay import relay_channels
 from task_relay import channel_policy
@@ -50,12 +51,12 @@ ROOT = PATHS.install
 DATA = PATHS.data
 WORKSPACES = PATHS.workspaces
 CODEX_DIR = Path.home() / '.codex'
-HELP = ('Reply to a completion message to continue that exact task.\n'
-        '/tasks — one replyable card per recent task\n/use TASK_ID — optionally select a task\n'
+HELP = ('New messages go to the orchestrator. Reply to a task message to continue that exact task.\n'
+        '/tasks — one replyable card per recent task\n/use TASK_ID — select a target for commands\n'
         'Long Codex instructions: reply with a UTF-8 .txt or .md file (up to 100 KB).\n'
         'Codex media: attach photos, documents, audio or video (20 MB each), then send an instruction.\n'
         '/emoji 🏠 — set emoji for the replied-to or selected task\n'
-        '/status — connection and selected task\n/help — this help\n'
+        '/status — connection and selected task\n/routing — where your messages go\n/help — this help\n'
         '/usage [DAYS] [provider|model|project|day] — recorded token usage\n'
         '/new PROVIDER "/project/path" Title — create a task\n'
         '/gemini INSTRUCTION · /openai INSTRUCTION · /qwen INSTRUCTION\n'
@@ -77,7 +78,7 @@ HELP = ('Reply to a completion message to continue that exact task.\n'
         '/endpoint qwen HTTPS_URL — set a regional workspace endpoint\n'
         '/cancelsetup — cancel API-key entry\n'
         '/backends — provider settings\n'
-        'After /use, ordinary text continues the selected task. '
+        '/use does not change where new messages go. '
         'Codex and Claude permission requests appear here. Keep Codex open for desktop approvals.')
 
 EMOJIS = ('🏠 🏢 🏗️ 🧱 🛠️ ⚙️ 🔧 🔬 🧪 🧬 🔭 🛰️ 🚀 🛸 🪐 🌍 🌙 ⭐ ☀️ '
@@ -787,9 +788,11 @@ class Bridge:
                                               [(row['id'], i, part, json.dumps(entities)) for i, (part, entities) in enumerate(telegram_text.parts(row['text'], split_text))])
             controls = approval_ui.controls(self.state, row['id'])
             orchestration_controls = orchestrator_chat.controls(self.state, row['id'])
+            from . import browser_login
+            login_controls = browser_login.controls(self.state, row['id'])
             last_part = self.state.db.execute('SELECT max(part) FROM outbox_parts WHERE event_id=?', (row['id'],)).fetchone()[0]
             for part in self.state.db.execute('SELECT * FROM outbox_parts WHERE event_id=? AND sent=0 ORDER BY part', (row['id'],)).fetchall():
-                markup = (controls[1] if controls else orchestration_controls) if part['part'] == last_part else None
+                markup = (login_controls or (controls[1] if controls else orchestration_controls)) if part['part'] == last_part else None
                 try:
                     if not channel_policy.outgoing(self.state.db, 'telegram'):
                         return
@@ -804,6 +807,7 @@ class Bridge:
                     if controls:
                         approval_ui.remember(self.state, self.state.get('chat_id'), response['message_id'], controls[0])
                     orchestrator_chat.remember(self.state, row['id'], self.state.get('chat_id'), response['message_id'])
+                    browser_login.remember(self.state, row['id'], self.state.get('chat_id'), response['message_id'])
                     self.state.db.execute('UPDATE outbox_parts SET sent=1 WHERE event_id=? AND part=?', (row['id'], part['part']))
             with self.state.db:
                 self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=? AND NOT EXISTS '
@@ -907,9 +911,15 @@ class Bridge:
             return
         if self.state.db.execute('SELECT 1 FROM incoming WHERE id=?', (update_id,)).fetchone():
             return
+        from . import browser_login
+        if browser_login.receive(self, message, update_id):
+            return
         if approval_ui.reply_input(self, message, update_id):
             return
         if providers.Menu(self).credential_message(update):
+            return
+        from . import browser_research
+        if browser_research.telegram(self, message, update_id):
             return
         if orchestrator_chat.handle(self, message, text, update_id):
             return
@@ -1033,6 +1043,23 @@ class Bridge:
                 self.send('Select a managed task first, or use /providers to choose default models.')
             return
         if command == '/new':
+            if arg.split(None,1)[:1]==['codex']:
+                try:
+                    import shlex
+                    parts=shlex.split(arg)
+                    if len(parts)<3:raise ValueError('Use /new codex "PROJECT_PATH" Task title. This creates a task without starting work.')
+                    action=dict(kind='create_codex_task',project=parts[1],title=' '.join(parts[2:]),
+                                start_work=False,research_ids=[],artifact_ids=[])
+                    snap={'codex_projects':task_creation.projects(self.state)}
+                    with self.state.db:
+                        self.state.db.execute('BEGIN IMMEDIATE')
+                        if self.state.db.execute('SELECT 1 FROM incoming WHERE id=?',(update_id,)).fetchone():return
+                        reply=task_creation.enqueue(self.state,{'id':update_id,'prompt':message.get('text',text)},action,snap)
+                        self.state.db.execute('INSERT INTO incoming VALUES (?,?,NULL)',(update_id,'handled'))
+                        self.state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(update_id,'telegram'))
+                        self.state.db.execute('INSERT INTO outbox(id,text) VALUES (?,?)',('orchestrator:'+str(update_id)+':creation',reply))
+                except (OSError,ValueError) as exc:self.send(str(exc))
+                return
             try:
                 thread_id, title, cwd = backends.create_task(self.state, arg, update_id)
             except ValueError as exc:
@@ -1139,14 +1166,14 @@ class Bridge:
                     if run:
                         count = self.state.db.execute('SELECT count(*) FROM api_tool_calls WHERE job_id=?', (run['job_id'],)).fetchone()[0]
                         pending += f"\nLast run: {run['stage']} · {count} file tool calls"
-                self.send(f"{providers.REGISTRY[info['backend']]['name']}: {row['status']}\n{row['title']}\nModel: {info['model']}\nFolder: {info['cwd']}\nTask: {selected}{pending}", selected)
+                self.send(f"New messages → Orchestrator. Reply here to continue this task.\n\n{providers.REGISTRY[info['backend']]['name']}: {row['status']}\n{row['title']}\nModel: {info['model']}\nFolder: {info['cwd']}\nTask: {selected}{pending}", selected)
                 return
             try:
                 with self.desktop_factory():
                     connected = 'connected'
             except Exception:
                 connected = 'unavailable; open the app'
-            self.send(f"Codex desktop: {connected}\nSelected task: {selected or 'none'}", selected)
+            self.send(f"New messages → Orchestrator. Reply to a task message to continue it.\n\nCodex desktop: {connected}\nCommand target: {selected or 'none'}", selected)
             return
         if command == '/speak':
             reply = message.get('reply_to_message', {})
@@ -1221,8 +1248,7 @@ class Bridge:
                 return
             with self.state.db:
                 self.state.put('selected', row['id'])
-                self.state.put('orchestrator_mode', False)
-            self.send(f"Selected: {row['title'][:180]}\nYour next text message continues this task.", row['id'])
+            self.send(f"Selected for commands: {row['title'][:180]}\nReply to this message to continue this task. New messages go to the orchestrator.", row['id'])
             return
         if text.startswith('/'):
             self.send(HELP)
@@ -1236,7 +1262,7 @@ class Bridge:
             self.send('For long Codex instructions, attach a UTF-8 .txt or .md file (up to 100 KB).', thread_id)
             return
         row = self.state.db.execute('SELECT * FROM watched WHERE id=?', (thread_id,)).fetchone()
-        if not row or row['status'] == 'running' or recent_status(row['path']) != 'idle':
+        if not row or row['status'] == 'running' or task_creation.task_status(self.state,thread_id,row['path']) != 'idle':
             self.send('This task is still running or unavailable. Send the text file after it finishes.', thread_id)
             return
         try:
@@ -1270,6 +1296,9 @@ class Bridge:
         if not thread_id:
             self.send('Reply to a task notification, or select one with /tasks and /use TASK_ID.')
             return
+        if self.state.db.execute("SELECT 1 FROM task_creations WHERE task_id=? AND status IN ('created_pending','naming','opening','submitting','uncertain','needs_inspection')",(thread_id,)).fetchone():
+            self.send('New-task creation or its first turn needs inspection before another instruction can be sent.',thread_id)
+            return
         if self.state.db.execute("SELECT 1 FROM task_routes WHERE task_id=? AND status='guides_pending' AND expires>?", (thread_id,time.time())).fetchone():
             self.send('A guide choice is waiting. Use its Use guides, Continue without guides, or Cancel request button before sending more work.',thread_id)
             return
@@ -1291,7 +1320,7 @@ class Bridge:
             self.send(f'Queued for {label}. I’ll send the result here; /status checks progress and /stop requests cancellation.', thread_id)
             return
         row = self.state.db.execute('SELECT * FROM watched WHERE id=?', (thread_id,)).fetchone()
-        if not row or row['status'] == 'running' or recent_status(row['path']) != 'idle':
+        if not row or row['status'] == 'running' or task_creation.task_status(self.state,thread_id,row['path']) != 'idle':
             self.send('This task is still running, or its state is unknown. Send your instruction after it finishes.', thread_id)
             return
         try:
@@ -1308,7 +1337,7 @@ class Bridge:
                     'Opening this task in Codex and reconnecting…', thread_id))
                 # Loading can take seconds. A desktop user may have started work
                 # during that interval, so refresh the rollout before dispatch.
-                if recent_status(row['path']) != 'idle':
+                if task_creation.task_status(self.state,thread_id,row['path']) != 'idle':
                     with self.state.db:
                         self.state.db.execute('UPDATE incoming SET status=? WHERE id=?',
                                               ('failed', update_id))
@@ -1419,7 +1448,7 @@ class BackgroundWorkers:
         self.threads = []
 
     def start(self):
-        for name, interval in [('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
+        for name, interval in [('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('task-creation', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
             thread = threading.Thread(target=self.work, args=(name, interval),
                                       name=f'bridge-{name}', daemon=True)
             self.threads.append(thread)
@@ -1437,6 +1466,7 @@ class BackgroundWorkers:
                'scan': watcher.scan,
                'reference-packs': reference_packs.Worker(state).tick,
                'task-routing': task_routing.Worker(state, Desktop).tick,
+               'task-creation': task_creation.Worker(state, Desktop).tick,
                'production': production_worker.tick if production_worker else None,
                'orchestrator-chat': orchestrator_chat.Worker(state).tick,
                'production-planning': orchestrator_chat.production_planning.Worker(state).tick,

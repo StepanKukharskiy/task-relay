@@ -2,9 +2,10 @@
 import json
 from pathlib import Path
 from . import contracts as c
+from .host_script import validate_script_bytes
 
 CAPABILITY='blender.run_python'
-SOURCES=('host_code.py','blender_edit.py','blender_edit_worker.py','blender_snapshot.py','execution.py','step_runner.py')
+SOURCES=('host_code.py','host_script.py','blender_edit.py','blender_edit_worker.py','blender_snapshot.py','execution.py','step_runner.py')
 
 def required(spec):return spec.get('execution',{}).get('capability') in (CAPABILITY,'rhino.run_python')
 
@@ -12,7 +13,7 @@ def profile(spec):
     from task_relay.host_apps import blender,rhino
     if spec['execution']['capability']=='rhino.run_python':
         from .rhino_contract import validate_checks
-        sources=('host_code.py','rhino_contract.py','rhino_execution.py','rhino_worker.py','execution.py','step_runner.py',
+        sources=('host_code.py','host_script.py','rhino_contract.py','rhino_execution.py','rhino_worker.py','execution.py','step_runner.py',
                  '../task_relay/rhino_host.py','../task_relay/host_apps.py')
         return rhino(),validate_checks,'application/vnd.rhino',sources
     from .blender_edit import validate_checks
@@ -40,7 +41,7 @@ def binding(rt,spec):
             if media=='application/vnd.rhino' and (checks['mode']=='edit')!=(spec['execution']['parameters']['scene_sha256'] is not None):
                 raise ValueError('Rhino checks mode does not match selected source')
         if item['media_type']=='text/x-python':
-            if artifact['bytes']>100000:raise ValueError('Editing script exceeds 100 KB')
+            validate_script_bytes(Path(artifact['blob']).read_bytes())
             # Rhino 7 syntax is compiled by its exact IronPython runtime during
             # the read-only baseline phase, before any modeling script executes.
             if media!='application/vnd.rhino' or app.get('major',8)!=7:

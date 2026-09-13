@@ -6,6 +6,7 @@ one validated producer/reviewer stage, atomically with its registration receipt.
 import copy
 import ast
 import json
+import re
 from pathlib import Path
 import secrets
 import time
@@ -15,6 +16,7 @@ from task_relay import api_providers as api
 from task_relay import production_control as pc
 from task_relay import relay_channels
 from orchestrator import contracts as c, templates
+from orchestrator.cloud_media import KINDS as CLOUD_MEDIA
 from orchestrator.runtime import Runtime, safe_file, file_hash
 
 MAX_CONTEXT = 400000
@@ -42,15 +44,18 @@ does not mark it accepted or supersede it. Do not send a relative revision with 
 merely because the current user did not repeat the artifact name.
 Optional executor is an available ID from snapshot.capabilities.graph_executors.
 Use it when the user names a provider; never substitute another provider. Gemini
-file workers support bounded text work. The separate gemini-browser executor
-supports general website work with declared origins and interaction scope, using
-a dedicated profile. Select it for requested website control when available;
+file workers support bounded text work. The gemini-browser, openai-browser and
+qwen-browser executors support general website work with declared origins and
+interaction scope, using a dedicated profile. Select the requested available provider;
 never infer browser access from the file-only executor. A selected provider stays fixed.
+For every new production request, include deliverables as {stable_id: exact requested output description}, covering every requested result regardless of tool or file type. Do not add outcomes beyond the user request.
 For a requested mixed workflow, optional step_capabilities lists needed IDs
-from snapshot.capabilities.graph_operations (text.bundle, gemini.text, Blender operations, rhino.startup, rhino.inspect, rhino.run_python or rhino.render).
+from snapshot.capabilities.graph_operations (pptx.create, text.bundle, gemini.text, gemini.image,
+openai.image, openrouter.image, runway.image, runway.video, higgsfield.image,
+higgsfield.video, meshy.mesh, Blender operations, rhino.startup, rhino.inspect, rhino.run_python or rhino.render).
 These grant the planner permission to PROPOSE those operations, not to run them.
-Each API operation makes one external text request with an exact model and output
-token limit; do not include it unless the user's work needs it. The plan card
+Each API operation makes one external request with an exact model and bounded
+parameters; do not include it unless the user's work needs it. The plan card
 shows that external call before execution is authorized. At most six graph steps.
 When reply_plan_id identifies a started plan, use its run for production status,
 revision or continuation; do not create an unrelated new planning request.
@@ -102,10 +107,17 @@ def validate_action(action,snap):
             raise ValueError('The selected plan is not ready.')
         return
     required={'kind','template','project','reference_pack_id','research_ids','planning_only'}
-    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
+    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids','starter_workflow','starter_stage','deliverables'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
         raise ValueError('Specify a template, project, sources and planning-only intent for the new stage.')
+    if 'starter_workflow' in action:
+        from .workflow_library import freeze
+        freeze(action['starter_workflow'],action.get('starter_stage'))
+        if action['template']!='custom':raise ValueError('Use custom with a starter workflow; do not combine distinct templates.')
+    elif 'starter_stage' in action:
+        raise ValueError('Select a starter workflow with its stage.')
     roots=set(snap.get('project_roadmaps',{}).get('available_projects',[]))
     roots.update(t['cwd'] for t in snap.get('codex_tasks',[]))
+    roots.update(p['cwd'] for p in snap.get('codex_projects',[]))
     if action['project'] is not None and action['project'] not in roots:raise ValueError('Choose a known project or a standalone workspace.')
     if action['reference_pack_id'] is not None and not any(p['id']==action['reference_pack_id'] and p['status']=='ready' for p in snap.get('reference_packs',[])):
         raise ValueError('Choose a ready reference pack.')
@@ -122,6 +134,9 @@ def validate_action(action,snap):
     if 'executor' in action:
         eligible={x['id'] for x in snap.get('capabilities',{}).get('graph_executors',[]) if x['available']}
         if action['executor'] not in eligible:raise ValueError('The requested executor is unavailable; no fallback.')
+    deliverables=action.get('deliverables',{})
+    if not isinstance(deliverables,dict) or len(deliverables)>8 or any(not isinstance(k,str) or not re.fullmatch('[a-z][a-z0-9_-]{0,39}',k) or not isinstance(v,str) or not 1<=len(v)<=500 for k,v in deliverables.items()):
+        raise ValueError('List up to eight deliverables with stable IDs and concise descriptions.')
     requested=action.get('step_capabilities',[])
     if not isinstance(requested,list) or any(not isinstance(x,str) for x in requested) or len(requested)!=len(set(requested)):
         raise ValueError('Choose distinct registered graph capability IDs.')
@@ -207,8 +222,9 @@ def enqueue(state,job,action,snap):
     options={**action,'backend':backend,'limits':{'seconds':600,'tool_calls':60,'output_bytes':100000000},'max_attempts':1,
              'planning_limits':{'calls':2,'max_output_tokens':10000,'request_timeout_seconds_at_most':180,'context_chars':MAX_CONTEXT}}
     options['tools']=tools
-    if backend['type'] in ('gemini-agent','gemini-browser'):options['limits']=executors.GEMINI_LIMITS.copy()
+    if backend['type'] in executors.API_TYPES:options['limits']=executors.GEMINI_LIMITS.copy()
     if parent and 'step_capabilities' not in action:options['step_capabilities']=json.loads(parent['options']).get('step_capabilities',[])
+    if parent and 'deliverables' not in action:options['deliverables']=json.loads(parent['options']).get('deliverables',{})
     options['job_request_id']=json.loads(parent['options']).get('job_request_id',parent['request_id']) if parent else (stage_job if stage else job['id'])
     pack=None
     if action['reference_pack_id']:
@@ -263,16 +279,23 @@ def enqueue(state,job,action,snap):
         from orchestrator.blender_host import validator_source
         for operation in operations:
             capability=operation['id']
-            if capability not in ('blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render'):continue
+            if capability not in ('pptx.create','blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render'):continue
             prefix='operation-support/'+operation['id']+'/'
             documents={'contract.json':json.dumps(operation,ensure_ascii=False,indent=2)+'\n'}
-            if capability.startswith('rhino.'):
-                from orchestrator import rhino_contract
+            if capability=='pptx.create':pass  # The complete data schema is in the frozen contract.
+            elif capability.startswith('rhino.'):
+                from orchestrator import rhino_contract, host_script
                 validator='validate_checks' if capability=='rhino.run_python' else 'validate_render'
                 documents['rhino_contract.py']=Path(rhino_contract.__file__).read_text(encoding='utf-8')
                 documents['validate.py']=('import json, sys\nfrom rhino_contract import '+validator+'\n'
                     'with open(sys.argv[1], encoding="utf-8") as source:\n'
                     '    '+validator+'(json.load(source))\nprint("RELAY_RHINO_CONTRACT_VALID")\n')
+                if capability=='rhino.run_python':
+                    documents['host_script.py']=Path(host_script.__file__).read_text(encoding='utf-8')
+                    documents['validate.py']+=('from host_script import validate_script_bytes\n'
+                        'if len(sys.argv)>2:\n'
+                        '    with open(sys.argv[2], "rb") as script: validate_script_bytes(script.read())\n'
+                        '    print("RELAY_HOST_SCRIPT_BOUNDS_VALID")\n')
             elif capability in ('blender.scene','blender.mesh_scene'):
                 documents['validate_scene.py']=validator_source(capability=='blender.mesh_scene')
             else:documents['validate.py']=blender_preparation_validator(capability)
@@ -287,11 +310,11 @@ def enqueue(state,job,action,snap):
                 support['operation_support']=operation['id'];sources.append(support);required.append(aid)
     # Keep records distinct by artifact identity, avoiding a full copy per stage.
     sources=list({s['artifact']:s for s in sources}.values())
-    if backend['type'] in ('gemini-agent','gemini-browser'):
-        if sum(s['bytes'] for s in sources)>executors.MAX_INPUT_BYTES:raise ValueError('Gemini requires a text input pack of at most 512 KB.')
+    if backend['type'] in executors.API_TYPES:
+        if sum(s['bytes'] for s in sources)>executors.MAX_INPUT_BYTES:raise ValueError('API executors require a text input pack of at most 512 KB.')
         for source in sources:
             try:verify_artifact(rt,source).read_bytes().decode('utf-8')
-            except UnicodeError:raise ValueError('Gemini requires UTF-8 text inputs.') from None
+            except UnicodeError:raise ValueError('API executors require UTF-8 text inputs.') from None
     texts=[];used=0
     for source in sources:
         blob=verify_artifact(rt,source)
@@ -313,8 +336,26 @@ def enqueue(state,job,action,snap):
         'required_artifacts':required,'source_texts':texts,'reference_pack':pack,
         'missing_text_artifacts':[s['artifact'] for s in sources if s['artifact'] not in {t['artifact'] for t in texts}],
         'max_selected_input_bytes':MAX_INPUT_BYTES}
-    if options.get('backend',{}).get('type')=='gemini-browser':
+    from . import workflow_library
+    starter=prior.get('starter_workflow') if parent else None
+    if action.get('starter_workflow'):
+        if starter:
+            if action['starter_workflow']!=starter['definition']['id'] or action.get('starter_stage',starter['stage'])!=starter['stage']:
+                raise ValueError('A revision cannot silently switch the frozen starter workflow or stage. Make a separate stage request.')
+        else:
+            starter=workflow_library.freeze(action['starter_workflow'],action.get('starter_stage'))
+    if starter:
+        payload['starter_workflow']=copy.deepcopy(starter)
+        selected=next(s for s in starter['definition']['stages'] if s['id']==starter['stage'])
+        payload['planner_instructions']+='\nBundled starter: '+json.dumps(selected)+(
+            '\nUse only this selected stage as a starting point. The exact user request takes precedence. '
+            'Do not execute later stages or assume listed tools are installed. Check the executor/operation contracts; '
+            'return blocked or needs_input when required tooling or exact inputs are missing.')
+    if options.get('backend',{}).get('type') in executors.BROWSER_TYPES:
         from task_relay.orchestrator_chat import clock_context
+        from task_relay.browser_sites import catalog as site_catalog
+        payload['browser_account_sites']=site_catalog(state.db)
+        payload['planner_instructions']+='\nFor work requiring the user\'s signed-in website account, use browser profile "accounts" and only exact sites listed as confirmed_by_user in browser_account_sites. Otherwise return needs_input with /browser sites add and /browser sites login commands. Never substitute an anonymous profile for an account request. Public research may still use separate public profiles. A saved session does not expand the task origins or interaction_scope.'
         payload['host_clock']=clock_context()
         payload['planner_instructions']+='\nUse host_clock for date interpretation. Disclose inferred years and search defaults in the brief/instructions. Require observed evidence for factual website claims; unverified dates remain unverified, not assumed unavailable.'
     selected_ids={s['artifact'] for s in sources}
@@ -324,7 +365,7 @@ def enqueue(state,job,action,snap):
         purpose=a['purpose'],authority='Prior output candidate; source use is not acceptance or replacement.',
         sha256=a['sha256'],bytes=a['bytes'],run=a['run'],task=a['task'],
         original_path=a['path'],attempt=a['attempt'],attempt_state=a['attempt_state'])
-        for a in routing_inputs.artifact_catalog(state) if a['id'] not in selected_ids]
+        for a in routing_inputs.artifact_catalog(state) if a['id'] not in selected_ids and not a['id'].startswith('media-')]
     if stage:payload['previous_stage']=stage
     if options.get('step_capabilities'):
         payload['graph_operations']=operations
@@ -360,6 +401,8 @@ workers or pretend conversation references contain the original file.
 Use only necessary prior outputs; catalog presence alone does not make them inputs.
 For needs_input/blocked, plan is null and message explains the specific missing
 decision/input/capability. Never guess user acceptance or broaden scope.
+When options.deliverables is present, return deliverable_map with exactly those IDs. Each value is {task: producer_id, output: exact_declared_output_path} with independent review of that output, or {deferred_operation: capability} for an explicitly deferred operation.
+Every selected step_capability must occur in the graph. If an exact-input host operation needs prior script/manifest preparation, declare deferred_operations as {capability: reason} in the result envelope and include a gated preparation producer with selection_outputs and independent review. This stage does not complete the deferred outcome. Other omissions require needs_input/blocked.
 For ready, plan has exactly brief and tasks. Tasks use the supplied assignment
 contract: id, role, objective, instruction, inputs, outputs, dependencies, criteria,
 limits, max_attempts, optional review_of and user_gate. Every input has artifact,
@@ -368,8 +411,8 @@ Every output has path,purpose. Use exactly one producer and one independent revi
 Reviewer dependencies include producer, inputs include every output under candidate/,
 and criteria exactly equal the producer's. Each task has max_attempts=1 and tools
 options.tools, within options.limits. gemini-agent has only file tools and text outputs.
-gemini-browser has file and browser tools, also with UTF-8 inputs/outputs only.
-For gemini-browser each task requires browser with exactly profile (a dedicated
+gemini-browser, openai-browser and qwen-browser have file and browser tools, also with UTF-8 inputs/outputs only.
+For any browser executor each task requires browser with exactly profile (a dedicated
 profile name), origins (exact https://host origins without paths/wildcards),
 interaction_scope (precise authorized website actions, empty for reading/navigation),
 max_tabs (1–8), max_actions (1–60), uploads (exact declared input paths), downloads
@@ -506,7 +549,14 @@ inventories one exact application/vnd.rhino .3dm with its source unchanged.
 rhino.run_python creates/edits through IronPython 2.7 on Rhino 7 or CPython 3 on
 Rhino 8, using RhinoCommon in an owned macOS process. First prepare and independently review model.py and checks JSON
 using its catalog checks_schema. Only a later stage with already registered exact
-script/checks and optional scene can execute. Bind script_sha256/checks_sha256 and
+script/checks and optional scene can execute. Prepared scripts must be at most
+100000 UTF-8 bytes. Validate BOTH checks and script with validate.py checks.json
+model.py before delivery and review. For flat drawings save a Top orthographic
+named view and set preview.named_view to it so the delivered preview is face-on.
+The assigned Rhino document is headless; doc.Views.ActiveView is None. Use the
+contract's named_view_example with a standalone RhinoViewport and ViewInfo, sized
+to the requested preview and actual geometry bounds. Never require an active UI view.
+Bind script_sha256/checks_sha256 and
 permissions=unrestricted_host; scene_sha256=null for create, exact source hash for
 edit. Use text/x-python and application/json for code/checks. Edits require selected
 application/vnd.rhino. Use exact catalog outputs/criteria, independent output review
@@ -562,7 +612,46 @@ all request/context inputs use text/plain. Follow scene_schema in the operation 
 It returns the four fixed outputs (native scene, PNG, trusted script and receipt).
 Use at most 6 tasks: scene-data producer, its reviewer, scene operation, optional
 scene-output reviewer. Make the scene operation depend on the data review.
+For pptx.create, prepare slides.json using slide_schema in the frozen operation
+catalog and operation-support/pptx.create/contract.json. The operation accepts one
+application/json specification and optional exact PNG/JPEG inputs plus text context.
+Image paths inside JSON must match the staged image input paths in the operation.
+Use parameters={}, one .pptx output with the registered MIME type and criteria,
+and tools=[]. Require the specification producer and its independent reviewer as
+dependencies before creation, then a separate reviewer of the actual PPTX and a
+user selection gate. Local native text/shapes/tables/charts stay editable. The
+operation does not launch Keynote, render previews or prove visual quality. If
+previews are requested, plan a separate rendering/review step with verified tools;
+never substitute an unrelated image for a render of the actual PPTX. Existing
+PPTX/template editing is not supported by this creation operation.
 The text-only input/output rules below apply only to text.bundle and gemini.text.
+gemini.image accepts text plus PNG/JPEG/WEBP references, including a dependency on
+a Blender preview. Use its frozen configured image model, max_output_tokens and
+aspect_ratio parameters; one image/png output and the exact registered criteria.
+openrouter.image uses the configured OpenRouter image slug and aspect_ratio through the dedicated images endpoint, with fallbacks disabled. It has the same references, review and selection contract.
+openai.image serves the same graph role through the configured GPT Image model,
+with model, size and quality parameters from its registered schema. It accepts
+text-only generation or image edits. Respect the selected provider; do not switch
+to another model or provider on failure or because a text model is configured.
+It is one bounded external request, followed by independent review and selection.
+runway.image, runway.video, higgsfield.image, higgsfield.video and meshy.mesh use
+the frozen configured model and an explicit parameters.prompt. Write that prompt
+as the actual generation brief, preserving constraints without Relay instructions.
+The input text files retain the full original request locally; they are not sent
+as extra prompt text. Meshy currently creates only an untextured GLB from text,
+with a prompt of at most 800 characters. Image-to-3D and texture refinement are
+not implemented. Other cloud prompts are at most 1000 characters. Use the exact
+registered parameters, output MIME/extension and criteria. Runway accepts up to
+three image references for images (@ref1, @ref2, @ref3 in order), or one first
+frame for video; each reference is at most 3.5 MB. Higgsfield operations currently
+accept text only. Never discard requested references or turn a requested editable
+CAD model into a mesh without asking. Media needs independent output review and
+a user selection gate. These operations submit once, save the remote identity,
+poll and download into the existing artifact store; queued is not completed.
+For a model + photoreal image request, include both native rendering and image
+generation in the same graph when these operations are selected. Do not silently
+drop the image outcome at the Blender preview gate. For any outcome that requires
+a separate approval stage, explain the pending outcome and its gate in the brief.
 
 For this request, graph_operations explicitly extends the two-agent contract:
 use 2–6 tasks with at least one supported agent and only the permitted registered
@@ -573,7 +662,7 @@ output; set media_type on every upstream output feeding such an input too.
 Use input media_type text/plain or text/markdown. text.bundle concatenates source
 texts with identities; parameters is {}. gemini.text makes one tool-free text API
 request; parameters contains model (exact configured or user-specified ID) and
-max_output_tokens (1–4096). Never invent a configured model. No other API is allowed.
+max_output_tokens (1–4096). Never invent a configured model. Only catalogued APIs are allowed.
 Only agent tasks may be independent reviewers. Every agent producer still
 requires its independent reviewer, using matching criteria and all its outputs.
 Registered operation checks establish mechanical success only. Use an agent for
@@ -611,6 +700,13 @@ def plan_origin(payload,supplied,request_id):
     name=payload['template'];definition=payload.get('template_definition')
     origin={'kind':'generated','job_request_id':payload['options'].get('job_request_id',request_id),
             'template_id':None,'template_version':None,'modifications':[]}
+    if payload.get('starter_workflow'):
+        starter=payload['starter_workflow']
+        selected=next(s for s in starter['definition']['stages'] if s['id']==starter['stage'])
+        origin.update(kind='adapted_template',template_id=starter['definition']['id'],
+            template_version=starter['sha256'],starter_stage=starter['stage'],
+            modifications=[{'path':'/stage-to-plan','before':copy.deepcopy(selected),'after':copy.deepcopy(supplied)}])
+        return origin
     if definition is None:return origin
     # Compare to the captured definition, not a potentially updated module.
     baseline=copy.deepcopy(payload['template_plan'])
@@ -646,8 +742,10 @@ def complete_operation_wiring(tasks):
         if not spec or e.get('version') != spec['version']:continue
         for output in task['outputs']:
             media = spec.get('outputs',{}).get(output['path'])
+            if e['capability']=='pptx.create':media=spec['output_type']
             if media:typed(output,media)
-        if e['capability'] in ('blender.scene','blender.mesh_scene'):
+        if e['capability'] in ('blender.scene','blender.mesh_scene','pptx.create') and not (
+            e['capability']=='pptx.create' and any('artifact' in i and i.get('media_type')=='application/json' for i in task['inputs'])):
             scene_inputs = [i for i in task['inputs'] if 'from_task' in i and
                             (i.get('media_type')=='application/json' or
                              Path(i.get('output','')).suffix.lower()=='.json')]
@@ -685,7 +783,7 @@ def validate_result(raw,row):
             result[k]=v
         return result
     result=json.loads(raw,object_pairs_hook=unique)
-    if not isinstance(result,dict) or set(result)-{'input_basis'}!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
+    if not isinstance(result,dict) or set(result)-{'input_basis','deferred_operations','deliverable_map'}!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
         raise ValueError('Invalid planning response envelope.')
     c.nonempty(result['message'],'planning message')
     if len(result['message'])>3000:raise ValueError('Planning message too long.')
@@ -718,10 +816,10 @@ def validate_result(raw,row):
             e=task['execution']
             if not isinstance(e,dict) or e.get('capability') not in options.get('step_capabilities',[]):
                 raise ValueError('This operation was not included in the planning scope.')
-            if e['capability']=='gemini.text':
-                capability=next((x for x in payload.get('graph_operations',[]) if x['id']=='gemini.text'),None)
+            if e['capability'] in ('gemini.text','gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA):
+                capability=next((x for x in payload.get('graph_operations',[]) if x['id']==e['capability']),None)
                 if not capability or not isinstance(e.get('parameters'),dict) or e['parameters'].get('model')!=capability['configured_model']:
-                    raise ValueError('Use the frozen configured Gemini text model; no model fallback or invented availability.')
+                    raise ValueError('Use the frozen configured model for this capability; no model fallback or invented availability.')
         for field,maximum in [('role',150),('objective',1500),('instruction',12000)]:
             if not isinstance(task.get(field),str) or not 1<=len(task[field])<=maximum:raise ValueError('Missing or oversized task '+field)
         if not isinstance(task.get('criteria'),list) or not 1<=len(task['criteria'])<=8 or any(not isinstance(x,str) or len(x)>500 for x in task['criteria']):
@@ -739,7 +837,7 @@ def validate_result(raw,row):
         task['inputs']=[i for i in task.get('inputs',[]) if i.get('artifact') not in payload['required_artifacts']]
         for aid in payload['required_artifacts']:
             source=known[aid]
-            if registered and source.get('operation_support') in ('rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
+            if registered and source.get('operation_support') in ('pptx.create','rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
                 continue
             item={k:source[k] for k in ('artifact','path','purpose','authority')}
             if registered:
@@ -753,8 +851,10 @@ def validate_result(raw,row):
                     item['media_type']='application/vnd.rhino'
                 elif e['capability'] in ('blender.inspect','blender.run_python','blender.import_asset','blender.animate') and Path(source['path']).suffix.lower()=='.blend':
                     item['media_type']='application/x-blender'
-                elif e['capability']=='blender.import_asset' and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg'):
-                    item['media_type']='image/png' if Path(source['path']).suffix.lower()=='.png' else 'image/jpeg'
+                elif e['capability']=='pptx.create' and source['artifact'] in explicit_inputs and Path(source['path']).suffix.lower()=='.json':
+                    item['media_type']='application/json'
+                elif e['capability'] in ('pptx.create','blender.import_asset','gemini.image','openai.image','openrouter.image','runway.image','runway.video') and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
+                    item['media_type']={'.png':'image/png','.webp':'image/webp'}.get(Path(source['path']).suffix.lower(),'image/jpeg')
                 elif e['capability']=='blender.animate' and Path(source['path']).suffix.lower()=='.zip':
                     item['media_type']='application/zip'
                 elif e['capability'] in ('blender.import_asset','blender.animate','rhino.render') and source['sha256']==e.get('parameters',{}).get('manifest_sha256'):
@@ -784,12 +884,44 @@ def validate_result(raw,row):
                     'validate.py PATH_TO_JSON. This uses only the Python standard library; it does not '
                     'validate native geometry. Do not launch Rhino or execute model.py in this preparation/review '
                     'assignment. Exact host script execution and rendering require later approved stages.')
+                if capability=='rhino.run_python':
+                    task['instruction']+='\nHost scripts must be at most 100000 UTF-8 bytes. Run the validator with BOTH checks JSON and script paths: python3 '+prefix+'validate.py CHECKS_JSON SCRIPT_PY. For a flat drawing prepare a saved orthographic named view and preview.named_view.'
         if payload.get('previous_stage'):
             task['instruction']='Read previous-stage/CONTEXT.json and the exact selected outputs. Preserve prior relevant user constraints; the latest explicit request controls this stage.\n\n'+task['instruction']
         if task.get('max_attempts')!=1:raise ValueError('Planner permits one attempt per task.')
         if any(type(task.get('limits',{}).get(k)) is not int or not (0 if registered and k=='tool_calls' else 1)<=task['limits'][k]<=v for k,v in options['limits'].items()):
             raise ValueError('Planner exceeds frozen worker limits.')
     complete_operation_wiring(plan['tasks'])
+    selected_operations=set(options.get('step_capabilities',[]))
+    actual_operations={t.get('execution',{}).get('capability') for t in plan['tasks']}
+    deferred=result.get('deferred_operations',{})
+    if not isinstance(deferred,dict) or set(deferred)-selected_operations or set(deferred)&actual_operations:
+        raise ValueError('Deferred operations must be selected, absent operations.')
+    for capability,reason in deferred.items():
+        from orchestrator.execution import REGISTRY
+        if not REGISTRY.get(capability,{}).get('requires_registered_inputs') or not isinstance(reason,str) or not 1<=len(reason)<=500:
+            raise ValueError('Only exact-input host operations can be deferred with an explicit preparation reason.')
+        prepared=[t for t in plan['tasks'] if not t.get('execution') and not t.get('review_of') and t.get('user_gate') and t.get('selection_outputs')]
+        if not prepared:raise ValueError('A deferral requires a gated preparation task with selected outputs.')
+    if not selected_operations<=actual_operations|set(deferred):
+        raise ValueError('The plan omitted selected operations: '+', '.join(sorted(selected_operations-actual_operations))+'. Include their steps or explicitly declare a preparation-only deferral; no outcome may disappear.')
+    requested_deliverables=options.get('deliverables',{})
+    coverage=result.get('deliverable_map',{})
+    if not isinstance(coverage,dict) or set(coverage)!=set(requested_deliverables):
+        raise ValueError('Map every requested deliverable exactly once; a deliverable cannot disappear.')
+    for ident,binding in coverage.items():
+        if isinstance(binding,dict) and set(binding)=={'deferred_operation'} and binding['deferred_operation'] in deferred:continue
+        if not isinstance(binding,dict) or set(binding)!={'task','output'}:
+            raise ValueError('Each deliverable must name a producing task/output or an explicitly deferred operation.')
+        producer=next((t for t in plan['tasks'] if t['id']==binding['task'] and not t.get('review_of')),None)
+        if not producer or not any(o['path']==binding['output'] for o in producer['outputs']):
+            raise ValueError('A deliverable must resolve to an actual declared producer output.')
+        if not any(r.get('review_of')==producer['id'] and any(i.get('from_task')==producer['id'] and i.get('output')==binding['output'] for i in r['inputs']) for r in plan['tasks']):
+            raise ValueError('Every declared deliverable needs independent review of its exact output.')
+    if coverage:plan['deliverables']={ident:{'description':requested_deliverables[ident],**binding} for ident,binding in coverage.items()}
+    if deferred:
+        plan['deferred_operations']=dict(deferred)
+        plan['brief']+=' [Preparation only; pending: '+', '.join(sorted(deferred))+']'
     for host in plan['tasks']:
         capability=host.get('execution',{}).get('capability')
         if capability not in ('blender.scene','blender.mesh_scene'):continue
@@ -825,7 +957,7 @@ def validate_result(raw,row):
             if not any(i.get('from_task')==producer['id'] and i.get('output')==path
                        for r in reviewers if r['review_of']==producer['id'] for i in r['inputs']):
                 raise ValueError('Every member of a selection set needs independent review')
-    if (not producers and not any(t.get('execution',{}).get('capability') in ('blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate','rhino.startup','rhino.inspect','rhino.run_python','rhino.render') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
+    if (not producers and not any(t.get('execution',{}).get('capability') in ('pptx.create','gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA,'blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate','rhino.startup','rhino.inspect','rhino.run_python','rhino.render') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
         raise ValueError('An independent reviewer is required for every agent producer.')
     # Independent verification needs the same source versions as production.
     for review in reviewers:
@@ -835,9 +967,25 @@ def validate_result(raw,row):
         for item in producer['inputs']:
             if 'artifact' in item and item['artifact'] not in existing:
                 review['inputs'].append(copy.deepcopy(item));existing.add(item['artifact'])
+            elif ('from_task' in item and producer.get('execution',{}).get('capability') in ('pptx.create','gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA)
+                  and not any(i.get('from_task')==item['from_task'] and i.get('output')==item['output'] for i in review['inputs'])):
+                source=copy.deepcopy(item)
+                source['path']='source-inputs/'+producer['id']+'/'+item['path']
+                review['inputs'].append(source)
+                if item['from_task'] not in review['dependencies']:review['dependencies'].append(item['from_task'])
     if sum(known[aid]['bytes'] for aid in used)>MAX_INPUT_BYTES:raise ValueError('Selected inputs exceed 150 MB; select a smaller source set.')
     plan=c.plan(plan)
     for task in plan['tasks']:
+        if task.get('execution',{}).get('capability')=='pptx.create':
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] and any(
+                i.get('from_task')==task['id'] and i.get('output')==task['outputs'][0]['path'] for i in r['inputs']) for r in reviewers):
+                raise ValueError('PPTX creation needs independent review of the actual deck and a candidate selection gate')
+            manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
+            if 'from_task' in manifest and not any(r['review_of']==manifest['from_task'] and r['id'] in task['dependencies'] for r in reviewers):
+                raise ValueError('PPTX creation must depend on independent review of its slide specification')
+        if task.get('execution',{}).get('capability') in ('gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA):
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
+                raise ValueError('Media generation needs independent review and a candidate selection gate')
         if task.get('execution',{}).get('capability')=='rhino.render':
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):raise ValueError('Rhino render needs independent review and a candidate selection gate')
             manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
@@ -906,11 +1054,20 @@ def preview(row):
     plan=json.loads(row['plan']);options=json.loads(row['options'])
     lines=['Proposed production: '+plan['brief'], 'Planning only.' if options['planning_only'] else 'Ready for your approval; no workers have started.']
     payload=json.loads(row['context'])
+    if payload.get('starter_workflow'):
+        starter=payload['starter_workflow']
+        lines.append('Starter: '+starter['definition']['id']+' v'+str(starter['definition']['version'])+
+            ' · stage '+starter['stage']+' · '+starter['sha256'][:12]+'\nLater stages are not authorized by this plan.')
+    for ident,binding in json.loads(row['result'] or '{}').get('deliverable_map',{}).items():
+        target=('pending '+binding['deferred_operation']) if 'deferred_operation' in binding else binding['task']+' / '+binding['output']
+        lines.append('Deliverable: '+options['deliverables'][ident]+' → '+target)
+    for capability,reason in json.loads(row['result'] or '{}').get('deferred_operations',{}).items():
+        lines.append('Not executed by this stage: '+capability+' — '+reason+' Separate approval required after preparation.')
     lines.append('Executor: '+c.encoded(plan['backend']))
     if plan['backend']['type']=='gemini-agent':
         lines.append('File tools only: declared UTF-8 inputs and text outputs. External transfer: assignment and read text go to Gemini. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB inputs. Cancellation stops local work; an accepted remote request cannot be undone. Unknown cost stays unknown.')
-    if plan['backend']['type']=='gemini-browser':
-        lines.append('Browser and declared UTF-8 file tools. External transfer: instructions, read files and visible page observations go to Gemini. Dedicated browser sessions; no shell or credential tools. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB file inputs. Site/action scope is shown below; interpreting permitted actions still uses the model. Cancellation cannot undo website actions; uncertain actions are never replayed.')
+    if plan['backend']['type'] in ('gemini-browser','openai-browser','qwen-browser'):
+        lines.append('Browser and declared UTF-8 file tools. External transfer: instructions, read files and visible page observations go to the selected browser provider. Dedicated browser sessions; no shell or credential tools. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB file inputs. Site/action scope is shown below; interpreting permitted actions still uses the model. Cancellation cannot undo website actions; uncertain actions are never replayed.')
     if payload.get('previous_stage'):
         lines.append('Next stage after: '+payload['previous_stage']['run']+'; exact recorded selections and prior instructions are included.')
     used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
@@ -923,6 +1080,8 @@ def preview(row):
         if task.get('execution'):
             e=task['execution']
             lines.append('Operation: '+e['capability']+' v'+str(e['version'])+' · '+c.encoded(e['parameters']))
+            if e['capability'] in CLOUD_MEDIA:
+                lines.append('External generation: the displayed prompt and supported image inputs go to '+e['capability'].split('.')[0]+'. One generation request; status polling and local output download. Provider credits may be charged. Stopping local waiting does not cancel remote work; uncertain submissions are never repeated.')
             if e['capability']=='blender.inspect':
                 lines.append('Host inspection: open the exact selected .blend with embedded auto-execution disabled. Linked libraries may resolve on the host. No editing, rendering or asset import.')
             if e['capability'] in ('blender.run_python','rhino.run_python'):
@@ -936,6 +1095,9 @@ def preview(row):
             if e['capability'] in ('blender.startup','blender.scene','blender.mesh_scene'):
                 lines.append('Host execution: Blender runs with normal OS permissions using fixed Relay code and validated data. No arbitrary scripts or agent shell escalation.')
             if e['capability']=='gemini.text':lines.append('External transfer: listed text inputs and instructions go to Gemini in one API request. Local cancellation cannot undo an accepted remote request; unknown cost remains unknown.')
+            if e['capability']=='gemini.image':lines.append('External transfer: listed images, text and instructions go to the exact displayed image model in one API request. Cancellation cannot undo accepted work; uncertain submissions are never replayed.')
+            if e['capability']=='openrouter.image':lines.append('External transfer: listed images, text and instructions go through OpenRouter to the selected model in one image request; provider fallbacks are disabled. Uncertain submissions are never replayed.')
+            if e['capability']=='openai.image':lines.append('External transfer: listed images, text and instructions go to OpenAI in one image API request. Cancellation cannot undo accepted work; uncertain submissions are never replayed.')
         lines += ['\n'+task['role']+': '+task['objective'], 'Outputs: '+', '.join(o['path'] for o in task['outputs']),
                   'Checks: '+'; '.join(task['criteria']),f"Limits: {task['limits']['seconds']} seconds, {task['limits']['tool_calls']} tool calls, one attempt."]
         if task.get('user_gate'):lines.append('Next user decision: '+task['user_gate'])

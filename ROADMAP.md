@@ -25,9 +25,9 @@ an ambiguous response or replay an uncertain external operation.
 
 | ID | Scope | Boundary |
 | --- | --- | --- |
-| O01 | Natural-language routing to existing tasks | Preserves the original request and resolves ambiguity; task creation is a separate capability. |
+| O01 | Existing-task routing and explicit local Codex task creation | Preserves exact requests; new-task and first-turn receipts are separate. Connected creation remains unqualified. |
 | O02 | Versioned reference collection | Immutable copies, hashes and source/version decisions; discovery is bounded and does not prove completeness. |
-| O03 | Request to a bounded workflow | Planning, validation, registration and producer/reviewer handoff; broad autonomous planning is outside this scope. |
+| O03 | Request to a bounded workflow, with bundled starter catalog | Versioned starter stages feed existing planning and approval; no automatic whole-pipeline execution. |
 | O05 | Decisions and continuation | Exact output selection, pause/resume/cancel, status and bounded successor stages; one output per producer gate and one successor per stage. |
 | O06 | Mixed execution | Codex/Gemini workers, registered text bundling and bounded Gemini text API operations share artifacts and receipts. |
 | O07 | Shared-runtime evaluation | Bounded preparation/recovery coverage across three workflow types; no general efficiency or quality advantage established. |
@@ -39,6 +39,15 @@ an ambiguous response or replay an uncertain external operation.
 O03–O07 have controlled planning, handoff, decision and recovery coverage. Live
 acceptance remains specific to each provider, channel and platform. Historical
 private trials do not establish general product acceptance.
+
+O01 routing correction: fresh Telegram messages always reach the orchestrator;
+old direct-task preferences and busy selected tasks cannot intercept them. Replies
+retain their explicitly addressed task/workflow, and `/use` only selects command
+targets. `/routing` and task/status confirmations expose the routing contract.
+Controlled checks include the exact create-and-research path with a busy old task,
+deduplicated creation/start, provider replies, approvals and Messages parity.
+LLM interpretation remains responsible for choosing validated actions; this does
+not introduce keyword-based task creation or prove live model selection quality.
 
 ## Current work and next steps
 
@@ -59,6 +68,14 @@ reuse the companion's explicit data binding; existing services retain their owne
 until reviewed handoff. Public Developer ID/notarization and clean-host end-to-end
 acceptance remain open; first-time Messages setup remains a separate pilot.
 
+**Public website — deployed on Railway.** The text-first page lists supported
+programs and their input/saved file formats, including implemented editable PPTX
+generation. A specific beta.1 download notice distinguishes package contents from
+implemented support; other document exports remain worker-dependent. Five development
+workflow examples retain their version boundary. macOS links to the beta DMG and
+matching CLI source; Windows remains unavailable. The existing desktop logo is
+used throughout. Public signing and installation acceptance retain their release
+gates. See [website setup](website/README.md).
 
 Implemented: a source installer with a dedicated environment and interrupted-install
 retry; guided local API-provider/model, Telegram and first-project setup; saved
@@ -114,17 +131,19 @@ Runtime restaging clears retired generated sources; unused platform icon exports
 are removed from the macOS pilot. Active standalone helpers remain required until
 a successful reviewed handoff verifies their bundled replacement.
 
-**Shared channel controls — controlled implementation.** Channels exposes
+**Shared channel controls — implemented; existing-install deployment observed.** Channels exposes
 Telegram and Messages switches, a global messaging pause and a separate proactive
 release-notice destination. Intake and transport check the shared, revisioned
 policy. Paused channels retain queued replies at their original destination;
 resuming does not replay old requests or uncertain sends. Telegram drains its
 first callback batch after resume because clicks have no reliable timestamp.
 The UI requires fresh intake/delivery acknowledgement before reporting controls
-as active. Existing service upgrades and live enforcement require separate checks;
-adding WhatsApp, Slack or Discord adapters remains deferred.
+as active. Reviewed Telegram and Messages handoffs have now completed on the
+existing macOS installation, with fresh healthy bundled services and both intake
+and delivery acknowledgements. Live pause/resume transport behavior remains
+unqualified; adding WhatsApp, Slack or Discord adapters remains deferred.
 
-The companion includes a hidden optional Messages helper. Existing Relay and
+The companion runs optional Messages through its main executable. Existing Relay and
 Messages services are preserved until an explicit reviewed handoff: exact service
 and runtime identities, in-flight-work checks, unload before replacement, a fresh
 startup heartbeat, prior-definition restoration, and durable interruption receipts.
@@ -137,15 +156,34 @@ current product acceptance target. Its task/plan/usage APIs remain available to
 existing integrations. Exact local approvals remain an on-demand exception view;
 production selections remain in the supported messenger channel.
 
+Desktop release wording now distinguishes the installed app version from cached
+stable source package metadata, including check time and version comparison.
+This does not implement desktop app update discovery or installation.
+
+Local identity/update repair: Messages uses the main app executable, local builds
+retain a signing certificate, and local maintenance replaces Contents while keeping
+the installed app root. Recovery copies are verified ZIPs outside Applications.
+The older ad hoc identity may require a one-time Full Disk Access refresh. These
+changes do not establish Developer ID signing, notarization or clean-host grants.
+The existing installation was updated with its app root preserved, old runnable
+backups archived, and fresh Telegram/Messages heartbeats observed after inspection.
+Controlled checks passed: 57 Python tests and one native service test. Live phone
+delivery and permission continuity across a subsequent update remain unqualified.
+
 **Next O13 work: finish the macOS app and qualify it as an installation path.**
 Keep the source installer supported while these gates are completed in order:
 
 | Gate | Status | Reviewable completion |
 | --- | --- | --- |
-| 1. Minimal companion | Installed local QA; live checks partial | Compact setup/status/settings, one menu-bar instance, close-to-hide, messenger opening and on-demand exact decisions. No second task inbox, workflow catalog or startup storage scan. Controlled read-isolation and approval checks pass. Installed native setup reads existing Relay, Telegram and Messages state. Closing and reopening from Finder passed after adding the macOS reopen handler; the rebuilt installed signature passed. Direct menu-bar interaction remains unverified because UI inspection times out without a visible window. The folder-access error did not recur after unlocking; native permission recovery remains unqualified. |
-| 2. Install and service handoff | Controlled implementation; live qualification open | Bundled optional Messages helper and reviewed source/helper service handoffs retain data, pairing and uncertain submissions. Tests cover changed identities, in-flight work, failed startup, interrupted recovery, stopped-service preservation and rollback. Existing live services are not automatically adopted. Clean-host installation, real helper permissions and actual handoff remain open. |
-| 3. Packaged updates | Open | Build signed and notarized macOS packages; present verified releases in the app and apply an explicit update with compatible data migration, receipt and rollback. Do not reuse source-update commands against the app bundle. |
+| 1. Minimal companion | Installed local QA; menu-bar check open | Compact setup/status/settings, one menu-bar instance, close-to-hide, messenger opening and on-demand exact decisions. No second task inbox, workflow catalog or startup storage scan. Controlled read-isolation and approval checks pass. Installed native status reads the running Relay and connected channels. Closing and reopening from Finder retains the same companion process; the installed signature passes local verification. Direct menu-bar interaction remains unverified because UI inspection times out. Refreshing the existing macOS Full Disk Access grant restored native status reads; clean-host permission setup remains open. |
+| 2. Install and service handoff | Existing-install handoffs passed; clean-host qualification open | Reviewed Telegram and Messages handoffs completed with fresh startup evidence and healthy desktop-owned services after permission refresh. Failed earlier starts restored the prior service; the retired standalone helper was removed only after verified replacement. Data and pairing were retained. Controlled tests cover changed identities, in-flight work, interruption, stopped-service preservation and rollback. The installed bundled bridge also passes isolated fresh-status and saved-setup resume checks; this is not a clean-host GUI installation. Existing services are never automatically adopted. |
+| 3. Packaged updates | Source-update isolation implemented; app updater open | Source update plan/apply/rollback/recover refuse the bundled runtime or matching companion-owned installation before downloads or state changes. Bundled startup ignores old source-release redirection; notices distinguish source releases from app updates. Next: signed/notarized macOS packages and an explicit app update with compatible migration, receipts and rollback. Developer ID signing and notarization access are release prerequisites. Source-update commands do not update the app bundle. |
 | 4. End-to-end acceptance | Open | On a clean supported Mac, verify interrupted setup, messenger pairing, closing/reopening the companion, service restart, an explicitly authorized provider task, an exact decision and actual messenger output delivery. Record each observed receipt separately; controlled tests do not satisfy live delivery. |
+
+Immediate remaining work: directly exercise the native menu bar, qualify clean-host
+setup/permissions, then deliver the packaged release/update path described in the
+[desktop release plan](desktop/README.md#packaged-release-implementation-order).
+Installed local ad hoc signature checks do not qualify public distribution.
 
 Earlier installed workspace/usage screenshots qualify only the superseded UI. They
 do not qualify companion startup, service adoption or messenger task delivery.
@@ -200,6 +238,32 @@ whole action validates; interrupted submissions remain uncertain without replay.
 Controlled routing tests cover these boundaries; live model intent recognition
 and launcher live acceptance are not established by those tests.
 
+### O01/O03 requested extension — implemented, controlled validation
+
+Relay can queue a new Codex task in a known local project through the supported
+app-server control protocol. Creation-only and creation plus the exact original
+request have separate durable boundaries. A saved ID survives later failures;
+uncertain calls are never replayed. Model and permission settings are inherited;
+worktrees, remote creation, sidebar project reassignment and model overrides are
+outside this adapter. Creation now performs a full history read on the creating
+connection before desktop handoff: installed Codex defers empty rollout writes
+until that read. Isolated checks with the installed binary reproduced the missing
+history and verified materialization without model runs. Thirty-eight focused
+creation/handoff tests pass, including deferred persistence, mismatched history,
+read failure, interruption and inactive-window activation. The creating connection
+closes before desktop handoff. macOS activates Codex only when owner discovery
+fails. A supervised live recovery verified saved history, desktop ownership and
+one confirmed research-turn submission. This recovery needed manual activation
+before the activation fix; it does not claim a fresh fully automatic channel run.
+
+Five bundled starters cover research/report, architecture/presentation, native
+model revision, carousel/reel, and data/presentation. CLI and messenger catalogs
+show tools, inputs, outputs and review points. A selected stage and exact catalog
+definition are frozen into planning; revisions retain that version. Templates do
+not install missing integrations or authorize later stages. Native Keynote/Slides
+and environment-specific media tooling remain explicit qualification gaps.
+See [project tasks and starter workflows](docs/project-tasks-and-starters.md).
+
 ## O12 remaining platform work
 
 **Next implementation: Windows process-tree ownership and recovery.** Then implement
@@ -223,6 +287,19 @@ own authorization; roadmap entries do not grant it.
 ## Additional implemented capabilities
 
 **R01 — direct Rhino integration; Rhino 7 and Rhino 8 locally qualified on macOS.**
+
+Drawing handoff correction: prepared script bounds are now enforced before review,
+with the same check at host approval. Named-view previews support face-on CAD
+drawings. Preparation status lists pending deliverables, and **Plan execution**
+queues the remaining scope after exact selection without starting the host. The
+focused Rhino, preparation, selection/stage and shared Blender-host checks pass
+(109 controlled tests; 35 focused checks rerun after the Rhino 8 shutdown fix).
+The installed macOS runtime completed a separate authorized facade recovery:
+three Rhino 8.35 phases exited cleanly, 1,529 objects passed reopen checks, an
+independent reviewer accepted the readable four-elevation candidate, and Telegram
+delivery records confirm the native file and preview were sent. User selection
+remains pending. Prior script versions, reviews and failed attempts remain
+preserved. This supervised recovery does not qualify every conversational plan.
 Registered startup, exact `.3dm` inspection, interpreter-specific approved modeling
 and built-in Rhino Render share production planning, exact artifact versions,
 atomic approval and review/selection. The macOS adapter supports explicit 7/8
@@ -266,6 +343,19 @@ Grasshopper definitions, scripts, component execution and authoring remain pause
 This does not close O13, qualify other operating systems, run a long-duration soak
 test, or establish live planner judgment/channel delivery.
 
+**Editable PPTX creation — implemented in source.** The local `pptx.create`
+operation and `presentation create` CLI build native editable text, shapes,
+tables, charts and selected images from bounded slide JSON. Planning freezes the
+schema and requires specification review, actual-deck review and candidate
+selection. Reopen checks preserve source/output identities; runtime dependencies
+are declared for installation and desktop rebuilding. Controlled qualification
+covers creation, rejection, restart and the supervised worker: 37 focused and
+affected integration tests pass. A three-slide
+synthetic deck was also rendered with LibreOffice and visually inspected.
+Installed-app deployment, live model planning and Keynote import remain unqualified.
+PDF/previews need a separate renderer of the actual PPTX. See
+[PPTX creation](docs/presentations.md).
+
 **Architecture competition pipeline — proposed live benchmark.** User-prioritized
 integration qualification: Perplexity research → concepts → Blender model → one
 bounded revision → final imagery → editable presentation → channel delivery.
@@ -274,6 +364,51 @@ version/geometry/source checks and bounded scope. First delivery target is
 PowerPoint; native Keynote/Google Slides are subsequent qualifications. Actual
 brief, account availability and execution budgets must be frozen before live work.
 No live end-to-end run is claimed; Perplexity and presentation handoffs remain open.
+
+**Media-to-CAD routing and image operations — implemented, controlled qualification.**
+Ordinary Gemini image replies now reach the LLM intent router with exact media
+versions; confirmed image edits keep their native task/history. Generated media
+can be frozen into Rhino planning or other handoffs without re-uploading it.
+Image history exceeding the local request cap uses a recorded new-context handoff
+with exact prior requests, visible responses and latest pixels; original native
+responses/signatures remain unchanged. Image/video download names include the
+task and job version. Registered `gemini.image` and `openai.image` operations
+support dependent previews, frozen models, independent review and selection;
+planning rejects omission of a selected image operation. OpenAI's image default
+is configured separately from its text model through `/providers`.
+See [media workflows](docs/media-workflows.md) for bounds and qualification.
+Desktop capability defaults are implemented with controlled qualification:
+Settings → Models by task reuses provider connections for conversation, images
+video clips and Meshy 3D assets. Versioned atomic preferences reach existing adapters and
+the intent router; explicit selections and frozen work take precedence. A shared
+read-only generation status view retains original job/attempt and artifact IDs,
+including uncertain state and pending review. Runway and Higgsfield image/video
+adapters and Meshy text-to-untextured-GLB generation are implemented with controlled
+qualification, independent review and candidate selection. One generation POST
+retains its remote task identity for polling; uncertain submissions never replay.
+Settings includes their API connections; Browser use shares the channel switch
+style. Blender/Rhino modeling uses its existing application workflows.
+Live compound planner/provider/Rhino/channel acceptance remains open. A general
+project-level media-profile preference hierarchy, additional provider models,
+Meshy texturing/image-to-3D and Gemini graph video generation remain pending; existing Gemini/Veo video commands
+retain their configured model. Text credentials alone never establish media support.
+Shared handoff follow-up implemented in source: all selected operations require
+coverage or explicit exact-input preparation deferral. Declared deliverables map
+to actual independently reviewed output paths, retained in the frozen plan; older
+planning envelopes remain readable. The LLM is instructed to enumerate every new
+requested deliverable. This validates its declared interpretation, not whether it
+understood every phrase correctly; cross-domain live selection qualification remains open.
+One context archive/projection contract now serves Gemini text/image and direct
+OpenAI/Qwen/DeepSeek/OpenRouter text conversations. Text agents retrieve omitted
+responses through bounded hash-checked context_read. Exact user requests stay
+visible, native records stay untouched, and active tool exchanges are not spliced.
+OpenRouter images joins the shared image execution path with a separately discovered
+image catalog/default and no provider fallback. More provider wire formats and
+video adapters require their own implementation and qualification. Live Runway,
+Higgsfield and Meshy account/generation qualification remains open.
+Packaged image execution includes the hash-pinned decoder and checks availability
+before external submission. Task Relay runs Messages through its main executable and identity; permission
+guidance targets Task Relay.app. The nested Messages bundle is retired.
 
 Production-to-image reuse is implemented: the orchestrator can select exact
 generated image artifacts directly for Gemini image requests, including `/image`
@@ -331,7 +466,133 @@ does not establish live tower generation or automatically retry stopped plans.
 
 ## Account-browser pilot
 
+**Research-query handoff — installed locally; controlled checks passed.**
+The orchestrator prepares a scope-preserving research question for the website,
+removing Relay/browser instructions. The original message stays unchanged in
+request history; the separate query is frozen in the execution receipt and shown
+in the queue confirmation. Source/dispatch/query/result identity remains atomic,
+and duplicate input cannot change a queued query. Literal slash-command questions
+stay literal; all natural language uses intent interpretation, including the former
+shortcut. The same site-neutral translation instructions reach the orchestrator
+and general Gemini/OpenAI/Qwen browser workers. Exact quoted content is preserved,
+and non-search tasks keep their own scoped actions. This is a common handoff rule,
+not qualification of every website or a new general-site adapter.
+No location, budget, deadline or other new requirement is inferred. Existing
+browser records remain historical; this change does not replay prior research.
+
+**Empty-page guard correction — installed locally; controlled checks passed.**
+The whole-page fingerprint could reject a new search when homepage labels changed
+between observations. New empty searches now compare URL and turn state alongside
+sign-in, draft and mode checks; existing threads retain their text check. Context
+is rechecked after filling. Completed turns permit the composer to return to voice
+mode, while a visible stop-response control prevents completion. Certified stops
+before the submission control are blocked without automatic retry; old uncertain
+receipts remain unchanged. Read-only comparison against the reported baseline
+showed homepage text differences with unchanged URL, turn state and empty draft.
+Live end-to-end completion remains open.
+
+**Submission correction — installed locally; live completion still open.**
+The first chat-routed managed-profile attempt timed out without a conversation
+URL while the request remained in the composer. The driver now clicks the
+recognized Submit button once instead of relying on Enter. Controlled DOM tests
+cover Enter being ignored, one completed submission, duplicate receipt handling
+and ambiguous controls. Live read-only inspection identified the empty composer's
+voice control; Submit appears only after entering text. The driver now waits for
+that transition, covered by a delayed-control DOM regression. Receipt diagnostics
+inspect only existing matching tabs in Relay's browser without navigation or clicks.
+The existing uncertain receipts are preserved without
+resubmission; this correction does not establish a new live research result.
+
+**Orchestrator routing correction — installed locally; worker session check passed.**
+Ordinary chat can select the app-managed browser research action for Perplexity
+Search. The original request is preserved verbatim alongside its separate website
+query, original reply channel and durable receipt. Stale model-browser checks and the separate
+accounts-profile catalog do not block this route. Worker sign-in checks still
+apply; configuration is not live authentication evidence. Other websites retain
+their supported executor requirements. The installed app matches the changed modules, both messenger services restarted
+with fresh health, and the worker recognized the saved authenticated Search UI
+without submitting a query. A new live messenger research completion remains open.
+
+**App-managed Chrome setup — installed local setting verified.** Settings → Browser use
+(requires Chrome) now saves the user's choice, creates/reopens a dedicated
+persistent Chrome profile, and provides an in-app sign-in entry point. The macOS
+desktop runtime bundles the browser driver. New Perplexity chat requests use this
+profile automatically through the existing scheduler, with transport ownership,
+atomic request/dispatch and result/outbox records, and no uncertain replay.
+Disabling blocks new managed jobs and retains login data. Controlled setup,
+native-bridge, queue/recovery and Chrome restart-cookie checks pass. The updated
+local app is installed; Browser use and its sign-in action are visible in Settings,
+and both previously running messenger services reported fresh health after the
+update. A subsequent worker preflight recognized the signed-in managed profile;
+live messenger research completion remains open. No terminal setup or extension is part of this
+selected app flow; non-macOS lifecycle qualification remains deferred.
+
+Sign-in correction: the app now describes generic webpage access and opens a
+new tab for manual website sign-in. This mode runs ordinary Chrome without the
+worker's debugging connection; queued managed research stays paused until the
+user chooses Done signing in. Switching modes retains the same profile and
+refuses to close a browser used by active work or with unverified ownership.
+The installed app's generic controls and live manual Chrome launch are verified:
+the owned process has no debugging flags or connection descriptor, and access is
+paused. Live verification-loop resolution remains a separate check from this fix.
+
+Standalone Chrome connection: the local Perplexity worker now accepts an explicit
+loopback debugging endpoint or Chrome 144+'s permission-based `--chrome` connection,
+reuses the browser-owned login and retains its own
+task tab on disconnect. It uses the existing submission/recovery journal without
+an extension or per-click model. Twenty focused controlled checks pass;
+installed-channel integration remains separate from the local CLI trial.
+
+Live existing-Chrome trial: the standalone worker reused the signed-in session
+with Chrome's connection approval and submitted the exact research once. A
+temporary post-submit URL caused capture to stop; observation-only reconciliation
+then returned the matching completed answer and saved conversation URL. The
+transition handling is fixed and regression-tested. A fresh end-to-end submission
+after the fix, unattended reconnect and deployed channel delivery remain open.
+
+Second existing-Chrome trial: a fresh submission captured its saved URL but timed
+out because a Copy control inside quoted answer content was counted as another
+answer. The standalone counter now recognizes the Copy/Share/Fork answer action
+group. Eighteen focused checks and the standalone CLI integration check pass;
+read-only reconciliation recovered that same query without resubmission. Fresh
+completion without recovery remains open; no additional query was sent merely
+to retest the counter change.
+
 ### P01 — Perplexity account-visible conversations
+
+**Current priority: qualify the app-managed Chrome flow**, including real account
+sign-in and a complete research request returned to its originating messenger.
+The earlier Firefox/Zen extension and native helper remain a separate prototype:
+explicit `/perplexity QUESTION` or “Use Perplexity to research …” intake, durable
+request queue, one submit attempt, saved answer/URL and originating-channel outbox.
+It uses the browser's own session, with no Codex calls or cookie export. Follow-ups
+require the exact saved URL. Disconnects preserve uncertainty and require explicit
+observation; reconnecting never resubmits an uncertain request.
+
+**Next:** register the reviewed native helper, load the development extension with
+user approval, verify its connection and qualify one new ordinary Search plus a
+follow-up. Then deploy the qualified channel intake. Controlled queue, protocol,
+page DOM and channel tests pass; live Zen selectors/native messaging and deployed
+channel delivery are still unverified. A temporary Firefox extension lasts only
+until browser restart; signed distribution remains a release requirement. This
+does not complete P01. See [standalone setup](docs/perplexity-browser.md).
+
+Previous desktop pilot: research through an existing Codex desktop task using
+its Browser/Computer Use tools and the user's signed-in browser. Relay's existing
+task intake, dispatch and reply watcher are reused. This is a separate executor
+path from the dedicated Playwright pilot below; it does not require an extension
+or a per-site credential adapter. The live Telegram → Codex desktop → signed-in
+Perplexity Search → Telegram pilot passed: the worker reported one submission,
+the completed answer and saved conversation were observed in the browser, and
+Relay's completion outbox records delivery. This used explicit task selection
+and user-approved Computer Use calls; fully unattended operation is not qualified.
+Routing fixes retain explicitly named tasks outside a
+truncated catalog and distinguish unverified desktop plugins from missing tools.
+The 34 targeted context, routing and capability tests pass; installed modules
+match the tested source. Live natural-language destination selection, session
+permission setup, follow-up and interrupted-browser-submission recovery remain
+open. Task-dispatch receipts do not guarantee browser-level exactly-once execution.
+See [desktop browser workflow](docs/desktop-browser.md).
 
 User-prioritized pilot alongside the existing installation work. The earlier
 interactive browser check demonstrated saved Search creation and continuation;
@@ -343,16 +604,48 @@ protection and observation-only reconciliation. Uses the existing state database
 Controlled recovery tests pass. Chat-initiated sign-in now queues a supervised
 setup worker from Telegram Providers or `/browser connect` in either channel; it
 detects completion and routes status back without terminal input. The user signs
-in on the Relay computer, not in chat. No automatic replay, general browser tool access,
+in on the Relay computer with that setup mode. An experimental Telegram
+`/browser chat` flow now accepts a reply to a specific, expiring login prompt,
+passes it once through an in-memory worker pipe and excludes it from task history
+and model routing. The first adapter recognizes bounded Perplexity email/code
+forms; browser verification and unrecognized forms still require local interaction.
+The 78-check controlled browser gate passes. Live chat-login qualification and
+deployment remain open: two user-authorized verification-checkbox clicks each
+started verification and returned to an unchecked challenge, before the login
+form. No credential or Search submission has been made in this trial.
+No automatic replay, general browser tool access,
 file upload, Computer workflow or subscription change is included.
 
-Next gate: qualify the standalone authenticated driver against one new Search
-conversation and one follow-up, including interrupted submission recovery. Then
-connect the qualified driver to managed task queues and Telegram reply routing.
+Standalone-driver gate: qualify the authenticated driver against one new Search
+conversation and one follow-up, including interrupted submission recovery. The
+native adapter has controlled queue/channel integration; its live qualification
+is next. The dedicated Playwright profile remains blocked at browser verification.
 Keep authentication/account limits explicit; do not infer this capability from a
 worker having shell access. See [browser pilot](docs/perplexity-browser.md).
 
 ### P02 — general website execution
+
+Provider choice: implemented in source `openai-browser` and `qwen-browser` alongside
+Gemini, using the same browser driver, reviewed plans, action journal and recovery.
+Explicit `/browser openai TASK` and `/browser qwen TASK` retain the selected API
+provider/model without requiring Gemini or Codex. Controlled native API envelope,
+planning and recovery checks are covered; deployment and live provider/Perplexity
+qualification remain open. Qwen uses the existing Model Studio API connection.
+
+Independent Gemini/Perplexity live trial: the configured Gemini model drove the
+Relay Chromium worker through six API requests without a Codex worker. Perplexity
+showed Cloudflare security verification before a query field was available; the
+worker recorded a blocker and submitted no research query. Successful independent
+Perplexity research and authenticated-session qualification remain open.
+
+Account-site expansion: implemented in source an explicit site list, per-site
+manual sign-in confirmation and optional attachment to an existing local Chromium
+session. Account tasks use the `accounts` profile and retain their separate frozen
+origin/action scope. New sites, revoked access and recognized login challenges
+stop for manual verification; confirming a site never replays uncertain work.
+The 92-check controlled browser gate and 119 affected integration checks pass.
+Deployment and real-account qualification remain open. See
+[Account sites](docs/account-sites.md).
 
 User-authorized expansion alongside P01. **Implemented bounded first slice;
 controlled qualification passed, public-site trial partly qualified,
@@ -415,3 +708,14 @@ Fix blocking runtime defects when found. Update status for demonstrated behavior
 record only relevant checks actually run, and preserve original requests, decisions,
 artifact versions and recovery receipts. Keep personal trial records and operational
 state outside the public repository. See [publication policy](docs/publication.md).
+
+## 0.13.0 release preparation
+
+Current source and companion versions are aligned at 0.13.0. The release candidate
+includes managed browser setup, media defaults/providers, presentation and modeling
+handoffs, and the app/service identity fixes described above. PR review and CI
+precede a tagged release. Recommend a Mac beta/prerelease first: local signing
+is available, while Apple notarization, clean-host installation and live media
+provider qualification remain open. Source update protocol remains 2; the
+packaged app must use its own update path. Preparation does not publish a release
+or replace the existing website downloads.

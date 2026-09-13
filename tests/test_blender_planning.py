@@ -45,7 +45,12 @@ class Tests(unittest.TestCase):
         for ident,(cap,value,validate) in enumerate(cases,1):
             with self.subTest(cap=cap),patch('host_apps.blender',return_value=dict(available=True,executable='fixture',evidence='fixture')):
                 self.queue(ident=ident,action=self.action(step_capabilities=[cap]))
-                planning.Worker(self.state,lambda *_:(json.dumps(self.response()),{})).tick()
+                response=self.response();response['deferred_operations']={cap:'Prepare exact inputs for a separately approved host operation.'}
+                producer,review=response['plan']['tasks']
+                producer['outputs'].append({'path':'preparation.json','purpose':'Exact prepared manifest'})
+                review['inputs'].append({'from_task':'produce','output':'preparation.json','path':'candidate/preparation.json','purpose':'Review prepared manifest','authority':'Candidate'})
+                producer['selection_outputs']=[o['path'] for o in producer['outputs']]
+                planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
                 row=self.row(ident);self.assertEqual(row['status'],'ready',row['error']);self.start(row)
                 run='production-'+str(ident);worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
                 producer=self.rt.task(run,'produce')['latest'];self.factory.finish(producer);worker.tick()

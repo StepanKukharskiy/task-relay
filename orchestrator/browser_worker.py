@@ -1,4 +1,4 @@
-"""General browser worker using the existing bounded Gemini loop and supervisor."""
+"""General browser worker using the shared bounded API loop and supervisor."""
 import hashlib
 import json
 import os
@@ -18,12 +18,12 @@ from task_relay.browser_journal import Journal,UncertainAction
 def support_hashes():
     root=Path(general_browser.__file__).parent
     return {name:hashlib.sha256((root/name).read_bytes()).hexdigest()
-            for name in ('general_browser.py','browser_journal.py')}
+            for name in ('general_browser.py','browser_journal.py','browser_sites.py','host_browser_accounts.py','api_providers.py')}
 
 
-def configured():
-    config,backend=executors.configured()
-    return config,{**backend,'type':'gemini-browser'}
+def configured(provider='gemini'):
+    config,backend=executors.configured() if provider=='gemini' else executors.configured(provider)
+    return config,{**backend,'type':provider+'-browser'}
 
 
 def run(frozen,control,db,data,*,client=None,config_reader=None,driver_context=None):
@@ -37,7 +37,8 @@ def run(frozen,control,db,data,*,client=None,config_reader=None,driver_context=N
                 if hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()!=frozen.get('runtime_sources',{}).get(name):
                     raise ValueError('Browser implementation changed after assignment was frozen')
             if launch.get('browser_support')!=support_hashes():raise ValueError('Browser host implementation changed')
-        reader=config_reader or configured
+        provider=frozen['backend']['type'].removesuffix('-browser')
+        reader=config_reader or (lambda:configured(provider))
         config,backend=reader()
         if backend!=frozen['backend'] or executors.fingerprint(config,backend)!=launch['credential_fingerprint']:
             raise ValueError('Selected browser provider connection changed')

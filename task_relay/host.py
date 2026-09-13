@@ -61,6 +61,25 @@ class Host:
                 if path.is_file() and os.access(path,os.X_OK):return str(path)
         raise UnsupportedHost('Codex worker unavailable; configure TASK_RELAY_CODEX or install it on PATH')
 
+    def codex_projects(self, codex_dir=None):
+        """Read saved local project roots; never edit Codex's private UI state."""
+        import json
+        path = Path(codex_dir or Path.home()/'.codex')/'.codex-global-state.json'
+        if not path.exists():
+            return []
+        if path.stat().st_size > 10_000_000:
+            raise ValueError('Codex project metadata exceeds the read limit.')
+        data = json.loads(path.read_text())
+        result = []
+        for project in data.get('local-projects', {}).values():
+            for root in project.get('rootPaths', []):
+                if isinstance(root, str):
+                    result.append({'cwd': root, 'name': project.get('name') or Path(root).name})
+        for root in data.get('electron-saved-workspace-roots', []):
+            if isinstance(root, str):
+                result.append({'cwd': root, 'name': Path(root).name})
+        return result
+
     def lock(self, stream):
         self.require_posix('Exclusive service locking')
         import fcntl
@@ -116,7 +135,10 @@ class Host:
         self.require_macos('Codex desktop task opening')
         app=next((p for p in (Path('/Applications/ChatGPT.app'),Path('/Applications/Codex.app')) if p.is_dir()),None)
         if app is None:raise error('Cannot locate the Codex desktop application')
-        result=subprocess.run(['/usr/bin/open','-g','-a',str(app),'codex://threads/'+task_id],capture_output=True,timeout=5)
+        # An inactive window may show the task without acquiring its stream.
+        # This fallback runs only when no desktop owner was found; activate the
+        # app so readiness can be verified before submitting the user's turn.
+        result=subprocess.run(['/usr/bin/open','-a',str(app),'codex://threads/'+task_id],capture_output=True,timeout=5)
         if result.returncode:raise error('macOS could not open the saved Codex task')
 
     def describe(self):

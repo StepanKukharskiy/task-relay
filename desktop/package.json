@@ -2,11 +2,11 @@
   "name": "task-relay-desktop",
   "license": "Apache-2.0",
   "private": true,
-  "version": "0.12.1",
+  "version": "0.13.0",
   "scripts": {
     "sync-ui": "node scripts/sync-ui.mjs",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build && python3 scripts/sign-app.py \"src-tauri/target/release/bundle/macos/Task Relay.app\""
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

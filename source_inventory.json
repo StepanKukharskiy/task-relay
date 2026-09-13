@@ -56,6 +56,7 @@
         "desktop/src-tauri/Cargo.lock",
         "desktop/src-tauri/build.rs",
         "desktop/src-tauri/tauri.conf.json",
+        "desktop/src-tauri/Info.plist",
         "desktop/src-tauri/src/*.rs",
         "desktop/src-tauri/capabilities/*.json",
         "desktop/src-tauri/icons/*"
@@ -69,6 +70,7 @@
         "task_relay/assets/*.html",
         "task_relay/assets/*.css",
         "task_relay/assets/*.js",
+        "task_relay/assets/perplexity-extension.json",
         "task_relay/assets/vendor/*.js",
         "task_relay/assets/vendor/*.LICENSE",
         "task_relay/assets/vendor/*.txt",
@@ -144,6 +146,9 @@
         "docs/new-pipeline-planning.md",
         "docs/orchestrator-web.md",
         "docs/packaging.md",
+        "docs/presentations.md",
+        "docs/media-workflows.md",
+        "docs/project-tasks-and-starters.md",
         "docs/onboarding.md",
         "docs/updates.md",
         "docs/release-notes.md",
@@ -160,7 +165,9 @@
         "docs/publication.md",
         "experiments/proposal_review/README.md",
         "docs/perplexity-browser.md",
-        "docs/general-browser.md"
+        "docs/general-browser.md",
+        "docs/account-sites.md",
+        "docs/desktop-browser.md"
       ]
     }
   ],

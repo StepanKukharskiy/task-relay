@@ -32,7 +32,9 @@ def initialize(db):
       CREATE TABLE IF NOT EXISTS provider_jobs(id TEXT PRIMARY KEY,provider TEXT NOT NULL,operation TEXT NOT NULL,status TEXT NOT NULL,created_at REAL NOT NULL);
       CREATE TABLE IF NOT EXISTS provider_deletions(chat_id INTEGER,message_id INTEGER,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_attempt REAL NOT NULL DEFAULT 0,PRIMARY KEY(chat_id,message_id));
       CREATE TABLE IF NOT EXISTS provider_key_sessions(id TEXT PRIMARY KEY,provider TEXT NOT NULL,prompt_id INTEGER,status TEXT NOT NULL,expires_at REAL NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS one_provider_setup ON provider_jobs(provider) WHERE status IN ('queued','running');
+      CREATE UNIQUE INDEX IF NOT EXISTS one_provider_setup_v2 ON provider_jobs(provider)
+        WHERE status IN ('queued','running') AND operation != 'browser_research';
+      DROP INDEX IF EXISTS one_provider_setup;
     ''')
     from .browser_setup import initialize as browser_initialize
     browser_initialize(db)
@@ -150,12 +152,19 @@ class Menu:
             self.home()
             return
         text = 'Choose a model capability for this task.' if tid else 'Choose a default model. Text defaults apply to new tasks; media defaults apply to future runs without an override.'
-        self.show(text, [(cap.capitalize(), {'op': 'models', 'provider': provider, 'cap': cap, 'tid': tid}) for cap in REGISTRY[provider]['capabilities']], tid)
+        caps=list(REGISTRY[provider]['capabilities'])
+        if provider in ('openai','openrouter') and not tid:caps.append('image')
+        self.show(text, [(cap.capitalize(), {'op': 'models', 'provider': provider, 'cap': cap, 'tid': tid}) for cap in caps], tid)
 
     def models(self, provider, cap, tid=None, page=0):
         config = stored(provider)
+        from .capability_defaults import overlay
+        config = overlay(provider, config, gemini.DATA / 'state.sqlite')
         if provider == 'claude':
             choices = ['sonnet', 'opus', 'haiku']
+        elif provider in ('openai','openrouter') and cap=='image':
+            current=config.get('models',{}).get('image')
+            choices=list(dict.fromkeys(([current] if current else [])+[m for m in config.get('image_catalog',config.get('catalog',[]) if provider=='openai' else []) if provider!='openai' or m.startswith('gpt-image-')]))
         elif provider in api.SPECS:
             choices = list(dict.fromkeys([config.get('model', api.SPECS[provider]['model'])] + config.get('catalog', [])))
         else:
@@ -211,6 +220,7 @@ class Menu:
             if op in ('browser_connect','browser_cancel'):
                 browser_setup.command(self.state,op.removeprefix('browser_'),'telegram-button:'+str(update_id))
             self.show(browser_setup.status(self.state),[
+                ('Sign in through this chat',{'op':'browser_chat'}),
                 ('Open Perplexity sign-in',{'op':'browser_connect'}),
                 ('Check sign-in status',{'op':'browser_status'}),
                 ('Cancel sign-in',{'op':'browser_cancel'})])
@@ -256,6 +266,10 @@ class Menu:
             self.set_endpoint(provider, action['url'])
         elif op == 'setmodel':
             cap, model = action['cap'], (api.model_name(action['model']) if provider in api.SPECS else gemini.model_name(action['model']))
+            if provider in ('openai','openrouter') and cap=='image':
+                if tid:raise ValueError('Image defaults apply to production operations, not text task models.')
+                if provider=='openai' and not model.startswith('gpt-image-'):raise ValueError('Choose a GPT Image model for image generation.')
+                if provider=='openrouter' and model not in stored(provider).get('image_catalog',[]):raise ValueError('Choose a discovered OpenRouter image model; refresh the provider catalog first.')
             if tid:
                 info = backends.task(self.state, tid)
                 row = self.state.db.execute('SELECT status FROM watched WHERE id=?', (tid,)).fetchone()
@@ -272,7 +286,13 @@ class Menu:
                 config = stored(provider)
                 if not config:
                     raise ValueError('Connect this provider first.')
-                if provider == 'gemini':
+                from .capability_defaults import update_selected
+                with self.state.db:
+                    selected = update_selected(self.state.db, cap, provider, model)
+                if selected:
+                    self.bridge.send(f'{provider.capitalize()} {cap} default set to {model}. Existing jobs retain their models.')
+                    return
+                if provider == 'gemini' or (provider in ('openai','openrouter') and cap=='image'):
                     config.setdefault('models', {})[cap] = model
                 else:
                     config['model'] = model
@@ -354,7 +374,7 @@ class Menu:
             self.bridge.send('This button expired or was already used. Open /providers or /models again.')
             return
         action = json.loads(row['payload'])
-        if action['op'] in ('browser_connect','browser_cancel'):
+        if action['op'] in ('browser_connect','browser_chat','browser_cancel'):
             from . import browser_setup
             from orchestrator.storage import transaction
             with transaction(self.state.db):
@@ -398,8 +418,12 @@ def delete_pending(state, telegram):
 
 
 def finish_setup(state, jid, ok, text):
-    row=state.db.execute('SELECT provider FROM provider_jobs WHERE id=?',(jid,)).fetchone()
-    if row and row['provider']=='perplexity':
+    row=state.db.execute('SELECT provider,operation FROM provider_jobs WHERE id=?',(jid,)).fetchone()
+    if row and row['operation']=='browser_research':
+        from .managed_research import interrupted
+        interrupted(state,jid,'The browser worker was interrupted. Inspect this receipt before retrying.')
+        return
+    if row and row['provider'] in ('perplexity','browser-sites'):
         from .browser_setup import finish
         finish(state,jid,ok,text.replace('Check Providers and reconnect if needed.','Use /browser connect to try again.'))
         return
@@ -423,13 +447,22 @@ class Worker:
         if self.active:
             jid, process, started = self.active
             if process.poll() is not None:
+                from . import host_login
+                host_login.forget(Path(self.state.db.execute('PRAGMA database_list').fetchone()[2]).parent,jid)
                 if self.state.db.execute('SELECT status FROM provider_jobs WHERE id=?', (jid,)).fetchone()[0] == 'running':
                     finish_setup(self.state, jid, False, 'Provider setup ended without a confirmed result.')
                 self.active = None
             elif self.state.db.execute('SELECT status FROM provider_jobs WHERE id=?',(jid,)).fetchone()[0]=='cancelled' or time.monotonic()-started > 660:
                 self.close()
             return
-        row = self.state.db.execute("SELECT * FROM provider_jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+        from .managed_browser import preference
+        data = Path(self.state.db.execute('PRAGMA database_list').fetchone()[2]).parent
+        try:
+            saved = preference(data)
+            browser_paused = bool(saved and saved.get('manual_sign_in'))
+        except (OSError, ValueError):
+            browser_paused = True
+        row = self.state.db.execute("SELECT * FROM provider_jobs WHERE status='queued' AND (?=0 OR operation!='browser_research') ORDER BY created_at LIMIT 1", (browser_paused,)).fetchone()
         if not row:
             return
         with self.state.db:
@@ -437,10 +470,16 @@ class Worker:
         try:
             dbpath = self.state.db.execute('PRAGMA database_list').fetchone()[2]
             command=([HOST.browser_python(gemini.ROOT,Path(dbpath).parent),'-m','task_relay.browser_setup',dbpath,row['id']]
-                     if row['provider']=='perplexity' else [sys.executable,str(gemini.ROOT/'provider_runner.py'),dbpath,row['id']])
+                     if row['provider'] in ('perplexity','browser-sites') else [sys.executable,str(gemini.ROOT/'provider_runner.py'),dbpath,row['id']])
             process = HOST.spawn(command,
-                                 popen=self.popen, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except (OSError, UnsupportedHost):
+                                 popen=self.popen, stdin=subprocess.PIPE if row['operation']=='browser_chat_login' else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.active = (row['id'], process, time.monotonic())
+            if row['operation']=='browser_chat_login':
+                from . import host_login
+                host_login.register(Path(dbpath).parent,row['id'],process.stdin)
+        except (OSError, ValueError, UnsupportedHost):
+            if self.active:
+                self.close()
             finish_setup(self.state, row['id'], False, 'Provider setup could not start on this host.')
             return
         self.active = (row['id'], process, time.monotonic())
@@ -449,6 +488,8 @@ class Worker:
         if not self.active:
             return
         jid, process, _ = self.active
+        from . import host_login
+        host_login.forget(Path(self.state.db.execute('PRAGMA database_list').fetchone()[2]).parent,jid)
         if process.poll() is None:
             import signal
             try:

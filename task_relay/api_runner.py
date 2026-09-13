@@ -70,7 +70,7 @@ def run_job(state, jid, parent_pid=None, client=None):
                     state.db.execute("UPDATE api_runs SET stage='complete' WHERE job_id=?", (jid,))
                     if complete:
                         state.db.execute('INSERT OR IGNORE INTO api_history VALUES (?,?,?,?,?)', (jid, job['thread_id'], job['prompt'], text, time.time()))
-                        finish(state, jid, 'completed', text)
+                        finish(state, jid, 'completed', text + ('\n\nContext continued from retained history; earlier responses remain available through context_read.' if (path.parent/(jid+'.context.json')).is_file() else ''))
                     else:
                         finish(state, jid, 'failed', text + '\n\nThe provider ended before a complete response. This partial result is preserved above.')
                 return
@@ -90,8 +90,12 @@ def run_job(state, jid, parent_pid=None, client=None):
                 if saved:
                     result = saved[0]
                 else:
-                    value = (file_tools.execute(run['workspace'], call['name'], call['arguments'], protected)
-                             if call['name'] in offered else {'ok': False, 'error': 'This tool is unavailable.'})
+                    if call['name']=='context_read' and call['name'] in offered:
+                        from . import context_handoff
+                        value=context_handoff.read(path.parent/(jid+'.context.json'),call['arguments'])
+                    else:
+                        value = (file_tools.execute(run['workspace'], call['name'], call['arguments'], protected)
+                                 if call['name'] in offered else {'ok': False, 'error': 'This tool is unavailable.'})
                     result = json.dumps(value, ensure_ascii=False)
                     with state.db:
                         state.db.execute('INSERT OR IGNORE INTO api_tool_calls VALUES (?,?,?,?,?,?)',

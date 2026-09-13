@@ -11,7 +11,7 @@ import urllib.request
 from . import credentials
 from .relay_paths import PATHS
 
-VERSION = '0.12.1'
+VERSION = '0.13.0'
 PROTOCOL = 2
 REPOSITORY = 'StepanKukharskiy/task-relay'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases/'
@@ -124,8 +124,7 @@ class Store:
             claimed = self.db.execute("INSERT OR IGNORE INTO notices VALUES (?,'submitting',NULL)", (release['version'],)).rowcount
         if not claimed:
             return
-        text = (f"Task Relay {release['version']} is available.\nRelease notes: {release['url']}\n"
-                f"On your host: task-relay update apply --version {release['version']}\n"
+        text = (release_notice(release) +
                 "Disable notices: task-relay update notifications off")
         try:
             result = telegram.call('sendMessage', chat_id=chat_id, text=text,
@@ -140,6 +139,16 @@ class Store:
             return  # Never replay a possibly delivered notice.
         with self.db:
             self.db.execute("UPDATE notices SET status='sent',message_id=? WHERE version=?", (result['message_id'], release['version']))
+
+
+def release_notice(release):
+    from .host_updates import packaged_runtime
+    if packaged_runtime(PATHS.install):
+        return (f"Task Relay {release['version']} source package is available.\n"
+                f"Release notes: {release['url']}\n"
+                "Packaged app updates are not available yet. This source release does not update Task Relay.app.\n")
+    return (f"Task Relay {release['version']} is available.\nRelease notes: {release['url']}\n"
+            f"On your host: task-relay update apply --version {release['version']}\n")
 
 
 def preferences(data=PATHS.data):
@@ -174,8 +183,7 @@ def tick(state, telegram):
             return
         if store.db.execute('SELECT 1 FROM notices WHERE version=?', (release['version'],)).fetchone():
             return  # Preserve legacy sent, submitting and uncertain identities.
-        text = (f"Task Relay {release['version']} is available.\nRelease notes: {release['url']}\n"
-                f"On your host: task-relay update apply --version {release['version']}\n"
+        text = (release_notice(release) +
                 "Manage proactive updates in Task Relay Channels.")
         if queue_proactive(state, 'proactive:release:' + release['version'], text):
             with store.db:
