@@ -132,6 +132,11 @@ verified. Relay service health is fresh. iMessage already required review of an
 uncertain delivery before replacement; that state remains unchanged. No media
 generation or Rhino operation was run to qualify this settings change.
 
+CI follow-up: two older tests still expected hidden disconnected providers and
+the previous OpenRouter discovery path. Updated expectations retain disconnected
+default rejection and image filtering. The complete 145-test browser/media
+selection passes locally; Linux CI confirmation remains separate.
+
 Automatic script repair is installed locally in 0.13.20 with controlled qualification.
 New workflows freeze a one-cycle-per-stage repair allowance: diagnose a confirmed
 Rhino/Blender script failure, prepare a changed script, independently review it,

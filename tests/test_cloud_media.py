@@ -160,7 +160,16 @@ class Tests(unittest.TestCase):
                 key='fixture:secret' if provider=='higgsfield' else 'fixture-secret'
                 providers.connect({'provider':provider,'key':key},paths)
             snap=defaults.snapshot(paths)
-            self.assertFalse(next(x for x in snap['capabilities'] if x['capability']=='text')['options'])
+            text=next(x for x in snap['capabilities'] if x['capability']=='text')
+            self.assertFalse(text['available'])
+            self.assertIsNone(text['selected'])
+            self.assertFalse(any(option['connected'] for option in text['options']))
+            # Visible setup choices do not authorize text execution or a default.
+            option=text['options'][0]
+            with self.assertRaisesRegex(ValueError,'Connect this provider'):
+                defaults.update({'revision':defaults.read(state.db)['revision'],'capability':'text',
+                    'provider':option['provider'],'model':option['models'][0]},paths)
+            self.assertEqual(defaults.read(state.db)['choices'],{})
             for cap,provider in [('image','higgsfield'),('video','runway'),('mesh','meshy')]:
                 defaults.update({'revision':defaults.read(state.db)['revision'],'capability':cap,'provider':provider,'model':providers.PROVIDERS[provider]['models'][cap][0]},paths)
                 self.assertEqual(providers.read_config(provider)['models'][cap],providers.PROVIDERS[provider]['models'][cap][0])

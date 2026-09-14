@@ -113,7 +113,7 @@ class GraphTests(unittest.TestCase):
             factory.return_value.request.return_value={'data':[{'id':'vendor/text','architecture':{'output_modalities':['text']}},
                 {'id':'vendor/image','architecture':{'output_modalities':['image']}}]}
             self.assertEqual(api.image_catalog('openrouter','fixture'),['vendor/image'])
-            factory.return_value.request.assert_called_once_with('images/models')
+            factory.return_value.request.assert_called_once_with('models?output_modalities=image')
 
     def test_ambiguous_image_submission_is_not_retried(self):
         import gemini
