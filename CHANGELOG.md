@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — browser/media CI expectations
+
+- Update two stale contract expectations: disconnected text providers remain
+  visible but unavailable and cannot be saved as a default; OpenRouter image
+  discovery requests `models?output_modalities=image` and filters image-capable IDs.
+- The complete 145-test browser/media CI selection passes locally with controlled
+  transports. No runtime behavior changed and no live generation was performed.
+
 ## Unreleased — PR integration validation
 
 - Keep application detection results unchanged when adding catalog context, so
