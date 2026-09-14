@@ -37,44 +37,80 @@ def command(executable, script, platform, major=8):
     return [executable, '-runscript', macro + '"' + path + '"']
 
 
-def run(executable, script, request_path, timeout, platform):
-    """Stay in the supervisor process group so its cancellation owns Rhino too.
+STARTUP_SECONDS = 60
 
-    A PID handshake in the fixed worker rejects startup forwarding. Durable intent
-    is the caller's responsibility. Only this newly spawned process is terminated.
-    """
+
+def running_instances(executable, platform):
+    """Inspect only the selected native executable; never attach to or close it."""
+    from .host import UnsupportedHost
+    if platform != 'darwin':raise UnsupportedHost('Rhino process inspection requires macOS')
+    try:
+        result=subprocess.run(['/bin/ps','-axo','pid=,comm='],capture_output=True,text=True,timeout=5,check=True)
+    except (OSError,subprocess.SubprocessError) as exc:
+        raise RuntimeError('Cannot check whether the selected Rhino is already running; no worker was launched.') from exc
+    selected=Path(executable).resolve()
+    matches=[]
+    for line in result.stdout.splitlines():
+        fields=line.strip().split(None,1)
+        if len(fields)==2 and fields[0].isdigit() and fields[1].startswith('/') and Path(fields[1]).resolve()==selected:
+            matches.append(int(fields[0]))
+    return matches
+
+
+def _reply(path, pid, request):
+    if not path.is_file() or path.is_symlink() or path.stat().st_size>200000:return None
+    try:
+        value=json.loads(path.read_text())
+        if isinstance(value,dict) and value.get('pid')==pid and value.get('token')==request['token'] and value.get('mode')==request['mode']:
+            return value
+    except (ValueError,OSError):pass
+    return None
+
+
+def run(executable, script, request_path, timeout, platform):
+    """Launch one owned process with separate startup and task time bounds."""
     from orchestrator.workers import atomic
-    request_path = Path(request_path)
-    request = json.loads(request_path.read_text())
-    argv = command(executable, script, platform, request.get('rhino_major',8))
-    log = request_path.with_suffix('.log')
-    start = time.monotonic()
-    result = dict(command=argv, timeout=False, returncode=None, worker=None)
+    request_path=Path(request_path)
+    request=json.loads(request_path.read_text())
+    argv=command(executable,script,platform,request.get('rhino_major',8))
+    existing=running_instances(executable,platform)
+    if existing:
+        return dict(command=argv,passed=False,worker=None,returncode=None,timeout=False,
+                    launched=False,existing_pids=existing,error_code='rhino_already_running',
+                    error='The selected Rhino is already running. Save your work and quit that Rhino app, then request recovery. Relay did not launch another instance or run the script.')
+    log=request_path.with_suffix('.log')
+    start=time.monotonic();deadline=start+timeout;startup_deadline=min(deadline,start+STARTUP_SECONDS)
+    result=dict(command=argv,timeout=False,returncode=None,worker=None,launched=True,startup_received=False)
     with log.open('xb') as stream:
-        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
-                                   cwd=request_path.parent)
-        result['pid'] = process.pid
+        process=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=stream,stderr=subprocess.STDOUT,cwd=request_path.parent)
+        result['pid']=process.pid
         try:
-            atomic(request_path.with_suffix('.owner.json'), {'pid': process.pid, 'token': request['token']})
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            result['timeout'] = True
-            process.kill()
-            process.wait(timeout=5)
+            atomic(request_path.with_suffix('.owner.json'),{'pid':process.pid,'token':request['token']})
+            while True:
+                if not result['startup_received']:
+                    result['startup_received']=_reply(request_path.with_suffix('.started.json'),process.pid,request) is not None
+                now=time.monotonic()
+                wait_until=deadline if result['startup_received'] else startup_deadline
+                if now>=wait_until:
+                    result['timeout']=True
+                    if not result['startup_received'] and startup_deadline<deadline:
+                        result.update(error_code='rhino_startup_timeout',error='Rhino did not confirm worker startup within '+str(STARTUP_SECONDS)+' seconds. Check startup or license dialogs. Only the new Relay process was stopped; no automatic replay.')
+                    else:result.update(error_code='rhino_task_timeout',error='Rhino exceeded the approved task time limit; only the new Relay process was stopped.')
+                    process.kill();process.wait(timeout=5);break
+                try:
+                    process.wait(timeout=min(1,wait_until-now));break
+                except subprocess.TimeoutExpired:continue
         finally:
             if process.poll() is None:
                 process.kill();process.wait(timeout=5)
-        result['returncode'] = process.returncode
-    reply = request_path.with_suffix('.result.json')
-    if reply.is_file() and not reply.is_symlink() and reply.stat().st_size <= 200000:
-        try:
-            value = json.loads(reply.read_text())
-            if value.get('pid') == process.pid and value.get('token') == request['token'] and value.get('mode') == request['mode']:
-                result['worker'] = value
-        except (ValueError, OSError):pass
+        result['returncode']=process.returncode
+    result['worker']=_reply(request_path.with_suffix('.result.json'),process.pid,request)
+    if result['worker'] is not None:result['startup_received']=True
+    if result['worker'] is None and not result.get('error'):
+        result.update(error_code='rhino_missing_response',error='Rhino exited without a matching worker response. Check startup or license dialogs before requesting recovery; no automatic replay.')
     with log.open('rb') as stream:
-        stream.seek(max(0, log.stat().st_size-64000))
-        result['log_tail'] = stream.read(64000).decode('utf-8', 'replace')
-    result.update(log_bytes=log.stat().st_size, elapsed_seconds=time.monotonic()-start)
-    result['passed'] = not result['timeout'] and result['returncode'] == 0 and bool(result['worker'] and result['worker'].get('passed') is True)
+        stream.seek(max(0,log.stat().st_size-64000))
+        result['log_tail']=stream.read(64000).decode('utf-8','replace')
+    result.update(log_bytes=log.stat().st_size,elapsed_seconds=time.monotonic()-start)
+    result['passed']=not result['timeout'] and result['returncode']==0 and bool(result['worker'] and result['worker'].get('passed') is True)
     return result

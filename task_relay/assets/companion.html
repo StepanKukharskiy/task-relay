@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
-  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="companion-setup.js" defer></script><script src="companion.js" defer></script>
+  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="companion-setup.js" defer></script><script src="companion-updates.js" defer></script><script src="companion.js" defer></script>
 </head>
 <body>
   <header><div class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></div><button id="refresh" class="quiet" type="button" aria-label="Refresh status">Refresh</button></header>
@@ -71,7 +71,7 @@
       </details>
       <details id="model-settings"><summary>Models by task</summary>
         <p>Connect a provider once, then choose a model for each kind of work.</p>
-        <details><summary>Image, video &amp; 3D connections</summary>
+        <details id="media-connections"><summary>Image, video &amp; 3D connections</summary>
           <p id="media-connections-detail" class="hint"></p>
           <form id="media-provider-form">
             <label for="media-provider-name">Media provider</label><select id="media-provider-name"><option value="runway">Runway</option><option value="higgsfield">Higgsfield</option><option value="meshy">Meshy — 3D assets</option></select>
@@ -83,7 +83,9 @@
         </details>
         <p id="model-defaults-detail" class="hint" role="status"></p>
         <div id="model-defaults-list"></div>
-        <div class="channel-card"><strong>Modeling &amp; rendering</strong><p class="hint">Editable models and renders use Relay’s Blender or Rhino workflows. Ask for the application and output you need; Relay checks the available tools before planning.</p></div>
+        <div class="channel-card"><strong>Modeling &amp; rendering</strong><p class="hint">Editable models and renders use Relay’s Blender or Rhino workflows.</p>
+          <form id="rhino-preference-form"><label for="rhino-preference">Preferred Rhino version for new plans</label><select id="rhino-preference"><option value="auto">Auto</option></select><p id="rhino-preference-detail" class="hint"></p><button id="rhino-preference-save" type="submit">Save Rhino preference</button></form>
+        </div>
         <p class="hint">Explicit choices in your request and existing task models take precedence. Saved defaults apply to future work. Queued jobs and approved plans keep their models.</p>
       </details>
       <details id="browser-settings"><summary><span>Browser use</span><span id="browser-summary" class="muted">Off</span></summary>
@@ -101,16 +103,26 @@
         <button id="folder-permissions" type="button">Review macOS permissions…</button>
       </details>
       <details id="usage-settings"><summary>Usage</summary><p id="usage-summary" class="muted" role="status"></p></details>
-      <details id="advanced-settings"><summary>Troubleshooting & updates</summary>
+      <details id="app-updates-settings"><summary id="app-update-heading">App updates</summary>
+        <p id="app-update-summary" role="status" aria-live="polite">Reading app update status…</p>
+        <label><input type="checkbox" id="app-update-beta"> Include beta releases</label>
+        <p class="hint">Beta releases may require macOS permission approval. App updates preserve your saved connections and task history.</p>
+        <button id="app-update-check">Check for updates</button>
+        <button id="app-update-notes" class="quiet" hidden>Release notes</button>
+        <button id="app-update-download" hidden>Download update</button>
+        <button id="app-update-install" class="primary" hidden>Install and restart</button>
+        <button id="app-update-recover" class="quiet" hidden>Recover previous app</button>
+      </details>
+      <details id="advanced-settings"><summary>Troubleshooting</summary>
         <p id="data-location" class="path"></p><p id="ownership-detail"></p><div class="actions"><button id="connect-existing" hidden>Use existing installation</button><button id="service-handoff" hidden>Review service handoff</button></div>
         <button id="handoff-history">Inspect handoff receipts</button><div id="handoff-receipts"></div>
-        <div id="diagnostics"></div><p id="update-summary"></p><button id="update-check">Check source releases</button><p class="hint">Source releases are Python packages. Desktop app updates use a separate release channel; installing app updates here is not yet available.</p>
+        <div id="diagnostics"></div>
         <details><summary>Storage cleanup</summary><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply">Delete reviewed caches</button></div></details>
         <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/onboarding.md">Setup and recovery guide ↗</a>
       </details>
     </details>
     <section id="handoff-review" hidden><h2>Review handoff</h2><pre id="handoff-text"></pre><p>Only the reviewed service definition changes. Existing data, pairing and uncertain submissions stay in place. Active work must finish first.</p><div class="actions"><button id="handoff-apply">Apply reviewed handoff</button><button id="handoff-cancel">Cancel</button></div></section>
-    <footer><span id="version"></span><span>Runs on this computer</span></footer>
+    <footer><span id="version"></span><button id="app-update-notice" class="quiet" hidden>Update available</button><span>Runs on this computer</span></footer>
   </main>
 </body>
 </html>

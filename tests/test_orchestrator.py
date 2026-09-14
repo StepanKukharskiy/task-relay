@@ -67,6 +67,15 @@ def pair(gate=None, max_attempts=2):
     return plan([producer, reviewer])
 
 
+class FailureDetailTests(unittest.TestCase):
+    def test_registered_failure_receipt_exposes_exact_reason(self):
+        from orchestrator.runtime import failure_detail
+        reason='Image must name an exact declared PNG/JPEG input: images/rendering.jpg'
+        attempt={'state':'blocked','error':'Worker failed','receipt':json.dumps({'status':'finished','exit_code':1,'operation':{'outcome':'failed','reason':reason}})}
+        self.assertEqual(failure_detail(None,attempt),'Registered operation failed: '+reason)
+        attempt['state']='uncertain';self.assertEqual(failure_detail(None,attempt),'Worker failed')
+
+
 class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name).resolve()

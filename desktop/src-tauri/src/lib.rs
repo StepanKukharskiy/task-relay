@@ -8,8 +8,9 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
-const ACTIONS: &[&str] = &["status", "project", "provider", "telegram", "update-check",
-    "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider",
+const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-download", "app-update-install", "app-update-recover",
+    "status", "project", "provider", "telegram", "update-check",
+    "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider", "image-model-refresh", "rhino-preference",
     "channel-update", "channel-status",
     "companion-status", "conversation", "approval-detail", "messages-start", "messages-stop",
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",
@@ -77,7 +78,10 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
     });
     // Lifecycle operations journal their intent and wait for a fresh heartbeat.
     // Do not kill them at the ordinary read deadline while they are restoring a service.
-    let seconds = if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 } else { 15 };
+    let seconds = if matches!(path, "app-update-download" | "app-update-install" | "app-update-recover") { 240 }
+        else if path == "app-update-check" { 120 }
+        else if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 }
+        else { 15 };
     let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
         if child.try_wait().map_err(|_| "Task Relay runtime did not finish.")?.is_some() {
@@ -87,7 +91,9 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
             let _ = child.kill();
             let _ = child.wait();
             let _ = reader.join();
-            return Err(if seconds > 15 {
+            return Err(if path.starts_with("app-update-") {
+                "The update operation did not confirm completion. Open App updates to inspect its receipt before trying again; installation will not be replayed automatically."
+            } else if seconds > 15 {
                 "The service action did not confirm completion. Inspect the handoff receipt and service status before another action; it will not be replayed."
             } else {
                 "Task Relay could not read its local data in time. Check this app’s access to the selected data folder, then refresh status."
@@ -139,6 +145,7 @@ async fn companion_open(app: tauri::AppHandle, target: String) -> Result<(), Str
                 .await.map_err(|_| "Could not read the saved conversation.")??;
             result["url"].as_str().ok_or("Connect Telegram in Settings first.")?.to_owned()
         },
+        "app-releases" => "https://github.com/StepanKukharskiy/task-relay/releases".to_owned(),
         "messages" => "sms:".to_owned(),
         "messages-permissions" => {
             let root = if cfg!(debug_assertions) {

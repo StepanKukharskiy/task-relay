@@ -8,6 +8,8 @@ from pathlib import Path
 import shutil
 import sys
 
+RHINO_APPLICATIONS=Path('/Applications')
+
 
 def blender(environ=None, platform=None, which=None):
     env=os.environ if environ is None else environ
@@ -41,8 +43,12 @@ def rhino(environ=None, platform=None):
     platform = sys.platform if platform is None else platform
     override = env.get('TASK_RELAY_RHINO')
     requested = env.get('TASK_RELAY_RHINO_VERSION')
+    if environ is None and not override and requested is None:
+        from .rhino_preferences import preference
+        selected=preference()
+        if selected!='auto':requested=selected
     candidates = ([Path(override).expanduser()] if override else
-        [Path('/Applications')/('Rhino '+major+'.app')/'Contents/MacOS/Rhinoceros' for major in ([requested] if requested in ('7','8') else ['8','7'])])
+        [RHINO_APPLICATIONS/('Rhino '+major+'.app')/'Contents/MacOS/Rhinoceros' for major in ([requested] if requested in ('7','8') else ['8','7'])])
     path = next((p for p in candidates if p.is_absolute() and p.is_file() and os.access(p,os.X_OK)), candidates[0])
     present = path.is_absolute() and path.is_file() and os.access(path,os.X_OK)
     version = major = None
@@ -104,7 +110,11 @@ def launcher_tools(host=None, which=None):
 
 
 def catalog(state=None):
-    result=[blender(),rhino()]
+    # Catalog enrichment must not mutate a detector's reusable result.
+    result=[dict(blender()),dict(rhino())]
+    result[1]['installed_versions']=[r for major in ('7','8')
+        if (r:=rhino({'TASK_RELAY_RHINO_VERSION':major}))['available']]
+    result[1]['selection_note']='The top-level Rhino is selected for new plans, not the only installed version or evidence of a running session. installed_versions lists other detected versions. Change the preferred version in Settings → Models by task before preparing version-specific code; existing plans keep their exact runtime approval.'
     if state is not None:
         from task_relay.host_evidence import environments
         result[0]['execution_environments']=environments(state,result[0])

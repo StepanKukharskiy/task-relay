@@ -12,6 +12,37 @@ from task_relay.bridge import State
 
 
 class Tests(unittest.TestCase):
+    def test_supported_disconnected_providers_remain_visible_but_not_savable(self):
+        rows={r['capability']:r for r in defaults.snapshot(self.paths)['capabilities']}
+        images={r['provider']:r for r in rows['image']['options']}
+        videos={r['provider']:r for r in rows['video']['options']}
+        self.assertIn('openrouter',images)
+        self.assertFalse(images['openrouter']['connected'])
+        for provider in ('runway','higgsfield'):
+            self.assertFalse(videos[provider]['connected']);self.assertTrue(videos[provider]['models'])
+            with self.assertRaises(ValueError):self.save('video',provider,videos[provider]['models'][0])
+        self.assertEqual(defaults.read(self.state.db)['revision'],0)
+
+    def test_image_refresh_preserves_credentials_text_model_and_saved_defaults(self):
+        from contextlib import nullcontext
+        path=self.paths.data/'openrouter.json'
+        credentials.save(path,dict(api_key_ref={'source':'environment','name':'RELAY_FIXTURE_KEY'},enabled=True,model='vendor/text',catalog=['vendor/text']))
+        before=defaults.read(self.state.db)
+        with patch('task_relay.onboarding.setup_lock',side_effect=nullcontext),patch.object(api.Client,'request',return_value={'data':[
+                {'id':'vendor/image','architecture':{'output_modalities':['image']}},
+                {'id':'vendor/text','architecture':{'output_modalities':['text']}}]}) as request:
+            defaults.refresh_images({'provider':'openrouter'},self.paths)
+        request.assert_called_once_with('models?output_modalities=image')
+        saved=json.loads(path.read_text());self.assertNotIn('api_key',saved);self.assertIn('api_key_ref',saved)
+        self.assertEqual(saved['model'],'vendor/text');self.assertEqual(saved['image_catalog'],['vendor/image'])
+        self.assertEqual(defaults.read(self.state.db),before)
+        self.save('image','openrouter','vendor/image')
+        self.assertEqual(api.read_config('openrouter')['models']['image'],'vendor/image')
+        raw=path.read_bytes()
+        with patch('task_relay.onboarding.setup_lock',side_effect=nullcontext),patch.object(api,'image_catalog',return_value=[]),self.assertRaisesRegex(ValueError,'preserved'):
+            defaults.refresh_images({'provider':'openrouter'},self.paths)
+        self.assertEqual(path.read_bytes(),raw)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

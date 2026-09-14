@@ -9,10 +9,11 @@ data transformations are refused.
 This controller updates source/wheel installations. It refuses `plan`, `apply`,
 `rollback` and `recover` when invoked from Task Relay.app or against the matching
 companion-owned installation, before fetching a release or creating update state.
-Bundled startup ignores previous source-release redirection. Metadata checks remain
-available, and bundled release notices identify source packages without offering
-the source-install command. Signed app distribution and the separate packaged
-updater remain open; see the [desktop release plan](../desktop/README.md#packaged-release-implementation-order).
+Bundled startup ignores previous source-release redirection. Source metadata checks remain available through the source installation tools.
+The companion shows only the [packaged app updater](app-updates.md),
+including beta opt-in and explicit installation/recovery. Published 0.13.0 needs
+a manual bootstrap upgrade to receive it. Developer ID distribution and clean-host
+qualification remain open.
 
 ## Find an update
 

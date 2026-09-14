@@ -29,6 +29,7 @@ from task_relay import routing_inputs
 from task_relay import orchestrator_web
 from task_relay import orchestrator_guides
 from task_relay import relay_channels
+from task_relay import pipelines
 
 PROGRESS_EVIDENCE = '''Production progress comes from the current production_runs task
 and attempt records, not earlier chat answers or the existence of output files.
@@ -286,7 +287,7 @@ def model_context(payload):
     focused = next((p for p in snap.get('production_runs', []) if p['name'] == snap.get('focus')), None)
     system = SYSTEM + '\n' + production_planning.INSTRUCTIONS + '\n' + conversation_inputs.INSTRUCTIONS + '\n' + capabilities.INSTRUCTIONS + '\n' + routing_inputs.INSTRUCTIONS + '\n' + orchestrator_guides.INSTRUCTIONS + '\n' + ROADMAP_EVIDENCE + '\n' + PROGRESS_EVIDENCE + '\n' + IMAGE_ACTION + '\n' + CONTINUATION_ACTION
     from task_relay import browser_requests
-    system+='\n'+task_creation.INSTRUCTIONS+'\n'+workflow_library.INSTRUCTIONS
+    system+='\n'+task_creation.INSTRUCTIONS+'\n'+workflow_library.INSTRUCTIONS+'\n'+pipelines.INSTRUCTIONS
     if browser_requests.is_request(payload.get('user_message','')):system+='\n'+browser_requests.instructions(payload['user_message'])
     if focused:
         system += '''\nThe user is replying to the focused production. Treat ordinary
@@ -303,6 +304,7 @@ feedback elsewhere merely because another task has a similar title.'''
 
 
 def initialize(db):
+    pipelines.initialize(db)
     production_replacements.initialize(db)
     production_selections.initialize(db)
     production_lifecycle.initialize(db)
@@ -365,6 +367,8 @@ def remember(state, event_id, chat_id, message_id):
         focus = event_id.split(':')[1]
     elif event_id.startswith('workflow:'):
         focus = event_id.split(':')[1]
+    elif event_id.startswith('pipeline:'):
+        focus = event_id.split(':')[1]
     elif event_id.startswith('orchestrator:'):
         key = event_id.split(':')[1]
         row = state.db.execute('SELECT focus FROM orchestrator_chats WHERE id=?', (key,)).fetchone()
@@ -375,10 +379,20 @@ def remember(state, event_id, chat_id, message_id):
                      (chat_id, message_id, focus))
 
 
-def workflow_command(bridge, arg, update_id):
+def workflow_command(bridge, arg, update_id, *, source_request=None):
     """Keep direct control replies in the same conversational routing as notices."""
     state = bridge.state
     parts = arg.split()
+    if parts and parts[0]=='retry-plan':
+        from orchestrator.storage import transaction
+        if len(parts)!=2:
+            bridge.send('Use /workflow retry-plan WORKFLOW_ID to request one new planning attempt after a confirmed rate limit.')
+            return
+        with transaction(state.db):
+            if state.db.execute('SELECT 1 FROM incoming WHERE id=?',(update_id,)).fetchone():return
+            pipelines.control(state,parts[1],'retry_planning',request=source_request if source_request is not None else '/workflow '+arg)
+            state.db.execute('INSERT INTO incoming VALUES (?,?,NULL)',(update_id,'handled'))
+        return
     focus = parts[1] if len(parts) > 1 else None
     class Sink:
         def __init__(self): self.state, self.index = state, 0
@@ -497,6 +511,7 @@ def handle(bridge, message, text, update_id):
             bridge.send('Five orchestrator messages are pending. Wait for a reply before sending more.'); return True
         state.db.execute('INSERT INTO orchestrator_chats(id,prompt,focus,provider,model,created) VALUES (?,?,?,?,?,?)',
                          (update_id, text, reply[0] if reply else None, name, model, time.time()))
+        pipelines.bind_reply(state,update_id,reply[0] if reply else None)
         if media_reply:state.put('orchestrator-media-reply:'+str(update_id),media_reply)
         planning_reply=state.db.execute('SELECT plan_id FROM production_plan_messages WHERE chat_id=? AND message_id=?',
                                        (message['chat']['id'],reply_id)).fetchone()
@@ -573,6 +588,7 @@ def snapshot(state, focus):
     from .generation_jobs import catalog as generation_jobs
     result['generation_jobs'] = generation_jobs(state.db)
     result['capabilities'] = capabilities.catalog(state,result)
+    result['pipelines'] = pipelines.catalog(state)
     result['production_plans'] = production_planning.context(state)
     result['research_documents'] = routing_inputs.catalog(state)
     result['production_artifacts'] = routing_inputs.artifact_catalog(state)
@@ -606,6 +622,9 @@ def interpret(text, snap):
     if snap.get('browser_request'):
         from task_relay.browser_requests import validate
         validate(action,snap.get('browser_request_text',''))
+    if isinstance(action,dict) and action.get('kind') in pipelines.ACTIONS:
+        pipelines.validate(action,snap)
+        return value
     if action is not None:
         if isinstance(action,dict) and action.get('kind')=='browser_research':
             from .browser_research import validate_action
@@ -753,13 +772,13 @@ def generate(job, payload):
         request = {
             'systemInstruction': {'parts': [{'text': system}]},
             'contents': [{'role': 'user', 'parts': [{'text': json.dumps(payload, ensure_ascii=False)}]}],
-            'generationConfig': {'responseMimeType': 'application/json', 'maxOutputTokens': 4096}}
+            'generationConfig': {'responseMimeType': 'application/json', 'maxOutputTokens': orchestrator_files.MAX_RESPONSE_TOKENS}}
         return orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context)
     client = api.Client(name, config['api_key'], config.get('base_url'))
     messages = [{'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}]
-    request = ({'model': job['model'], 'instructions': system, 'input': messages, 'store': False, 'max_output_tokens': 4096}
+    request = ({'model': job['model'], 'instructions': system, 'input': messages, 'store': False, 'max_output_tokens': orchestrator_files.MAX_RESPONSE_TOKENS}
                if name == 'openai' else {'model': job['model'], 'messages': [{'role': 'system', 'content': system}] + messages,
-                                        'stream': False, 'max_tokens': 4096})
+                                        'stream': False, 'max_tokens': orchestrator_files.MAX_RESPONSE_TOKENS})
     endpoint = 'responses' if name == 'openai' else 'chat/completions'
     return orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context)
 
@@ -806,7 +825,8 @@ class Worker:
                     state.db.execute("UPDATE orchestrator_chats SET status='uncertain' WHERE id=?", (row['id'],))
                     queue_notice(state, row['id'], 'The previous conversation request was interrupted. No workflow action was taken. Send your question again.')
             self.started = True
-        job = state.db.execute("SELECT * FROM orchestrator_chats WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
+        pipelines.tick(state)
+        job = state.db.execute("SELECT c.* FROM orchestrator_chats c WHERE c.status='queued' AND NOT EXISTS (SELECT 1 FROM relay_pipeline_requests r JOIN relay_pipelines p ON p.id=r.pipeline WHERE r.request_id=c.id AND p.status!='active') ORDER BY EXISTS (SELECT 1 FROM relay_pipeline_requests r WHERE r.request_id=c.id), c.created, c.id LIMIT 1").fetchone()
         if not job:
             return
         action = None
@@ -818,6 +838,8 @@ class Worker:
             from task_relay.browser_requests import is_request,refresh_connection
             if is_request(job['prompt']):refresh_connection(job['prompt'])
             snap = snapshot(scoped, job['focus'])
+            pipeline_step=pipelines.request_context(scoped,job['id'])
+            if pipeline_step:snap['pipeline_step']=pipeline_step
             media_task=state.get('orchestrator-media-reply:'+str(job['id']))
             if media_task:
                 snap['media_reply']={'task_id':media_task,
@@ -869,6 +891,7 @@ class Worker:
                 result = interpret(recover_answer_only(raw),snap)
             action = result['action']
             phase = 'dispatch'
+            pipelines.guard(scoped,job,action)
             if action and action['kind']=='discover_guides':
                 with state.db:
                     state.db.execute('UPDATE orchestrator_chats SET response=? WHERE id=?',(raw,job['id']))
@@ -883,6 +906,7 @@ class Worker:
                 immediate = None
                 if action and action['kind'] in capabilities.IMMEDIATE:
                     state.db.execute('BEGIN IMMEDIATE')
+                    pipelines.guard(scoped,job,action)
                     immediate = capabilities.dispatch(state,job,action,snap)
                 if immediate:
                     text, image_tid = immediate
@@ -920,14 +944,16 @@ class Worker:
                             f'{t["id"]}: {t["objective"]}; at most {t["max_attempts"]} attempts × {t["limits"]["seconds"]} seconds; '
                             f'{t["limits"]["tool_calls"]} tool calls per attempt.' for t in view['tasks'])
                     state.db.execute('UPDATE orchestrator_chats SET focus=? WHERE id=?', (action['workflow'], job['id']))
+                pipelines.observe_dispatch(scoped,job,action)
                 state.db.execute("UPDATE orchestrator_chats SET status='answered',response=?,answer=? WHERE id=?", (raw, text, job['id']))
+                pipeline_event=pipelines.response_event(scoped,job,action)
                 if action and action['kind'] in ('generate_image','delegate_task'):
                     state.db.execute('INSERT OR IGNORE INTO outbox(id,thread_id,text) VALUES (?,?,?)', ('image-request:'+str(job['id']) if action['kind']=='generate_image' else 'capability-request:'+str(job['id']),image_tid,text))
-                else:
+                elif not pipeline_event:
                     queue_notice(state, job['id'], text)
                 report_prefix = ('image-request:' if action and action['kind']=='generate_image' else
                                  'capability-request:' if action and action['kind']=='delegate_task' else 'orchestrator:')
-                orchestrator_web.queue_report(state,job,report_prefix+str(job['id']))
+                orchestrator_web.queue_report(state,job,pipeline_event or report_prefix+str(job['id']))
         except Exception as exc:
             state.db.rollback()
             message = (f'Conversation provider failed ({exc.status}). No action was taken. No automatic retry was made.'
@@ -936,6 +962,8 @@ class Worker:
                 message = 'The folder action could not finish: ' + str(exc) + '. No worker was launched.'
             if isinstance(exc, capabilities.CapabilityError):
                 message = str(exc) + ' No new job was queued. Your request is saved.'
+            elif isinstance(exc,ValueError) and phase!='interpretation' and action and action.get('kind')=='pipeline_control':
+                message = 'Workflow control could not complete: '+str(exc)+' Your request is saved; no new work was queued.'
             elif isinstance(exc, routing_inputs.MissingSourceSelection):
                 message = ('Which files, if any, should accompany this task? Relay could not resolve the source selection. '
                            'Your request is saved; no task was queued.')
@@ -943,6 +971,23 @@ class Worker:
                 message = (f'The {job["provider"]} conversation API rejected this request with a rate or quota limit (429). '
                            'Relay did not receive the exact limit or reset time. Your request is saved; no workflow action was dispatched. '
                            'Try again later, or check the provider account’s usage/quota. No automatic retry was made.')
+            elif isinstance(exc, orchestrator_files.ReadLimitError):
+                message = ('Relay reached its file/context research limit before producing a final answer. '
+                           'Your request and the completed reads are saved. No workflow action was dispatched. '
+                           'This is a Relay research-limit failure; rephrasing is not required.')
+            elif isinstance(exc, orchestrator_files.ProviderResponseError):
+                message = (('The conversation provider reached its response token limit before finishing.'
+                            if exc.output_limit else 'The conversation provider stopped before returning a complete response.')
+                           + ' Your request and the provider response are saved. No workflow action was dispatched; '
+                           'no automatic retry was made. Rephrasing is not required.')
+            elif phase == 'provider' and isinstance(exc, ImportError):
+                message = ('The installed Relay runtime is missing a required component. '
+                           'Install a complete app build and restart Relay. Your request is saved; '
+                           'no workflow action was dispatched and no automatic retry was made. '
+                           'Rephrasing is not required.')
+            elif phase=='interpretation' and isinstance(exc,pipelines.PipelineValidationError):
+                message = ('Relay could not validate the proposed workflow: '+str(exc)
+                           +' Your request and the proposed plan are saved; no workflow action was dispatched. Rephrasing is not required.')
             elif phase=='interpretation' and isinstance(exc,ResponseLengthError):
                 message = 'The provider reply was too long for Relay to accept. Your request and the reply are saved. No workflow action was taken.'
             elif phase=='interpretation':
@@ -959,6 +1004,8 @@ class Worker:
 
 
 def controls(state, event_id):
+    pipeline=pipelines.controls(state,event_id)
+    if pipeline:return pipeline
     replacement=production_replacements.controls(state,event_id)
     if replacement:return replacement
     planning = production_planning.controls(state,event_id)
@@ -987,6 +1034,7 @@ def controls(state, event_id):
 
 
 def callback(bridge, update):
+    if pipelines.callback(bridge,update):return True
     if production_replacements.callback(bridge,update):return True
     if production_lifecycle.callback(bridge,update):return True
     if production_selections.callback(bridge,update):return True

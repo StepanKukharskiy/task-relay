@@ -141,17 +141,16 @@ def snapshot(paths=PATHS):
         if config: configs[name] = overlay(name, config, paths.state)
     rows = []
     for cap, providers in CAPABILITIES.items():
-        options = [dict(provider=p, models=models(p, cap, configs[p])) for p in providers if p in configs]
-        options = [x for x in options if x['models']]
+        options = [dict(provider=p, models=models(p, cap, configs.get(p,{})), connected=p in configs) for p in providers]
         choice = value['choices'].get(cap)
         inherited = choice is None
         if inherited:
             provider = (chosen_text or next((p for p in CAPABILITIES['text'] if p in configs), None)) if cap == 'text' else 'gemini'
-            option = next((x for x in options if x['provider'] == provider), None)
+            option = next((x for x in options if x['provider'] == provider and x['connected'] and x['models']), None)
             if option: choice = dict(provider=provider, model=option['models'][0])
             elif cap == 'text' and chosen_text: choice = dict(provider=chosen_text, model=None)
         rows.append(dict(capability=cap, selected=choice, inherited=inherited, options=options,
-                         available=bool(options), selected_available=not choice or choice['provider'] in configs))
+                         available=any(x['connected'] and x['models'] for x in options), selected_available=not choice or choice['provider'] in configs))
     return dict(**value, capabilities=rows,
                 limitation='Saved connections and adapter candidates; generation access and quota are checked when used.')
 
@@ -174,7 +173,7 @@ def update(value, paths=PATHS):
             if current['revision'] != value['revision']:
                 raise ValueError('Model defaults changed. Refresh before saving again.')
             options = next(x['options'] for x in snapshot(paths)['capabilities'] if x['capability'] == cap)
-            if not any(x['provider'] == provider and model in x['models'] for x in options):
+            if not any(x['provider'] == provider and x['connected'] and model in x['models'] for x in options):
                 raise ValueError('Connect this provider and choose one of its available model candidates.')
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='provider_jobs'").fetchone() and db.execute(
                     "SELECT 1 FROM provider_jobs WHERE provider=? AND operation!='browser_research' AND status IN ('queued','running')", (provider,)).fetchone():
@@ -185,3 +184,19 @@ def update(value, paths=PATHS):
                 db.execute('CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT)')
                 db.execute('INSERT OR REPLACE INTO kv VALUES (?,?)', ('orchestrator_provider', json.dumps(provider)))
     return {'message': 'Default saved for future work. Existing tasks and approved jobs retain their models.'}
+
+
+def refresh_images(value,paths=PATHS):
+    """Explicit metadata refresh, no generation or default/model replacement."""
+    from . import credentials,api_providers as api
+    from .onboarding import setup_lock
+    if not isinstance(value,dict) or set(value)!={'provider'} or value['provider'] not in ('openai','openrouter'):raise ValueError('Choose OpenAI or OpenRouter image models.')
+    path=paths.data/(value['provider']+'.json')
+    with setup_lock():
+        raw=credentials.private_json(path);config=credentials.configuration(path)
+        if not config:raise ValueError('Connect the provider before refreshing its image models.')
+        names=api.image_catalog(value['provider'],config['api_key'],config.get('base_url'))
+        if not names:raise ValueError('No image models returned. Saved catalog and defaults were preserved.')
+        raw.update(image_catalog=names,image_catalog_checked_at=time.time())
+        credentials.save(path,raw)
+    return {'message':str(len(names))+' image models found. Select a model and save the Images default. No generation was run.'}

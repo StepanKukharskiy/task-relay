@@ -17,15 +17,18 @@ class Tests(unittest.TestCase):
                 page.add_init_script('''
                 window.fixture={setup:{version:'fixture',providers:{gemini:true,openai:true},telegram:{configured:true,paired:true},doctor:{}},
                   service:{healthy:true,loaded:true},conversation:{},browser:{enabled:false,available:true},channels:{},messages:{},decisions:{},folders:[],
+                  rhino:{preference:'auto',managed:false,selected:{version:'8.35'},versions:[{major:7,version:'7.32',interpreter:'IronPython 2.7'},{major:8,version:'8.35',interpreter:'CPython 3'}]},
                   model_defaults:{revision:0,choices:{},limitation:'Account access is checked when used.',capabilities:[
                     {capability:'text',available:true,selected_available:true,options:[{provider:'gemini',models:['gemini-text']}]},
-                    {capability:'image',available:true,selected_available:true,options:[{provider:'gemini',models:['gemini-image']},{provider:'openai',models:['gpt-image-fixture']}]},
-                    {capability:'video',available:true,selected_available:true,options:[{provider:'gemini',models:['veo-fixture']}]},
+                    {capability:'image',available:true,selected_available:true,options:[{provider:'gemini',models:['gemini-image']},{provider:'openai',models:['gpt-image-fixture']},{provider:'openrouter',connected:true,models:[]}]},
+                    {capability:'video',available:true,selected_available:true,options:[{provider:'gemini',models:['veo-fixture']},{provider:'runway',connected:false,models:['fixture-video']},{provider:'higgsfield',connected:false,models:['fixture-video']}]},
                     {capability:'mesh',available:true,selected_available:true,options:[{provider:'meshy',models:['meshy-6']}]}]}};
                 window.calls=[];
                 window.__TAURI__={core:{invoke:async(command,{path,value})=>{
                   if(path==='companion-status')return structuredClone(window.fixture);
                   window.calls.push({path,value});
+                  if(path==='image-model-refresh') window.fixture.model_defaults.capabilities.find(x=>x.capability==='image').options.find(x=>x.provider===value.provider).models=['vendor/image'];
+                  if(path==='rhino-preference') window.fixture.rhino.preference=value.major;
                   if(path==='model-default'){
                     if(value.revision!==window.fixture.model_defaults.revision)throw new Error('Model defaults changed. Refresh before saving again.');
                     const selected={provider:value.provider,model:value.model};
@@ -77,5 +80,20 @@ class Tests(unittest.TestCase):
                 styles=page.evaluate("['browser-toggle','channel-telegram','channel-messages'].map(id=>{const e=document.getElementById(id);e.setAttribute('aria-checked','true');const s=getComputedStyle(e);return [s.borderRadius,s.minWidth,s.backgroundColor,s.color]})")
                 self.assertEqual(styles[0],styles[1]);self.assertEqual(styles[0],styles[2])
                 page.locator('#browser-settings').screenshot(path='outputs/cloud-media-browser-switch.png')
+                page.get_by_role('combobox',name='Video clips provider',exact=True).select_option('runway')
+                expect(page.get_by_role('button',name='Save video clips default',exact=True)).to_be_disabled()
+                page.locator('#model-video-provider').locator('..').get_by_role('button',name='Connect provider',exact=True).click()
+                expect(page.locator('#media-provider-name')).to_have_value('runway')
+                page.get_by_role('combobox',name='Images provider',exact=True).select_option('openrouter')
+                expect(page.get_by_role('button',name='Save images default',exact=True)).to_be_disabled()
+                page.get_by_role('button',name='Refresh image models',exact=True).click()
+                page.wait_for_function('!modelDefaultsDirty')
+                page.get_by_role('combobox',name='Images provider',exact=True).select_option('openrouter')
+                expect(page.get_by_role('combobox',name='Images model',exact=True)).to_have_value('vendor/image')
+                page.locator('#rhino-preference').select_option('7')
+                page.evaluate('render(structuredClone(window.fixture))')
+                expect(page.locator('#rhino-preference')).to_have_value('7')
+                page.get_by_role('button',name='Save Rhino preference',exact=True).click()
+                page.wait_for_function("window.fixture.rhino.preference==='7' && !rhinoPreferenceDirty")
                 self.assertEqual(errors,[])
             finally: browser.close()

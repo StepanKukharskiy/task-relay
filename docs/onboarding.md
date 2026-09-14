@@ -170,5 +170,4 @@ files connected agents can access, and does not enforce a folder allowlist. Revi
 macOS permissions there; connected tools retain their own access settings.
 
 Expand **Usage** to read recorded Relay tokens for the last seven days and storage.
-Ordinary status refreshes do not start a usage scan. Cache cleanup lives in Troubleshooting &
-updates and still requires reviewing the exact cleanup before deleting anything.
+Ordinary status refreshes do not start a usage scan. Cache cleanup lives in Troubleshooting and still requires reviewing the exact cleanup before deleting anything.

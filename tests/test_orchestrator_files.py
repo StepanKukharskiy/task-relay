@@ -10,6 +10,29 @@ import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):
+    def test_truncated_provider_actions_are_saved_without_tool_execution_or_retry(self):
+        for provider in ('gemini', 'openai', 'qwen', 'deepseek', 'openrouter'):
+            with self.subTest(provider=provider):
+                response = self.response(provider, 'README.md')
+                if provider == 'gemini':
+                    response['candidates'][0]['finishReason'] = 'MAX_TOKENS'
+                    response['usageMetadata'] = {'thoughtsTokenCount': 3788, 'candidatesTokenCount': 304}
+                elif provider == 'openai':
+                    response.update(status='incomplete', incomplete_details={'reason':'max_output_tokens'})
+                else:
+                    response['choices'][0]['finish_reason'] = 'length'
+                with patch.object(files, 'execute') as execute:
+                    client = unittest.mock.Mock()
+                    client.request.return_value = response
+                    with self.assertRaises(files.ProviderResponseError) as failure:
+                        files.run(provider, client, 'fixture', self.request(provider), [str(self.root)], self.receipt)
+                    self.assertTrue(failure.exception.output_limit)
+                    client.request.assert_called_once()
+                    execute.assert_not_called()
+                journal = json.loads(self.receipt.read_text())
+                self.assertEqual(journal[0]['response'], response)
+                self.assertNotIn('reads', journal[0])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
@@ -91,13 +114,37 @@ class Tests(unittest.TestCase):
         with patch.object(files,'MAX_ROUNDS',1):
             with self.assertRaisesRegex(ValueError,'budget exhausted'):
                 files.run('gemini',Client(),'test',self.request('gemini'),[str(self.root)],self.receipt)
-        self.assertEqual(requests[-1]['toolConfig']['functionCallingConfig']['mode'],'NONE')
+        self.assertEqual(requests[-1]['tools'],[])
+        self.assertNotIn('toolConfig',requests[-1])
+        self.assertEqual(requests[-1]['generationConfig']['responseMimeType'],'application/json')
         self.assertEqual(sum(len(r.get('reads',[])) for r in json.loads(self.receipt.read_text())),1)
+
+    def test_budget_final_turn_preserves_evidence_without_advertising_more_reads(self):
+        for provider in ('gemini','openai','qwen','deepseek','openrouter'):
+            with self.subTest(provider=provider):
+                requests=[]
+                responses=iter([self.response(provider,'docs/delivery.md'),self.response(provider)])
+                class Client:
+                    def request(inner,endpoint,request):
+                        requests.append(copy.deepcopy(request));return next(responses)
+                with patch.object(files,'MAX_ROUNDS',1):
+                    raw=files.run(provider,Client(),'test',self.request(provider),[str(self.root)],self.receipt)
+                self.assertEqual(json.loads(raw)['answer'],'O03, per docs/delivery.md:1.')
+                self.assertIn('Observer deferred',json.dumps(requests[-1]))
+                self.assertEqual(requests[-1]['tools'],[])
+                self.assertEqual(len(requests),2)
+                journal=json.loads(self.receipt.read_text())
+                self.assertEqual(sum(len(r.get('reads',[])) for r in journal),1)
 
     def test_actual_chat_generate_offers_tools_and_keeps_final_action_contract(self):
         payload={'snapshot':{'project_roadmaps':{'available_projects':[str(self.root)]}},'user_message':'Read the current delivery plan'}
         with patch.object(chat.gemini,'read_config',return_value={'api_key':'fake'}), patch.object(chat.gemini,'DATA',self.root), patch.object(chat.gemini,'Client') as client:
-            client.return_value.request.side_effect=[self.response('gemini','docs/delivery.md'),self.response('gemini')]
+            responses = iter([self.response('gemini','docs/delivery.md'),self.response('gemini')])
+            def bounded_response(endpoint, request):
+                if request['generationConfig']['maxOutputTokens'] <= 4096:
+                    return {'candidates':[{'finishReason':'MAX_TOKENS','content':{'parts':[]}}]}
+                return next(responses)
+            client.return_value.request.side_effect = bounded_response
             raw=chat.generate({'id':77,'provider':'gemini','model':'test'},payload)
             self.assertIsNone(chat.interpret(raw, {})['action'])
             self.assertIn('file_read',json.dumps(client.return_value.request.call_args_list[0]))

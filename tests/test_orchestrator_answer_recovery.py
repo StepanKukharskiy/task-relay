@@ -9,6 +9,21 @@ class Tests(unittest.TestCase):
     tearDown=fixture.Tests.tearDown
     message=fixture.Tests.message
 
+    def test_provider_output_limit_saves_short_selection_without_dispatch(self):
+        from unittest.mock import Mock
+        from task_relay.orchestrator_files import ProviderResponseError
+        self.message('/orchestrator concept 1')
+        generate = Mock(side_effect=ProviderResponseError('gemini', 'MAX_TOKENS'))
+        worker = chat.Worker(self.state, generate)
+        worker.tick(); worker.tick()
+        row = self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=1').fetchone()
+        self.assertEqual(row['prompt'], 'concept 1')
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('response token limit', row['answer'])
+        self.assertIn('Rephrasing is not required', row['answer'])
+        generate.assert_called_once()
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM capability_dispatches').fetchone()[0], 0)
+
     def run_response(self,raw):
         self.message('/orchestrator List your tools with code examples.')
         worker=chat.Worker(self.state,lambda *_:raw)
@@ -80,6 +95,40 @@ class Tests(unittest.TestCase):
         self.assertEqual(row['status'],'failed')
         self.assertIn('too long',row['answer']);self.assertNotIn('invalid response format',row['answer'])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_proposals').fetchone()[0],0)
+
+    def test_read_limit_reports_real_cause_without_dispatch_or_replay(self):
+        from task_relay.orchestrator_files import ReadLimitError
+        self.message('/orchestrator Find the competition brief and summarize it.')
+        calls=[]
+        def generate(*args):
+            calls.append(args)
+            raise ReadLimitError('Research tool budget exhausted before a final answer.')
+        worker=chat.Worker(self.state,generate)
+        worker.tick();worker.tick();worker.tick()
+        row=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=1').fetchone()
+        self.assertEqual(row['status'],'failed')
+        self.assertIn('research limit',row['answer'])
+        self.assertIn('rephrasing is not required',row['answer'])
+        self.assertNotIn('interpret this request safely',row['answer'])
+        self.assertEqual(len(calls),1)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM capability_dispatches').fetchone()[0],0)
+
+    def test_missing_runtime_component_preserves_request_without_blaming_prompt(self):
+        from unittest.mock import Mock
+        self.message('/orchestrator Read the brief and plan research, a model, an image and a deck.')
+        generate = Mock(side_effect=ImportError('missing pdf_reader in /private/runtime'))
+        worker = chat.Worker(self.state, generate)
+        worker.tick(); worker.tick()
+        row = self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=1').fetchone()
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('missing a required component', row['answer'])
+        self.assertIn('Rephrasing is not required', row['answer'])
+        self.assertNotIn('/private/runtime', row['answer'])
+        generate.assert_called_once()
+        error = self.state.db.execute('SELECT * FROM orchestrator_chat_errors WHERE job_id=1').fetchone()
+        self.assertEqual(error['phase'], 'provider')
+        self.assertEqual(error['error_type'], 'ImportError')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM capability_dispatches').fetchone()[0], 0)
 
 
 if __name__=='__main__':unittest.main()

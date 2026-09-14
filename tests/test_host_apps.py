@@ -8,6 +8,42 @@ import host_apps
 
 
 class Tests(unittest.TestCase):
+    def test_catalog_does_not_mutate_reused_detection_results(self):
+        import json
+        detected={'available':True,'major':8,'executable':'fixture-rhino'}
+        with patch.object(host_apps,'rhino',return_value=detected):
+            for _ in range(2):
+                catalog=host_apps.catalog()
+                self.assertEqual(json.loads(json.dumps(catalog))[1]['major'],8)
+                self.assertNotIn('installed_versions',detected)
+                self.assertNotIn('selection_note',detected)
+
+    def test_rhino_inventory_keeps_both_versions_and_preference_does_not_launch(self):
+        import plistlib
+        from contextlib import nullcontext
+        from task_relay import rhino_preferences as preferences
+        from task_relay.relay_paths import Paths
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();paths=Paths(root,root/'data',root/'work',root/'generated')
+            for major in (7,8):
+                app=root/('Rhino '+str(major)+'.app')/'Contents'
+                (app/'MacOS').mkdir(parents=True)
+                executable=app/'MacOS/Rhinoceros';executable.write_text('fixture');executable.chmod(0o700)
+                (app/'Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString':str(major)+'.32'}))
+            with patch.object(host_apps,'RHINO_APPLICATIONS',root),patch('sys.platform','darwin'),patch.dict(os.environ,{},clear=True),patch('subprocess.run',side_effect=AssertionError('Do not launch')),patch('task_relay.onboarding.setup_lock',side_effect=nullcontext):
+                with patch.object(preferences,'preference',return_value='auto'):
+                    row=host_apps.catalog()[1]
+                    self.assertEqual(row['major'],8)
+                    self.assertEqual([r['major'] for r in row['installed_versions']],[7,8])
+                preferences.update({'major':'7'},paths)
+                self.assertEqual(preferences.preference(paths),'7')
+                with patch.object(preferences,'preference',return_value='7'):
+                    self.assertEqual(host_apps.rhino()['major'],7)
+                    self.assertEqual(host_apps.rhino()['interpreter'],'IronPython 2.7')
+                before=(paths.data/'rhino-preference.json').read_bytes()
+                with patch.dict(os.environ,{'TASK_RELAY_RHINO_VERSION':'8'}),self.assertRaises(ValueError):preferences.update({'major':'7'},paths)
+                self.assertEqual((paths.data/'rhino-preference.json').read_bytes(),before)
+
     def test_encoder_discovery_and_bad_override_do_not_launch_or_fall_back(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'encoder';p.write_text('fixture');p.chmod(0o700)

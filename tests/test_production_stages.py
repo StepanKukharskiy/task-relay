@@ -18,14 +18,14 @@ class Tests(unittest.TestCase):
         card,mid=self.selected()
         with self.state.db:
             p=json.loads(self.state.db.execute("SELECT plan FROM production_runs WHERE id='production-1'").fetchone()[0])
-            p['deferred_operations']={'rhino.run_python':'Prepare exact script before execution'}
+            p['deferred_operations']={cap:'Prepare exact script before the host execution phase' for cap in ('rhino.startup','rhino.run_python','rhino.inspect')}
             p['deliverables']={'drawing':{'description':'Facade drawing','deferred_operation':'rhino.run_python'}}
             self.state.db.execute("UPDATE production_runs SET plan=? WHERE id='production-1'",(json.dumps(p),))
         _,text=status.current(self.state,'production-1')
         self.assertIn('Preparation ready; execution pending',text)
         self.assertIn('Not generated yet: Facade drawing',text)
         before=len(self.factory.calls)
-        with patch('task_relay.capabilities.catalog',return_value={'graph_operations':[{'id':'rhino.run_python','available':True}]}):
+        with patch('task_relay.capabilities.catalog',return_value={'graph_operations':[{'id':cap,'available':True} for cap in p['deferred_operations']]}):
             with transaction(self.state.db):first=status.plan_execution(self.state,'production-1')
             with transaction(self.state.db):second=status.plan_execution(self.state,'production-1')
         plans=self.state.db.execute("SELECT * FROM production_plans WHERE id!='plan-1'").fetchall()
@@ -34,6 +34,7 @@ class Tests(unittest.TestCase):
         payload=json.loads(plans[0]['context'])
         self.assertIn(card['artifact'],payload['required_artifacts'])
         self.assertEqual(payload['options']['deliverables'],{'drawing':'Facade drawing'})
+        self.assertEqual(set(payload['options']['step_capabilities']),set(p['deferred_operations']))
 
     setUp=fixtures.Tests.setUp
     tearDown=fixtures.Tests.tearDown
@@ -102,6 +103,41 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM media_outbox').fetchone()[0],before)
         current,text=status.current(self.state,'production-1')
         self.assertEqual(current,'production-2');self.assertIn('Earlier stages: production-1',text)
+
+    def test_rate_limit_retry_moves_handoff_and_can_start_after_delivery(self):
+        from task_relay.gemini import ProviderError
+        self.selected()
+        old=self.queue(2,self.action(previous_run='production-1'),'Use the selected brief for the next stage.')
+        def reject(*_):raise ProviderError(429)
+        planning.Worker(self.state,reject).tick()
+        old=self.row(2)
+        with transaction(self.state.db):
+            successor,_=planning.retry_rate_limited_plan(self.state,old['id'],'Continue this same stage')
+        self.assertEqual(self.state.db.execute("SELECT plan_id FROM production_stage_links WHERE parent='production-1'").fetchone()[0],successor)
+        planning.Worker(self.state,lambda *_:(json.dumps(self.response()),{})).tick()
+        row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(successor,)).fetchone()
+        self.assertEqual(row['status'],'ready',row['error'])
+        self.bridge.flush(False);self.bridge.flush_media()
+        with transaction(self.state.db):planning.apply(self.state,row['token'],'start')
+        started=self.state.db.execute('SELECT status,run FROM production_plans WHERE id=?',(successor,)).fetchone()
+        self.assertEqual(started['status'],'started')
+        link=self.state.db.execute("SELECT * FROM production_stage_links WHERE parent='production-1'").fetchone()
+        self.assertEqual(link['child'],started['run'])
+        self.assertEqual(self.row(2)['status'],'blocked')
+        self.assertEqual(self.row(2)['context'],row['context'])
+        self.assertEqual(len(self.factory.calls),2)  # Preparation only; no new worker dispatched.
+
+    def test_handoff_replacement_rolls_back_and_rejects_started_children(self):
+        from task_relay import production_stages
+        self.selected();row=self.next_plan();payload=json.loads(row['context'])
+        with self.assertRaisesRegex(RuntimeError,'rollback'):
+            with transaction(self.state.db):
+                production_stages.replace_unexecuted_plan(self.state,self.rt,payload,row['id'],'new-plan','telegram')
+                raise RuntimeError('rollback')
+        self.assertEqual(self.state.db.execute("SELECT plan_id FROM production_stage_links WHERE parent='production-1'").fetchone()[0],row['id'])
+        self.start(row)
+        with transaction(self.state.db),self.assertRaises(ValueError):
+            production_stages.replace_unexecuted_plan(self.state,self.rt,payload,row['id'],'new-plan','telegram')
 
     def test_unselected_or_changed_decisions_cannot_start_next_stage(self):
         self.start(self.ready())

@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
 from .filesystem import Grant, FILES, AccessDenied
 from .host import UnsupportedHost
 
@@ -25,6 +27,14 @@ def definition(name, description, properties):
 
 
 DEFINITIONS = [
+    definition('pdf_read', 'Read the actual PDF text layer with page citations and a version hash. '
+               'Up to 8 pages and 24000 characters per call, 20 MB / 500 pages per PDF. '
+               'Follow next_page/next_offset with the returned sha256. No OCR or visual diagram reading.', {
+        'path': {'type': 'string'},
+        'page': {'type': 'integer', 'minimum': 1, 'maximum': 500, 'description': 'PDF page number, initially 1.'},
+        'offset': {'type': 'integer', 'minimum': 0, 'description': 'Character offset within page, initially 0.'},
+        'limit': {'type': 'integer', 'minimum': 1, 'maximum': MAX_CHARS},
+        'sha256': {'type': 'string', 'maxLength': 64, 'description': 'Empty for the first read; returned sha256 for continuation to reject changed files.'}}),
     definition('file_list', 'List visible project files/directories. Paths are relative to the task folder. '
                'Hidden/private/dependency paths and symlinks are excluded. Results may be incomplete when scan limits are reached.', {
         'path': {'type': 'string', 'description': 'Directory, use . for the project root.'},
@@ -180,6 +190,8 @@ class Workspace:
         validate(name, arguments)
         path = arguments['path']
         offset, limit = arguments['offset'], arguments['limit']
+        if name == 'pdf_read':
+            return self.read_pdf(arguments)
         if name == 'file_read':
             text, _ = self.read_text(path)
             end = min(offset + limit, len(text))
@@ -224,6 +236,30 @@ class Workspace:
                                 'excerpt': line[start:start + 400], 'excerpt_truncated': len(line) > 400})
         return {'matches': matches, 'next_offset': None,
                 'scan_incomplete': budget['incomplete'], 'skipped_files': skipped}
+
+    def read_pdf(self, arguments):
+        try:
+            from . import pdf_reader
+        except ImportError:
+            raise FileToolError('The installed Relay runtime is missing its PDF reader. '
+                                'Install a complete app build and restart Relay; rephrasing is not required.') from None
+        with self.open(arguments['path']) as fd:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > pdf_reader.MAX_BYTES:
+                raise FileToolError('Choose a regular PDF file no larger than 20 MB.')
+            with os.fdopen(os.dup(fd), 'rb') as stream:
+                raw = stream.read(pdf_reader.MAX_BYTES + 1)
+        if len(raw) > pdf_reader.MAX_BYTES or not raw.startswith(b'%PDF-'):
+            raise FileToolError('Choose a PDF file no larger than 20 MB.')
+        try:
+            result = subprocess.run([sys.executable, str(Path(pdf_reader.__file__).resolve()),
+                                     json.dumps(arguments)], input=raw, capture_output=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            raise FileToolError('PDF extraction exceeded 15 seconds. No text was returned; no automatic retry was made.') from None
+        if result.returncode or len(result.stdout) > 128000:
+            raise FileToolError('PDF reader failed or exceeded its output limit.')
+        value = json.loads(result.stdout)
+        return {'path': str(Path(*self.parts(arguments['path']))), **value}
 
 
 def execute(root, name, raw_arguments, protected=()):

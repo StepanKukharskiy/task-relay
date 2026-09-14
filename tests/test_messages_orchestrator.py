@@ -128,6 +128,23 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(self.transport.sent), 2)  # Pairing plus one uncertain part.
         self.assertEqual(r.state.db.execute('SELECT sent FROM outbox WHERE id=?', ('orchestrator:' + str(ident),)).fetchone()[0], 0)
 
+    def test_held_exports_do_not_starve_new_replies_or_acknowledge_old_ones(self):
+        r = self.router(); self.pair(); self.drain()
+        with r.state.db, self.store.db:
+            for index in range(21):
+                event = 'held-' + str(index)
+                r.state.db.execute('INSERT INTO outbox(id,text) VALUES (?,?)', (event, 'Original'))
+                r.state.db.execute('INSERT INTO relay_event_channels VALUES (?,?)', (event, 'messages'))
+                r.state.db.execute('INSERT INTO messages_orchestrator_exports VALUES (?,?,?)', (event, event, 'Original'))
+                self.store.db.execute('INSERT INTO messages_delivery VALUES (?,?,?)', (event+':1', 'Original', 'uncertain'))
+        ident = r.submit('fresh', 'New question')
+        self.answer(r, 'Fresh answer')
+        r.tick(self.pilot); self.drain(); r.acknowledge(self.pilot)
+        self.assertIn('Fresh answer', self.transport.sent[-1][1])
+        self.assertEqual(r.state.db.execute('SELECT sent FROM outbox WHERE id=?', ('orchestrator:'+str(ident),)).fetchone()[0], 1)
+        self.assertEqual(r.state.db.execute("SELECT count(*) FROM outbox WHERE id LIKE 'held-%' AND sent=0").fetchone()[0], 21)
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM messages_delivery WHERE status='uncertain'").fetchone()[0], 21)
+
     def test_current_task_final_only_delivered_once_in_either_order(self):
         r = self.router(); self.pair(); self.drain()
         for first in ('pilot', 'shared'):

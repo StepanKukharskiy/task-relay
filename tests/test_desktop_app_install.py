@@ -8,9 +8,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-SPEC = importlib.util.spec_from_file_location('app_install', Path(__file__).resolve().parents[1] / 'desktop/scripts/app_install.py')
-install = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(install)
+from task_relay import app_bundle as install
 
 
 def fake_run(args):

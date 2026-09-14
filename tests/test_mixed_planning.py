@@ -125,7 +125,7 @@ class Tests(unittest.TestCase):
         with patch.object(gemini,'read_config',return_value={'api_key':'fixture','models':{'image':'chosen-image'}}):
             row=self.queue(action=self.action(step_capabilities=['gemini.image']))
         result=self.response();result['deferred_operations']={'gemini.image':'Later'}
-        with self.assertRaisesRegex(ValueError,'Only exact-input host'):
+        with self.assertRaisesRegex(ValueError,'Host deferral requires an exact-input operation'):
             planning.validate_result(json.dumps(result),row)
 
     def test_openrouter_plan_freezes_model_and_requires_review(self):

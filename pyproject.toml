@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.13.0"
+version = "0.13.23"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["pypdf==6.18.1"]
 
 [project.optional-dependencies]
 presentations = ["python-pptx==1.0.2"]

@@ -67,6 +67,9 @@ REGISTRY['blender.inspect']={'version':1,'kind':'host','input_types':[*TEXT_TYPE
     'parameters':{},'external_requests':0,'cancellation':'Terminate the local process group; retain receipt and do not retry.',
     'permissions':'Host inspection of one selected .blend using fixed Relay code with embedded scripts disabled. Native linked libraries may resolve on the host; this is not dependency isolation.'}
 
+# Fixed inspections may supply evidence to an already-declared reviewer.
+REGISTRY['blender.inspect']['review_evidence'] = True
+
 REGISTRY['blender.run_python']={'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/x-blender','text/x-python','application/json'],
     'output_type':None,'max_inputs':20,'input_bytes':100000000,'seconds':600,'output_bytes':100000000,
     'outputs':{'delivery/candidate.blend':'application/x-blender','delivery/before.png':'image/png',
@@ -114,6 +117,8 @@ REGISTRY['rhino.inspect'] = {
     'outputs':{'delivery/inspection.json':'application/json','delivery/execution.json':'application/json'},
     'criteria':['The exact selected .3dm has a complete bounded geometry/document inventory and unchanged source-copy hash.'],
     'permissions':'Fixed native .3dm inspection in an owned Rhino process. Native dependencies/plugins use normal host permissions; not filesystem isolation. No Grasshopper.'}
+REGISTRY['rhino.inspect']['review_evidence'] = True
+
 REGISTRY['rhino.run_python'] = {
     'version':1, 'kind':'host', 'input_types':[*TEXT_TYPES,'application/vnd.rhino','text/x-python','application/json'],
     'output_type':None, 'max_inputs':20, 'input_bytes':100000000, 'seconds':600, 'output_bytes':100000000,

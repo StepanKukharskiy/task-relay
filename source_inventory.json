@@ -14,7 +14,8 @@
         "website/railway.json",
         "website/public/*.html",
         "website/public/*.css",
-        "website/public/*.png"
+        "website/public/*.png",
+        "website/public/llms.txt"
       ]
     },
     {
@@ -59,7 +60,9 @@
         "desktop/src-tauri/Info.plist",
         "desktop/src-tauri/src/*.rs",
         "desktop/src-tauri/capabilities/*.json",
-        "desktop/src-tauri/icons/*"
+        "desktop/src-tauri/icons/*.png",
+        "desktop/src-tauri/icons/*.icns",
+        "desktop/src-tauri/icons/*.ico"
       ]
     },
     {
@@ -149,8 +152,10 @@
         "docs/presentations.md",
         "docs/media-workflows.md",
         "docs/project-tasks-and-starters.md",
+        "docs/request-derived-pipelines.md",
         "docs/onboarding.md",
         "docs/updates.md",
+        "docs/app-updates.md",
         "docs/release-notes.md",
         "docs/path-configuration.md",
         "docs/platform-architecture.md",

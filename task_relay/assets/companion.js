@@ -18,6 +18,7 @@ const keyURLs = {
 const request = (path, value = {}) => native.core.invoke('relay_request', {path, value});
 let modelDefaultsKey = null;
 let modelDefaultsDirty = false;
+let rhinoPreferenceDirty = false;
 function renderModelDefaults(settings) {
   const container = $('model-defaults-list');
   text('model-defaults-detail', settings?.error || settings?.limitation || 'Reading model settings…');
@@ -40,25 +41,48 @@ function renderModelDefaults(settings) {
     const modelLabel = document.createElement('label'); modelLabel.htmlFor = model.id; modelLabel.textContent = 'Model';
     for (const select of [provider, model]) select.setAttribute('aria-label', labels[row.capability] + (select === provider ? ' provider' : ' model'));
     provider.append(new Option('Choose a provider', ''));
-    for (const option of row.options) provider.append(new Option(option.provider, option.provider));
+    for (const option of row.options) provider.append(new Option(option.provider + (option.connected === false ? ' — Connect' : ''), option.provider));
     if (row.selected && !row.options.some(x => x.provider === row.selected.provider)) {
       provider.append(new Option(row.selected.provider + ' — disconnected', row.selected.provider));
     }
     provider.value = row.selected?.provider || '';
     const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save ' + labels[row.capability].toLowerCase() + ' default';
     const detail = document.createElement('p'); detail.className = 'hint';
+    const connect = document.createElement('button'); connect.type = 'button'; connect.className = 'quiet'; connect.textContent = 'Connect provider';
+    const refreshModels = document.createElement('button'); refreshModels.type = 'button'; refreshModels.className = 'quiet'; refreshModels.textContent = 'Refresh image models';
     detail.textContent = !row.available ? (row.capability === 'text' ? 'Connect a text provider in AI connection first.' : row.capability === 'mesh' ? 'Connect Meshy above to generate 3D assets.' : 'Connect a supported provider above, or Gemini in AI connection.') :
       row.selected && !row.selected_available ? 'The selected provider is disconnected. Relay will not switch providers automatically.' :
       row.capability === 'video' ? 'Runway and Higgsfield clips use a reviewed production plan. Gemini tasks retain /video. Video editing and composition remain separate workflows.' :
       row.capability === 'mesh' ? 'Meshy creates an untextured GLB from a text description. Texturing and image-to-3D are not available yet.' :
       row.selected ? row.inherited ? 'Using the existing provider default.' : 'Saved for future work.' : 'Existing routing remains in use until you save a default.';
     function fillModels() {
-      const options = row.options.find(x => x.provider === provider.value)?.models || [];
+      const entry = row.options.find(x => x.provider === provider.value);
+      const connected = entry && entry.connected !== false;
+      const options = connected ? entry.models : [];
       model.replaceChildren(...options.map(name => new Option(name, name)));
       if (provider.value === row.selected?.provider && options.includes(row.selected.model)) model.value = row.selected.model;
       model.disabled = !options.length;
       save.disabled = !options.length;
+      connect.hidden = !entry || connected;
+      refreshModels.hidden = !connected || row.capability !== 'image' || !['openai','openrouter'].includes(provider.value);
+      if (entry && !connected) detail.textContent = `Connect ${provider.value} to choose its ${labels[row.capability].toLowerCase()} model. API credentials are entered in Settings.`;
+      else if (connected && !options.length) detail.textContent = 'Connection saved. Refresh image models to discover eligible model IDs.';
+      else if (connected) detail.textContent = 'Choose a model and save this default for future work. Generation access is checked when used.';
     }
+    connect.onclick = () => {
+      modelDefaultsDirty = false;
+      if (['runway','higgsfield','meshy'].includes(provider.value)) {
+        $('media-connections').open = true; $('media-provider-name').value = provider.value; $('media-provider-name').onchange();
+        $('media-provider-key').focus(); $('media-provider-form').scrollIntoView({block:'center'});
+      } else {
+        $('provider-settings').open = true; $('provider-name').value = provider.value; providerFields();
+        $('provider-key').focus(); $('provider-form').scrollIntoView({block:'center'});
+      }
+    };
+    refreshModels.onclick = async () => {
+      const result = await change('image-model-refresh', {provider:provider.value}, refreshModels);
+      if (result) { modelDefaultsDirty = false; modelDefaultsKey = null; await refresh(); }
+    };
     provider.onchange = () => { modelDefaultsDirty = true; fillModels(); };
     model.onchange = () => { modelDefaultsDirty = true; };
     form.onsubmit = async event => {
@@ -67,7 +91,7 @@ function renderModelDefaults(settings) {
       if (result) { modelDefaultsDirty = false; modelDefaultsKey = null; await refresh(); }
     };
     fillModels();
-    form.append(title, providerLabel, provider, modelLabel, model, detail, save);
+    form.append(title, providerLabel, provider, modelLabel, model, detail, connect, refreshModels, save);
     container.append(form);
   }
   const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'quiet'; reset.textContent = 'Reload saved choices';
@@ -80,24 +104,6 @@ function message(text, error = false) {
   $('feedback').classList.toggle('error', error);
 }
 function text(id, value) { $(id).textContent = value ?? ''; }
-function sourceReleaseSummary(setup) {
-  const update = setup.update || {};
-  const parts = [update.latest ? `Stable source release (last checked): ${update.latest}.` : 'No stable source release information saved yet.'];
-  const parse = value => /^\d+\.\d+\.\d+$/.test(value || '') ? value.split('.').map(Number) : null;
-  const installed = parse(setup.version), published = parse(update.latest);
-  if (installed && published) {
-    const difference = installed.map((number, index) => number - published[index]).find(number => number !== 0) || 0;
-    if (difference > 0) parts.push(`Your installed app version (${setup.version}) is newer than this source release.`);
-    else if (difference < 0) parts.push('A newer source package is listed; this is not a desktop app update.');
-    else parts.push('The app and source package have the same version number.');
-  }
-  if (typeof update.checked === 'number' && Number.isFinite(update.checked)) {
-    const checked = new Date(update.checked * 1000);
-    if (!Number.isNaN(checked.getTime())) parts.push(`Last check: ${checked.toLocaleString()}.`);
-  }
-  if (update.error) parts.push(update.error);
-  return parts.join(' ');
-}
 function openSettings(section) {
   if (['channels-settings', 'telegram-settings', 'messages-settings'].includes(section)) {
     $('channels-settings').open = true;
@@ -184,6 +190,12 @@ function render(info) {
   for (const option of $('proactive-destination').options) option.disabled = option.value !== 'none' && !paired[option.value];
   const connected = Object.keys(setup.providers).filter(name => setup.providers[name]);
   renderModelDefaults(info.model_defaults);
+  if (info.rhino && !rhinoPreferenceDirty && document.activeElement !== $('rhino-preference')) {
+    const choices = [new Option('Auto — prefer Rhino 8 when installed', 'auto'), ...info.rhino.versions.map(r => new Option(`Rhino ${r.version} · ${r.interpreter}`, String(r.major)))];
+    $('rhino-preference').replaceChildren(...choices); $('rhino-preference').value = info.rhino.preference;
+    $('rhino-preference').disabled = info.rhino.managed; $('rhino-preference-save').disabled = info.rhino.managed;
+    text('rhino-preference-detail', info.rhino.managed ? 'Selected by a host override.' : info.rhino.selected.blocker || `Selected: Rhino ${info.rhino.selected.version || 'unavailable'}. Saved plans retain their exact runtime approval.`);
+  }
   text('media-connections-detail', (info.media_connections || []).map(x => x.name + ': ' + (x.connected ? 'Saved; access checked when used' : 'Not connected')).join(' · '));
   const providerReady = connected.length > 0 || setup.selected_provider === 'later';
   const ready = providerReady && setup.telegram.paired;
@@ -243,7 +255,7 @@ function render(info) {
     const detail = document.createElement('span'); detail.textContent = check.detail;
     row.append(label, detail); diagnostics.append(row);
   }
-  text('update-summary', sourceReleaseSummary(setup));
+  window.RelayAppUpdates?.connect();
   if (setup.setup_error) message(setup.setup_error, true);
   renderSetup(info);
   firstRead = false;
@@ -386,6 +398,12 @@ $('media-provider-form').onsubmit = async event => {
   $('media-provider-key').value = '';
   await change('media-provider', values, event.submitter);
 };
+$('rhino-preference').onchange = () => { rhinoPreferenceDirty = true; };
+$('rhino-preference-form').onsubmit = async event => {
+  event.preventDefault();
+  const result = await change('rhino-preference', {major:$('rhino-preference').value}, event.submitter);
+  if (result) { rhinoPreferenceDirty = false; await refresh(); }
+};
 $('review-decisions').onclick = reviewDecisions;
 $('close-review').onclick = () => { $('review').hidden = true; };
 $('service-action').onclick = () => {
@@ -455,7 +473,6 @@ $('handoff-history').onclick = async () => {
     }
   } catch (error) { message(String(error), true); }
 };
-$('update-check').onclick = () => change('update-check', {}, $('update-check'));
 let usageLoading = false;
 $('usage-settings').ontoggle = async () => {
   if (!$('usage-settings').open || usageLoading) return;

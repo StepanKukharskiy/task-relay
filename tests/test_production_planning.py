@@ -84,6 +84,39 @@ class Tests(unittest.TestCase):
         frozen=next(iter(self.factory.sessions.values()))['frozen']
         self.assertTrue(any(i['path']=='request/USER-REQUEST.txt' for i in frozen['inputs']))
 
+    def test_each_task_keeps_its_approved_deadline(self):
+        row=self.queue(action=self.action(task_seconds=1800))
+        response=self.response()
+        response['plan']['tasks'][0]['limits']['seconds']=1800
+        response['plan']['tasks'][1]['limits']['seconds']=900
+        planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
+        row=self.row();self.assertEqual(row['status'],'ready',row['error'])
+        self.assertIn('1800 seconds',planning.preview(row));self.assertIn('900 seconds',planning.preview(row))
+        self.start(row)
+        worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+        attempt=self.rt.task('production-1','produce')['latest']
+        self.assertEqual(self.factory.sessions[attempt]['frozen']['limits']['seconds'],1800)
+        self.factory.finish(attempt);worker.tick()
+        review=self.rt.task('production-1','review')['latest']
+        self.assertEqual(self.factory.sessions[review]['frozen']['limits']['seconds'],900)
+        self.assertEqual(self.factory.sessions[attempt]['frozen']['limits']['seconds'],1800)
+
+    def test_old_plan_ceiling_is_preserved_until_explicit_new_budget(self):
+        row=self.queue()
+        with self.state.db:
+            options=json.loads(row['options']);options['limits']['seconds']=600
+            context=json.loads(row['context']);context['options']=options
+            from orchestrator.contracts import encoded,digest
+            self.state.db.execute("UPDATE production_plans SET status='blocked',options=?,context=?,context_hash=? WHERE id=?",(encoded(options),encoded(context),digest(context),row['id']))
+        second=self.queue(2,self.action(parent_id=row['id']))
+        self.assertEqual(json.loads(second['options'])['limits']['seconds'],600)
+        with self.state.db:self.state.db.execute("UPDATE production_plans SET status='blocked' WHERE id=?",(second['id'],))
+        third=self.queue(3,self.action(parent_id=second['id'],task_seconds=1800))
+        self.assertEqual(json.loads(third['options'])['limits']['seconds'],1800)
+        self.assertEqual(json.loads(self.row(1)['options'])['limits']['seconds'],600)
+        for value in (True,0,1801):
+            with self.assertRaises(ValueError):planning.validate_action(self.action(task_seconds=value),{})
+
     def test_owner_complete_card_and_channel_are_required(self):
         row=self.ready();self.click(row['token'])
         self.bridge.flush(False);self.click(row['token'],user=8)
@@ -153,7 +186,7 @@ class Tests(unittest.TestCase):
             planning.apply(self.state,row['token'],'start')
 
     def test_graph_sources_tools_budgets_and_review_are_checked(self):
-        row=self.queue()
+        row=self.queue(action=self.action(task_seconds=600))
         cases=[]
         bad=self.response();bad['plan']['tasks'][0]['limits']['seconds']=601;cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['tools']=['web'];cases.append(bad)

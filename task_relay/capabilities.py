@@ -12,7 +12,7 @@ import time
 
 from task_relay import file_tools
 
-READ = ('file_list', 'file_read', 'file_search')
+READ = ('file_list', 'file_read', 'file_search', 'pdf_read')
 WORKER_CAPABILITIES = (*READ, 'file_write', 'shell', 'web_search', 'web_fetch')
 CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebSearch', 'WebFetch']
 EXECUTION_ROUTING = '''Execution routing check before your final response:
@@ -149,7 +149,7 @@ EXECUTION_ROUTING += '\n'+WEBSITE_TASK_INSTRUCTIONS
 from .capability_defaults import INSTRUCTIONS as MODEL_DEFAULT_INSTRUCTIONS
 EXECUTION_ROUTING += '\n' + MODEL_DEFAULT_INSTRUCTIONS
 
-IMMEDIATE = ('browser_research', 'generate_image', 'continue_production', 'collect_references',
+IMMEDIATE = ('plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'continue_production', 'collect_references',
              'resume_production',
              'route_task', 'choose_task', 'create_codex_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
@@ -230,6 +230,12 @@ require the exact plan approval and have no agent tools.
 Arbitrary tool installation and arbitrary graph steps are not exposed. If no eligible target exists, explain the specific missing path.
 General questions about capabilities require action null, not a worker dispatch.
 snapshot.capabilities.host_applications lists detected local applications. They
+distinguish the preferred Rhino version from installed_versions. Never say Rhino 7
+is absent merely because Rhino 8 is preferred, or call a detected app active.
+For another installed Rhino version, direct the user to Settings → Models by task
+to select it before planning interpreter-specific code. Do not silently run a
+request for Rhino 7 in Rhino 8 or change already approved runtime assignments.
+Detected applications
 have registered host operations as well as agent task routes. The mesh operation
 accepts geometry computed by a files/shell agent; the agent need not launch Blender. For a new standalone application job use plan_production with project=null,
 template=custom and an available Codex executor when no relevant existing task
@@ -334,9 +340,12 @@ def catalog(state, snapshot):
         targets.extend(backend_targets(state))
     specs=[]
     for d in file_tools.DEFINITIONS:
+        limits = {'file_bytes':file_tools.MAX_FILE_BYTES,'response_chars':file_tools.MAX_CHARS}
+        if d['name'] == 'pdf_read':
+            limits.update(file_bytes=20_000_000, document_pages=500, pages_per_read=8, seconds=15)
         specs.append(dict(id=d['name'],executor='relay.files',input_schema=d['parameters'],
             permissions='Read-only known project folders; file policy enforced on every call.',
-            limits={'file_bytes':file_tools.MAX_FILE_BYTES,'response_chars':file_tools.MAX_CHARS},
+            limits=limits,
             evidence='Read result, path/offset and private tool-call journal.'))
     from task_relay import orchestrator_web
     for definition in (orchestrator_web.FETCH,orchestrator_web.SEARCH):
@@ -351,6 +360,10 @@ def catalog(state, snapshot):
         if kind=='browser_research':continue
         specs.append(dict(id=kind,executor='relay.'+kind,
             inputs=('task_id, provider, required_capabilities' if kind=='delegate_task' else
+                    'title, planning_only, stages' if kind=='plan_pipeline' else
+                    'result, choices' if kind=='pipeline_result' else
+                    'pipeline_id, stage_id, choice_id' if kind=='pipeline_decision' else
+                    'pipeline_id, verb' if kind=='pipeline_control' else
                     'template, project, reference_pack_id, research_ids, planning_only; optional parent_id or previous_run' if kind=='plan_production' else
                     'plan_id' if kind=='authorize_production_plan' else
                     'old_decision, new_decision' if kind=='replace_selection' else
@@ -477,7 +490,12 @@ def dispatch(state, job, action, snapshot):
         return old['result'],old['thread_id']
     from task_relay import production_continuations; from task_relay import production_folders; from task_relay import reference_packs; from task_relay import task_routing; from task_relay import orchestrator_images
     kind=action['kind'];tid=None;receipt=str(job['id']);executor=kind
-    if kind=='browser_research':
+    if kind in ('plan_pipeline','pipeline_result','pipeline_decision','pipeline_control'):
+        from . import pipelines
+        from .relay_channels import ScopedState, request_channel
+        text,tid=pipelines.dispatch(ScopedState(state,request_channel(state,job['id'])),job,action,snapshot)
+        executor='relay_pipelines'
+    elif kind=='browser_research':
         from . import browser_research
         try:text,receipt=browser_research.dispatch(state,job,action)
         except ValueError as exc:raise CapabilityError(str(exc)) from exc

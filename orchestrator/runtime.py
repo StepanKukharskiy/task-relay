@@ -35,6 +35,11 @@ def failure_detail(db,attempt):
     if not attempt:return None
     original=attempt['error']
     if attempt['state']!='blocked':return original
+    receipt=json.loads(attempt['receipt'] or '{}')
+    operation=receipt.get('operation') or {}
+    if (original=='Worker failed' and receipt.get('status')=='finished' and isinstance(operation,dict)
+        and operation.get('outcome')=='failed' and isinstance(operation.get('reason'),str) and operation['reason'].strip()):
+        return 'Registered operation failed: '+operation['reason'][:1800]
     if original and not original.startswith(('Missing, linked, or non-regular artifact:',
             'Declared output byte limit exceeded','Input copy changed:')):return original
     receipt=json.loads(attempt['receipt'] or '{}')
@@ -52,9 +57,11 @@ def failure_detail(db,attempt):
     except (ValueError,KeyError,TypeError):return original
 
 
-def dependencies_ready(spec, tasks):
+def dependencies_ready(spec, tasks, specs=()):
     states = {t['id']: t['status'] for t in tasks}
-    return all(states.get(dep) == ('awaiting_review' if dep == spec.get('review_of') else 'completed')
+    evidence = c.review_evidence_dependencies(specs).get(spec['id'], set())
+    return all(states.get(dep) == 'awaiting_review' if dep == spec.get('review_of')
+               else states.get(dep) == 'completed' or (dep in evidence and states.get(dep) == 'awaiting_review')
                for dep in spec['dependencies'])
 
 
@@ -67,7 +74,7 @@ def run_status(stored_status, tasks, specs):
         return 'uncertain'
     if states == {'completed'}:
         return 'completed'
-    runnable = any(t['status'] == 'queued' and dependencies_ready(a, tasks) for t, a in zip(tasks, specs))
+    runnable = any(t['status'] == 'queued' and dependencies_ready(a, tasks, specs) for t, a in zip(tasks, specs))
     if not states.intersection(ACTIVE) and not runnable:
         return 'awaiting_user' if 'awaiting_user' in states else 'blocked'
     return 'active'
@@ -261,7 +268,8 @@ class Runtime:
         return self.artifact(row['id'])
 
     def ready(self, run, spec):
-        return dependencies_ready(spec, self.db.execute('SELECT id,status FROM production_tasks WHERE run=?', (run,)).fetchall())
+        tasks = self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,)).fetchall()
+        return dependencies_ready(spec, tasks, [self.spec(t) for t in tasks])
 
     def claim(self, run):
         if self.db.in_transaction:

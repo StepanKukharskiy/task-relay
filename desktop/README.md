@@ -140,7 +140,11 @@ can still be checked; it is not a verified app update. Bundled startup does not
 follow a previous source updater's runtime selection. These boundaries are covered
 by `python3 -m unittest tests.test_packaged_update_boundary`.
 
-The remaining release work has these reviewable outputs, in order:
+The release path has these reviewable outputs. The app updater now implements
+metadata, installation and recovery for unchanged data; see [app updates](../docs/app-updates.md).
+Published 0.13.0 predates it and requires one manual bootstrap upgrade. Developer ID
+distribution and clean-host qualification remain open. The original acceptance
+order is retained below:
 
 1. Build a version-consistent candidate from reviewed source with pinned runtime
    inputs. Sign nested executable code and the final bundle with Developer ID,
@@ -167,10 +171,10 @@ does not create task records and that saved setup survives bridge-process restar
 
 ## Downloadable Mac beta and CLI alternative
 
-The website's primary download is `Task-Relay-0.12.1-beta.1-arm64.dmg`, for Apple
+The website's primary download is `Task-Relay-0.13.0-beta.1-arm64.dmg`, for Apple
 Silicon and macOS 14+. Drag Task Relay into Applications and eject the disk before
-opening the app. Python and the Relay runtime are included. The beta uses ad hoc
-signing, not Developer ID or notarization; macOS may require its per-app Open Anyway
+opening the app. Python and the Relay runtime are included. The beta uses a stable local signing identity,
+not Developer ID or notarization; macOS may require its per-app Open Anyway
 flow. Never disable Gatekeeper. Managed hosts may prohibit this beta, and updates
 may require refreshing existing permission grants. A signed public release remains
 an open gate.
@@ -234,7 +238,28 @@ or clean host. Private installation receipts and test logs remain under outputs.
 ## 0.13.0 release candidate
 
 The current source and app versions are 0.13.0. Build a fresh immutable beta DMG
-from the reviewed source using the command above. Existing website downloads
-remain 0.12.1-beta.1 until new assets are explicitly published; a source PR does
-not update their bytes. Recommend prerelease distribution while notarization,
+from the reviewed source using the command above. The website distributes this
+beta with checksums and retains the immutable 0.12.1-beta.1 download URLs. A
+source PR does not update published bytes. Stable GitHub publication, notarization,
 clean-host setup and live media-provider qualification remain open.
+
+
+## App updates
+
+Settings → App updates checks for dedicated app release assets daily while the
+companion is open. Include beta releases is optional. Download update verifies the
+package, then Install and restart performs the reviewed replacement with retained
+recovery files. App updates is the only desktop update section. Troubleshooting contains diagnostics,
+service recovery and cache cleanup; source-package updates remain available through
+the source installation tools.
+No terminal command is required for users. Published 0.13.0 and earlier need one
+manual installation of a build containing this updater. See [the release contract,
+packaging command and recovery limits](../docs/app-updates.md).
+
+
+Before either DMG or updater ZIP packaging, `task_relay.runtime_check.check_packaged`
+executes an offline PDF fixture with the bundled Python and scoped file tool,
+imports the PDF/image/browser/PPTX dependencies and compares runtime/app versions.
+It uses temporary data and does not contact providers, open a browser or change
+the installed app. Release snapshots must include approved runtime changes and
+their dependencies together; Git commit state is not an approval boundary.

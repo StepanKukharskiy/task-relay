@@ -2,15 +2,21 @@
 
 [Live website](https://task-relay-website-production.up.railway.app)
 
-One static, text-first page describing Relay, supported programs, input/saved file
-formats, five development workflow examples and current download availability.
+One static, text-first page introducing jobs, cross-tool workflow examples and
+version-change review, followed by supported programs, input/saved file formats
+and current download availability. Five workflow starters sit in a disclosure
+beneath the examples; Programs and File formats retain direct navigation.
 The program/format list describes implemented support, including dedicated editable
-PPTX generation. A beta.1 package-content notice separates the older download from
-newly implemented features; other document exports are worker-dependent. Check the
+PPTX generation. The 0.13.0-beta.1 download includes browser setup, media provider connections,
+editable PPTX and workflow starters; other document exports are worker-dependent. Check the
 actual published source archive before claiming an operation is in the beta.
 No dependencies or build step.
-The website process serves only the public page, stylesheet, favicon and health
-endpoint. It does not start Relay, connect providers or access local task data.
+`/llms.txt` provides a Markdown overview and curated documentation links for AI
+readers. The homepage advertises it with `rel="describedby"` and a footer link.
+Keep it aligned with the programs, formats and release boundaries on the page.
+The website process serves the public page, stylesheet, favicon, llms.txt, health
+endpoint and exact versioned downloads. It does not start Relay, connect providers
+or access local task data.
 
 ## Preview
 
@@ -45,7 +51,7 @@ terminal setup. Both artifacts have SHA-256 sidecars. The page explicitly labels
 the beta as lacking Developer ID/notarization and links Apple's per-app opening
 instructions. Windows remains unavailable.
 
-Place the four named artifacts under `downloads/` before startup or deployment.
+Place both versions’ eight named artifacts under `downloads/` before startup or deployment.
 The server refuses startup if any advertised artifact is absent. Binary downloads
 stream from disk with HEAD and byte-range support; no arbitrary path is served.
 The directory is excluded from Git and explicitly allowed in the isolated Railway
@@ -56,3 +62,7 @@ Use a new versioned filename for every changed artifact; published bytes are
 immutable. Website and manifest route names must change together for a release.
 The beta source and runtime omit concurrent unreviewed development work even if
 the website describes broader development capabilities.
+
+The current primary download is 0.13.0-beta.1. Retain the immutable 0.12.1-beta.1
+files for existing links. The CLI tarball includes the reviewed source installer;
+its optional browser/image/presentation extras are separate from core installation.

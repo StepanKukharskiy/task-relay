@@ -73,7 +73,7 @@ Message GUIDs deduplicate commands. Submissions are committed before sending to 
 python3 messages_pilot.py --clear-pending
 ```
 
-Outgoing parts are committed before sending. A timeout or crash leaves an uncertain delivery and stops the queue, so an accepted message is never blindly resent. The launcher prints its ID. After checking the conversation, acknowledge/skip that delivery with:
+Outgoing parts are committed before sending. A timeout or crash leaves an uncertain delivery and holds the remaining parts of that reply, so an accepted message is never blindly resent. After restart, the watcher accepts fresh messages and independent replies can be delivered. Held replies stay unacknowledged, including their choice cards, and cannot fill the export batch and starve newer responses. The app's Channels status shows the warning while the service is connected; the launcher prints the affected IDs. After checking the conversation, acknowledge/skip that delivery with:
 
 ```sh
 python3 messages_pilot.py --ack-delivery 'THE_PRINTED_ID'

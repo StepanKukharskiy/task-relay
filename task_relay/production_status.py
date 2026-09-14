@@ -27,7 +27,8 @@ def controls(state, event):
     buttons=[[{'text':'Check status','callback_data':token(run)},
         {'text':'Inspect stage','callback_data':token(run,'prodinspect')}]]+production_selections.controls(state,event)+production_lifecycle.controls(state,event,run)
     view=next((v for v in pc.inspect(state,run,include_files=False) if v['name']==run),None)
-    if view and view['status']=='completed' and view.get('deferred_operations'):
+    from . import pipelines
+    if view and view['status']=='completed' and view.get('deferred_operations') and not pipelines.owns_run(state,run):
         buttons.append([{'text':'Plan execution','callback_data':token(run,'prodexecute')}])
     return {'inline_keyboard':buttons}
 
@@ -38,11 +39,12 @@ def plan_execution(state,run):
     from task_relay import production_stages
     from orchestrator.runtime import Runtime
     rt=Runtime(pc.root(state),connection=state.db)
-    production_stages.snapshot(state,rt,run,'telegram')
+    channel=getattr(state,'channel','telegram')
+    production_stages.snapshot(state,rt,run,channel)
     plan=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
     deferred=plan.get('deferred_operations',{})
     if not deferred:raise ValueError('This stage has no pending execution to plan.')
-    prior=state.db.execute('SELECT request,options,provider,model FROM production_plans WHERE run=?',(run,)).fetchone()
+    prior=production_stages.planning_origin(state,run)
     if not prior:raise ValueError('The original planning request is missing; inspect the stage.')
     options=json.loads(prior['options']);project=options.get('project')
     ident=int(hashlib.sha256(('plan-execution:'+run).encode()).hexdigest()[:15],16)
@@ -51,7 +53,7 @@ def plan_execution(state,run):
         deliverables={k:v['description'] for k,v in plan.get('deliverables',{}).items() if v.get('deferred_operation')})
     snapshot={'production_runs':pc.inspect(state,run,include_files=False),
         'codex_projects':[{'cwd':project}] if project else [],'capabilities':capabilities.catalog(state,{})}
-    state.db.execute('INSERT OR IGNORE INTO relay_request_channels VALUES (?,?)',(ident,'telegram'))
+    state.db.execute('INSERT OR IGNORE INTO relay_request_channels VALUES (?,?)',(ident,channel))
     prompt=('Plan the pending execution using the exact selected prepared inputs. Produce the remaining declared deliverables. '
         'Preserve the original scope and decisions. Present the complete script, inputs and limits for Start; do not execute yet.\n\n'
         '--- ORIGINAL USER REQUEST ---\n'+prior['request'])
@@ -78,7 +80,14 @@ def current(state, run):
     if view.get('deferred_operations') and view['status'] in ('active','awaiting_user','completed'):
         lines[1]='Preparation in progress; execution pending' if view['status']=='active' else 'Preparation ready; execution pending'
     lines.append('Outcome: '+view['brief'])
-    if view.get('deferred_operations'):lines.append(pc.pending_execution_text(view).lstrip())
+    from . import pipelines
+    workflow=pipelines.owns_run(state,run)
+    from .workflow_files import owner_for_run
+    owner=owner_for_run(state,run)
+    if owner:
+        from .workflow_files import location_text
+        lines.append(location_text(state,owner['id']))
+    if view.get('deferred_operations'):lines.append(pc.pending_execution_text(view,workflow).lstrip())
     if view['status']=='paused':lines.append('Running workers may finish. Further tasks wait for Resume.')
     if view['status']=='cancelled' and any(t['attempt_state'] in ('launching','running','cancelling','uncertain') for t in view['tasks']):
         lines.append('Worker termination is not yet confirmed. Cancellation remains pending; no new task will start.')
@@ -94,6 +103,8 @@ def current(state, run):
         elif status=='awaiting_user':status='Waiting for your review'
         elif status=='awaiting_review':status='Waiting for independent review'
         lines.append(f"{task['id']}: {status} · attempt {task['attempts']}/{task['max_attempts']}")
+        from .production_activity import lines as activity_lines
+        lines.extend(activity_lines(task))
         if task.get('error') and task['status'] in ('blocked','uncertain','cancelled','cancelling'):
             lines.append(task['error'][:900])
         target=next((t for t in view['tasks'] if t['id']==task['review_of']),None)
@@ -104,8 +115,10 @@ def current(state, run):
         lines.append('Waiting alone will not resolve this blocker.')
         if any(t['attempts']>=t['max_attempts'] for t in view['tasks']):
             lines.append('Attempt budget exhausted. An explicit continuation request is needed for more work.')
-    if view['status']=='awaiting_user':lines.append('Use a Select button for the exact delivered file, or reply with feedback. No later stage starts automatically.')
-    if view['status']=='completed' and not pending:lines.append('Next decision: describe the next stage when ready. Selection alone does not start further work.')
+    if view['status']=='awaiting_user':lines.append('Use a Select button for the exact delivered file, or reply with feedback. '+('Relay will continue the saved workflow after selection; exact host-code Start remains required.' if workflow else 'No later stage starts automatically.'))
+    if view['status']=='completed' and not pending:
+        from . import pipelines
+        lines.append(pipelines.continuation_text(state,run))
     replacements=view.get('artifact_replacements',{})
     if replacements.get('outdated_outputs'):
         lines.append('Outputs needing review after version replacement: '+str(len({r['artifact'] for r in replacements['outdated_outputs']}))+(' or more' if replacements['truncated'] else '')+'. Inspect stage for exact versions and reasons. No rebuild has been authorized.')

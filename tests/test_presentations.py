@@ -42,6 +42,44 @@ def pptx_step(inputs, **kwargs):
 
 
 class DocumentTests(unittest.TestCase):
+    def test_notes_master_is_discoverable_and_missing_registration_is_rejected(self):
+        import zipfile
+        from lxml import etree
+        ns = {'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+              'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+        value = fixture()
+        raw, _ = pptx_document.create(value)
+        with zipfile.ZipFile(io.BytesIO(raw)) as package:
+            root = etree.fromstring(package.read('ppt/presentation.xml'))
+            listing = root.find('p:notesMasterIdLst', ns)
+            self.assertIsNotNone(listing)
+            rid = listing[0].get('{'+ns['r']+'}id')
+            rels = etree.fromstring(package.read('ppt/_rels/presentation.xml.rels'))
+            relation = next(r for r in rels if r.get('Id') == rid)
+            self.assertTrue(relation.get('Type').endswith('/notesMaster'))
+            self.assertIn('ppt/'+relation.get('Target'), package.namelist())
+            self.assertLess(root.index(listing), root.index(root.find('p:sldIdLst', ns)))
+            root.remove(listing)
+            broken = io.BytesIO()
+            with zipfile.ZipFile(broken, 'w', zipfile.ZIP_DEFLATED) as dest:
+                for item in package.infolist():
+                    dest.writestr(item, etree.tostring(root) if item.filename == 'ppt/presentation.xml' else package.read(item))
+        with self.assertRaisesRegex(ValueError, 'notes master registration'):
+            pptx_document.inspect(broken.getvalue(), value, {})
+
+    def test_no_notes_does_not_create_notes_master_and_registration_is_idempotent(self):
+        from pptx import Presentation
+        from pptx.oxml.ns import qn
+        value = fixture()
+        value['slides'][0].pop('notes')
+        raw, _ = pptx_document.create(value)
+        deck = Presentation(io.BytesIO(raw))
+        self.assertIsNone(deck.part._element.find(qn('p:notesMasterIdLst')))
+        raw, _ = pptx_document.create(fixture())
+        deck = Presentation(io.BytesIO(raw)); before = deck.part._element.xml
+        pptx_document._register_notes_master(deck)
+        self.assertEqual(deck.part._element.xml, before)
+
     def test_native_content_survives_reopen_and_remains_editable(self):
         from pptx import Presentation
         raw, evidence = pptx_document.create(fixture())
@@ -240,6 +278,103 @@ class PlanningTests(unittest.TestCase):
         result = self.deck_response(); result['plan']['tasks'][2].pop('user_gate')
         with self.assertRaisesRegex(ValueError, 'candidate selection gate'):
             planning.validate_result(json.dumps(result), row)
+
+    def context_with_native_and_images(self):
+        row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
+        payload=json.loads(row['context']);ids={}
+        for name,data in [('candidate.3dm',b'native fixture'),('preview.png',b'image routing fixture'),('visual.jpg',b'image routing fixture')]:
+            path=self.rt.root/name;path.write_bytes(data)
+            aid=self.rt.register(path,'Exact selected workflow source',path=name);ids[name]=aid
+            source=planning.source_entry(self.rt,aid,'upstream/'+name,'Selected workflow source','Exact selected source')
+            payload['sources'].append(source);payload['required_artifacts'].append(aid)
+        row['context']=json.dumps(payload)
+        return row,ids
+
+    def test_native_context_preserved_but_only_compatible_inputs_bound_to_pptx(self):
+        row,ids=self.context_with_native_and_images()
+        result,plan=planning.validate_result(json.dumps(self.deck_response()),row)
+        deck=next(t for t in plan['tasks'] if t['id']=='deck')
+        bound={i.get('artifact') for i in deck['inputs']}
+        self.assertNotIn(ids['candidate.3dm'],bound)
+        self.assertIn(ids['preview.png'],bound);self.assertIn(ids['visual.jpg'],bound)
+        for task in plan['tasks']:
+            if task.get('execution'):continue
+            self.assertTrue(set(ids.values()) <= {i.get('artifact') for i in task['inputs']})
+        self.assertIn(ids['candidate.3dm'],json.loads(row['context'])['required_artifacts'])
+
+    def test_explicit_incompatible_native_operation_input_is_rejected(self):
+        row,ids=self.context_with_native_and_images();response=self.deck_response()
+        response['plan']['tasks'][2]['inputs'].append(dict(artifact=ids['candidate.3dm'],path='candidate.3dm',purpose='Invalid native input',authority='Fixture'))
+        with self.assertRaisesRegex(ValueError,'incompatible'):
+            planning.validate_result(json.dumps(response),row)
+
+    def test_implicit_routing_uses_capability_types_across_operations(self):
+        source={'path':'model.3dm','media_type':'application/octet-stream'}
+        self.assertTrue(planning.compatible_implicit_source('rhino.inspect',source))
+        for cap in ['pptx.create','text.bundle','gemini.image','blender.inspect']:
+            self.assertFalse(planning.compatible_implicit_source(cap,source))
+        png={'path':'preview.png'}
+        self.assertTrue(planning.compatible_implicit_source('pptx.create',png))
+        self.assertTrue(planning.compatible_implicit_source('gemini.image',png))
+        self.assertFalse(planning.compatible_implicit_source('text.bundle',png))
+
+    def test_operation_keeps_declared_asset_paths_and_exact_identity(self):
+        row,ids=self.context_with_native_and_images();response=self.deck_response()
+        deck=response['plan']['tasks'][2]
+        for filename,alias in [('preview.png','images/viewport.png'),('visual.jpg','images/rendering.jpg')]:
+            deck['inputs'].append(dict(artifact=ids[filename],path=alias,purpose='Exact image at declared path',authority='Selected source'))
+        _,plan=planning.validate_result(json.dumps(response),row)
+        bound=next(t for t in plan['tasks'] if t['id']=='deck')['inputs']
+        self.assertEqual({i['path'] for i in bound if i.get('artifact')==ids['preview.png']},{'images/viewport.png'})
+        self.assertEqual({i['path'] for i in bound if i.get('artifact')==ids['visual.jpg']},{'images/rendering.jpg'})
+        response['plan']['tasks'][2]['inputs'][-1]['path']='../rendering.jpg'
+        with self.assertRaises(ValueError):planning.validate_result(json.dumps(response),row)
+
+    def test_declared_path_collision_is_not_resolved_by_substitution(self):
+        row,ids=self.context_with_native_and_images();response=self.deck_response()
+        for filename in ['preview.png','visual.jpg']:
+            response['plan']['tasks'][2]['inputs'].append(dict(artifact=ids[filename],path='images/same.png',purpose='Collision fixture',authority='Selected'))
+        with self.assertRaises(ValueError):planning.validate_result(json.dumps(response),row)
+
+    def test_local_input_recovery_retains_failed_attempt_and_requires_path_change(self):
+        from orchestrator.storage import transaction
+        from task_relay import production_stages
+        row=dict(self.queue(action=self.action(step_capabilities=['text.bundle'])))
+        path=self.rt.root/'source.txt';path.write_text('Exact original bytes')
+        aid=self.rt.register(path,'Input',path='source.txt');payload=json.loads(row['context'])
+        payload['sources'].append(planning.source_entry(self.rt,aid,'context/source.txt','Input','Selected source'))
+        payload['required_artifacts'].append(aid);row['context']=contracts.encoded(payload)
+        response=self.response();producer,review=response['plan']['tasks']
+        producer.update(execution={'capability':'text.bundle','version':1,'parameters':{}},tools=[],
+            inputs=[dict(artifact=aid,path='declared/source.txt',purpose='Declared input',authority='Selected')],
+            criteria=execution.REGISTRY['text.bundle']['criteria'].copy())
+        producer['outputs'][0]['media_type']='text/plain'
+        producer['limits']={'seconds':30,'tool_calls':0,'output_bytes':2100000}
+        review['criteria']=producer['criteria'].copy()
+        result,plan=planning.validate_result(json.dumps(response),row)
+        # Reproduce the old compiler dropping the explicit alias before dispatch.
+        bound=next(i for i in plan['tasks'][0]['inputs'] if i.get('artifact')==aid)
+        bound['path']='context/source.txt'
+        self.rt.create(plan);run=plan['id']
+        with transaction(self.state.db):
+            self.state.db.execute('UPDATE production_plans SET status=?,run=?,result=?,plan=?,context=?,context_hash=? WHERE id=?',
+                ('started',run,contracts.encoded(result),contracts.encoded(plan),row['context'],contracts.digest(payload),row['id']))
+        self.rt.tick(run);attempt=self.rt.task(run,'produce')['latest']
+        self.factory.sessions[attempt]['status']={'status':'finished','exit_code':1,'operation':{'outcome':'failed','reason':'Declared input path missing'}}
+        self.rt.tick(run);before=dict(self.state.db.execute('SELECT * FROM production_attempts WHERE id=?',(attempt,)).fetchone())
+        with transaction(self.state.db):
+            ident=planning.prepare_local_input_repair(self.state,run,'Repair the failed declared input path.')
+        repaired=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+        self.assertEqual(repaired['status'],'ready');self.assertEqual(repaired['calls'],0)
+        task=json.loads(repaired['plan'])['tasks'][0]
+        self.assertEqual(next(i['path'] for i in task['inputs'] if i.get('artifact')==aid),'declared/source.txt')
+        self.assertEqual(before,dict(self.state.db.execute('SELECT * FROM production_attempts WHERE id=?',(attempt,)).fetchone()))
+        self.assertEqual(len(self.factory.calls),1)
+        with transaction(self.state.db),self.assertRaises(ValueError):planning.prepare_local_input_repair(self.state,run,'Again')
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE production_attempts SET state='uncertain' WHERE id=?",(attempt,))
+            with self.assertRaisesRegex(ValueError,'uncertain replay'):
+                production_stages.failed_execution_snapshot(self.state,self.rt,run,'telegram','local_inputs')
 
 
 if __name__ == '__main__':

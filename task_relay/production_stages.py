@@ -11,6 +11,48 @@ def initialize(db):
         parent TEXT PRIMARY KEY, plan_id TEXT NOT NULL UNIQUE, child TEXT UNIQUE)''')
 
 
+def planning_origin(state,run):
+    """Resolve recorded continuation ancestry without inventing a planning row."""
+    seen=set()
+    while run not in seen:
+        seen.add(run)
+        plan=state.db.execute('SELECT * FROM production_plans WHERE run=?',(run,)).fetchone()
+        if plan:return plan
+        link=state.db.execute("SELECT * FROM production_continuations WHERE child=? AND status='registered'",(run,)).fetchone()
+        if not link:return None
+        receipt=state.db.execute("SELECT data FROM production_events WHERE run=? AND kind='production_continuation_created' AND json_extract(data,'$.request_id')=?",(run,link['id'])).fetchone()
+        if not receipt or json.loads(receipt['data']).get('parent')!=link['parent']:
+            raise ValueError('Continuation lineage receipt is missing or inconsistent.')
+        run=link['parent']
+    raise ValueError('Continuation lineage contains a cycle.')
+
+
+def failed_execution_snapshot(state,rt,run,channel,kind=None):
+    bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
+    if (bound[0] if bound else 'telegram')!=channel:raise ValueError('Recover execution in its original channel.')
+    status=rt.status(run)
+    if status['status']!='blocked' or any(a['state'] in ('launching','running','cancelling','uncertain') for a in status['attempts']):
+        raise ValueError('Recovery requires a confirmed stopped, blocked execution; no uncertain replay.')
+    failed=[t for t in status['tasks'] if t['status']=='blocked']
+    if len(failed)!=1:raise ValueError('Recovery requires one failed operation.')
+    capability=rt.spec(failed[0]).get('execution',{}).get('capability')
+    if kind=='local_inputs':
+        from orchestrator.execution import REGISTRY
+        spec=REGISTRY.get(capability,{})
+        if spec.get('kind')!='procedure' or spec.get('external_requests')!=0:
+            raise ValueError('Input recovery is limited to local procedures without external requests.')
+    elif capability not in ('rhino.run_python','blender.run_python'):
+        raise ValueError('Script repair requires one failed host Python operation.')
+    attempt=next(a for a in status['attempts'] if a['id']==failed[0]['latest'])
+    receipt=json.loads(attempt['receipt'] or '{}')
+    if receipt.get('status')!='finished' or receipt.get('operation',{}).get('outcome')!='failed':
+        raise ValueError('A completed host failure receipt is required before proposing a repair.')
+    if any(t['status'] not in ('blocked','queued','completed') for t in status['tasks']):
+        raise ValueError('Other user decisions or execution states need resolution first.')
+    return {'run':run,'tasks':status['tasks'],'attempts':status['attempts'],
+            'contract_digest':pc.runtime_digest(rt,run),'control_epoch':state.get('production-control-epoch:'+run,0)}
+
+
 def snapshot(state,rt,run,channel):
     bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
     if (bound['channel'] if bound else 'telegram')!=channel:
@@ -38,7 +80,7 @@ def sources(state,rt,run,channel,request_id):
     from task_relay import production_feedback
     prior=snapshot(state,rt,run,channel)
     original=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
-    plan=state.db.execute('SELECT * FROM production_plans WHERE run=?',(run,)).fetchone()
+    plan=planning_origin(state,run)
     job_id=json.loads(plan['options']).get('job_request_id',plan['request_id']) if plan else original.get('origin',{}).get('job_request_id',run)
     inputs={}
     support={s['artifact']:s['operation_support'] for s in json.loads(plan['context']).get('sources',[])
@@ -84,6 +126,17 @@ def sources(state,rt,run,channel,request_id):
 
 
 def verify(state,rt,payload,plan_id,channel,ignore_request_id=None):
+    recovery=payload.get('execution_recovery')
+    if recovery:
+        if recovery.get('reviewed_repair'):
+            from .production_repairs import verify as verify_repair
+            verify_repair(state,rt,recovery['reviewed_repair'])
+        prior=recovery['baseline']
+        link=state.db.execute('SELECT * FROM production_stage_links WHERE parent=?',(prior['run'],)).fetchone()
+        if not link or link['plan_id']!=plan_id or link['child']:
+            raise ValueError('Execution recovery was replaced or already started.')
+        if failed_execution_snapshot(state,rt,prior['run'],channel,recovery.get('kind'))!=prior:
+            raise ValueError('Failed execution changed after the repair plan was prepared.')
     prior=payload.get('previous_stage')
     if not prior:return
     if state.db.execute("SELECT 1 FROM orchestrator_chats WHERE focus=? AND id!=? AND status IN ('queued','sending','guides_pending')",(prior['run'],ignore_request_id if ignore_request_id is not None else -1)).fetchone():
@@ -95,7 +148,29 @@ def verify(state,rt,payload,plan_id,channel,ignore_request_id=None):
         raise ValueError('Previous-stage decisions or instructions changed; plan the next stage again.')
 
 
+def replace_unexecuted_plan(state,rt,payload,old_id,new_id,channel):
+    """Move an unchanged stage handoff to its retry, before any host execution."""
+    if not state.db.in_transaction:raise ValueError('Plan replacement requires an atomic transaction.')
+    verify(state,rt,payload,old_id,channel)
+    parents=set()
+    if payload.get('previous_stage'):parents.add(payload['previous_stage']['run'])
+    if payload.get('execution_recovery'):parents.add(payload['execution_recovery']['baseline']['run'])
+    for parent in parents:
+        changed=state.db.execute('UPDATE production_stage_links SET plan_id=? WHERE parent=? AND plan_id=? AND child IS NULL',
+                                 (new_id,parent,old_id)).rowcount
+        if changed!=1:raise ValueError('The stage handoff changed; no replacement was applied.')
+        rt.event(parent,None,None,'planning_successor_linked',{'previous_plan':old_id,'successor_plan':new_id})
+
+
 def register(state,rt,payload,plan_id,child):
+    recovery=payload.get('execution_recovery')
+    if recovery:
+        parent=recovery['baseline']['run']
+        if recovery.get('reviewed_repair'):
+            state.db.execute("UPDATE production_auto_repairs SET status='resumed' WHERE parent=? AND plan_id=? AND status='awaiting_start'",(parent,plan_id))
+        state.db.execute('UPDATE production_stage_links SET child=? WHERE parent=? AND plan_id=?',(child,parent,plan_id))
+        rt.event(child,None,None,'execution_repair_started',{'parent':parent,'plan_id':plan_id,
+                 'script_replacement':recovery.get('script_replacement'),'kind':recovery.get('kind'),'reused_completed_tasks':recovery['reused_completed_tasks']})
     prior=payload.get('previous_stage')
     if not prior:return
     state.db.execute('UPDATE production_stage_links SET child=? WHERE parent=? AND plan_id=?',(child,prior['run'],plan_id))

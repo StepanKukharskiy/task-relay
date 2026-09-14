@@ -57,11 +57,13 @@ def event_channel(state, event_id, thread_id=None, rowid=None):
     return 'telegram'
 
 
-def pending(state, channel, limit=20):
+def pending(state, channel, limit=20, *, exclude_ids=()):
     from .channel_policy import read
     proactive = read(state.db)['proactive']
     result = []
     for row in state.db.execute('SELECT rowid,* FROM outbox WHERE sent=0 ORDER BY rowid'):
+        if row['id'] in exclude_ids:
+            continue
         if row['id'].startswith('proactive:') and proactive == 'none':
             continue
         if event_channel(state, row['id'], row['thread_id'], row['rowid']) == channel:

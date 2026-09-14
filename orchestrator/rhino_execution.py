@@ -13,6 +13,22 @@ from .workers import atomic
 from .rhino_contract import MEDIA, validate_checks, validate_render
 
 
+def failure_detail(receipt):
+    """Surface bounded exception text from the receipt, never execute it."""
+    if receipt.get('validation_error'):return str(receipt['validation_error'])[:800]
+    for run in reversed(receipt.get('runs',[])):
+        if run.get('passed'):continue
+        worker=run.get('worker')
+        error=(worker.get('error') if isinstance(worker,dict) else None) or run.get('error')
+        if error:
+            lines=[line.strip() for line in str(error).splitlines() if line.strip()]
+            return (str(run.get('mode','host'))+': '+lines[-1])[:800] if lines else ''
+        if run.get('timeout'):return str(run.get('mode','host'))+': host process timed out'
+        if not isinstance(worker,dict):return str(run.get('mode','host'))+': Rhino exited without a matching worker response; check startup or license dialogs before requesting recovery'
+        if run.get('returncode') is not None:return str(run.get('mode','host'))+': host exited with code '+str(run['returncode'])
+    return ''
+
+
 def execute(frozen, control, documents):
     from task_relay.host_apps import rhino
     from task_relay.host_evidence import application_signature
@@ -159,6 +175,9 @@ def execute(frozen, control, documents):
         'Rhino candidate saved, independently reopened, checked and previewed; awaiting review and selection.' if passed and modeling else
         'Rhino Render image saved at the selected named view and resolution; source unchanged.' if passed and rendering else
         'Selected Rhino model inspected; source copy unchanged.' if passed else 'Rhino operation failed; partial files are not accepted. No automatic replay; see execution.json.')
+    if not passed:
+        cause=failure_detail(receipt)
+        if cause:summary='Rhino failed — '+cause+'. '+summary
     details = dict(outcome='completed' if passed or diagnostic else 'failed', execution=frozen['execution'], summary=summary, usage={})
     atomic(control/'operation.json', details)
     atomic(workspace/'.relay/result.json', dict(assignment_id=frozen['assignment_id'], summary=summary,

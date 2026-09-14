@@ -117,6 +117,19 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(self.handoff.inspect(), {'items': []})
         self.assertFalse(self.handoff.folder.exists())
 
+    def test_connected_messages_still_shows_held_delivery_warning(self):
+        from task_relay.desktop_messages import MessagesService
+        service=MessagesService(self.runtime,self.paths,self.host,self.root,lambda:self.now,self.tick)
+        service.path.parent.mkdir(parents=True,exist_ok=True)
+        service.path.write_bytes(plistlib.dumps(service._spec()))
+        self.paths.messages.mkdir(parents=True,exist_ok=True)
+        warning='An earlier reply remains held for review. New messages can receive replies.'
+        (self.paths.messages/'health.json').write_text(json.dumps({'status':'running','updated_at':self.now,'detail':warning}))
+        self.host.loaded['com.personal.taskrelay.messages']=True
+        state=service.status()
+        self.assertTrue(state['healthy'])
+        self.assertIn(warning,state['detail'])
+
     def test_handoff_starts_when_launchd_cannot_open_protected_data_logs(self):
         original = self.host.launchctl
 

@@ -128,6 +128,58 @@ def assignment(value):
     return a
 
 
+def review_evidence_dependencies(specs):
+    """Only registered inspections feeding the producer's own reviewer get drafts.
+
+    This permission comes from capability code and declared graph edges, never a
+    model-supplied role/name/authority. Ordinary downstream work remains gated.
+    """
+    from .execution import REGISTRY
+    tasks = {a['id']: a for a in specs}
+    evidence = {}
+    for reviewer in specs:
+        target = reviewer.get('review_of')
+        if not target:
+            continue
+        for dep in reviewer['dependencies']:
+            helper = tasks.get(dep, {})
+            operation = helper.get('execution', {})
+            capability = REGISTRY.get(operation.get('capability'), {})
+            if (not capability.get('review_evidence') or operation.get('version') != capability.get('version')
+                or helper.get('review_of') or helper.get('user_gate')
+                or target not in helper.get('dependencies', [])
+                or not any(i.get('from_task') == target for i in helper.get('inputs', []))
+                or not any(i.get('from_task') == dep for i in reviewer.get('inputs', []))):
+                continue
+            evidence.setdefault(dep, set()).add(target)
+    return evidence
+
+
+def validate_review_order(specs):
+    """Include completion gates in cycle detection, beyond plain task edges."""
+    evidence = review_evidence_dependencies(specs)
+    reviewers = {a['review_of']: a['id'] for a in specs if a.get('review_of')}
+    edges = {}
+    for a in specs:
+        draft_deps = evidence.get(a['id'], set()) | ({a['review_of']} if a.get('review_of') else set())
+        edges[('delivered', a['id'])] = [('delivered' if d in draft_deps else 'completed', d) for d in a['dependencies']]
+        edges[('completed', a['id'])] = [('delivered', a['id'])]
+        if a['id'] in reviewers:
+            edges[('completed', a['id'])].append(('completed', reviewers[a['id']]))
+    visiting, visited = set(), set()
+    def visit(node):
+        if node in visiting:
+            raise ValueError('Review dependency cycle: review prerequisites must be registered inspections of the unaccepted candidate.')
+        if node in visited:
+            return
+        visiting.add(node)
+        for dep in edges[node]:
+            visit(dep)
+        visiting.remove(node); visited.add(node)
+    for node in edges:
+        visit(node)
+
+
 def plan(value):
     p = copy.deepcopy(value)
     label(p['id'])
@@ -179,6 +231,7 @@ def plan(value):
                 output=next(o for o in tasks[item['from_task']]['outputs'] if o['path']==item['output'])
                 if item['media_type']!=output.get('media_type'):
                     raise ValueError('Upstream output type does not match the declared input type')
+    validate_review_order(p['tasks'])
     p.setdefault('concurrency', 2)
     if type(p['concurrency']) is not int or not 1 <= p['concurrency'] <= 4:
         raise ValueError('Concurrency must be 1–4')

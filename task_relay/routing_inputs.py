@@ -124,7 +124,8 @@ def freeze(state,job,candidates,research_ids=None,artifact_ids=None):
                 raise ValueError('A registered research document changed before routing.')
             selected.append((path,row['filename'],'research',None,row['sha256']))
     from task_relay import conversation_inputs
-    return capture(state,job,selected) + freeze_artifacts(state,job,artifact_ids) + conversation_inputs.freeze(state,job)
+    from . import pipelines
+    return capture(state,job,selected) + freeze_artifacts(state,job,artifact_ids) + conversation_inputs.freeze(state,job) + pipelines.frozen_sources(state,job)
 
 
 def capture(state,job,selected,section='sources',max_bytes=MAX_BYTES):
@@ -191,6 +192,15 @@ def artifact_catalog(state):
         result.append(dict(id='media-'+row['id'],run=row['thread_id'],task='media',attempt=row['job_id'],
             path=row['filename'],sha256=row['sha256'],bytes=row['size'],purpose=row['title'],
             attempt_state=row['status'],display_name=row['filename'],media_type=row['mime']))
+    from . import pipelines
+    missing=pipelines.retained_artifact_ids(state)-{a['id'] for a in result}
+    for ident in sorted(missing):
+        if ident.startswith('media-'):
+            row=state.db.execute("SELECT a.*,j.status,w.title FROM artifacts a JOIN backend_jobs j ON j.id=a.job_id JOIN watched w ON w.id=a.thread_id WHERE a.id=? AND a.role='output'",(ident[6:],)).fetchone()
+            if row:result.append(dict(id=ident,run=row['thread_id'],task='media',attempt=row['job_id'],path=row['filename'],sha256=row['sha256'],bytes=row['size'],purpose=row['title'],attempt_state=row['status'],display_name=row['filename'],media_type=row['mime']))
+        else:
+            row=state.db.execute("SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,t.state AS attempt_state FROM production_artifacts a JOIN production_attempts t ON t.id=a.attempt WHERE a.id=?",(ident,)).fetchone()
+            if row:result.append({**dict(row),'display_name':artifact_filename(state,dict(row))})
     return result
 
 

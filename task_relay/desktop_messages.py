@@ -60,6 +60,8 @@ class MessagesService(DesktopService):
                   'An existing Messages helper uses this installation.' if shared else
                   'Another Messages installation was found and is preserved.' if owner != 'none' else
                   'No Messages helper is installed. Telegram is ready for the complete setup flow.')
+        if healthy and state.get('health_detail') not in (None, '', 'Paired', 'Awaiting pairing'):
+            detail += ' ' + state['health_detail']
         return {**state, 'owner': owner, 'loaded': loaded, 'healthy': healthy, 'managed': managed,
                 'shared_data': shared, 'detail': detail,
                 'component': 'Task Relay Messages service' if managed else 'External Messages installation',

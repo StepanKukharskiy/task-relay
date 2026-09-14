@@ -82,17 +82,23 @@ def notice(state, name, key, text):
         from task_relay.orchestrator_chat import queue_notice
         queue_notice(state,key.split(':')[-1]+':'+key.split(':')[0],text)
         return
+    from . import workflow_files
+    owner=workflow_files.owner_for_run(state,name)
+    if owner:
+        location=workflow_files.location_text(state,owner['id'])
+        if location not in text:text+='\n\n'+location
     state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', ('production:' + name + ':' + key, text))
     if getattr(state, 'channel', None):
         state.db.execute('INSERT OR IGNORE INTO relay_event_channels VALUES (?,?)',
                          ('production:' + name + ':' + key, state.channel))
 
 
-def pending_execution_text(view):
+def pending_execution_text(view,workflow=False):
     if not view.get('deferred_operations'):return ''
     pending=[v['description'] for v in view.get('pending_deliverables',{}).values()]
     return ('\nNot generated yet: '+('; '.join(pending) or ', '.join(view['deferred_operations']))+
-        '\nThis stage prepares inputs only. After selecting the reviewed set, use Plan execution to prepare the remaining work. Start approves its exact script and limits.')
+        ('\nThis stage prepares inputs only. After selection, Relay will prepare the execution plan for the saved workflow. Start approves its exact script and limits.' if workflow else
+         '\nThis stage prepares inputs only. After selecting the reviewed set, use Plan execution to prepare the remaining work. Start approves its exact script and limits.'))
 
 
 def root(state):
@@ -118,9 +124,11 @@ def inspect(state, focus=None, include_files=True):
                 progress.append({'latest_attempt':task['latest'], 'attempt_state':attempt['state'] if attempt else None,
                     'error':failure_detail(db,attempt) if attempt else json.loads(unavailable['data'])['reason'] if unavailable else None,
                     'dependencies':[{ 'task':dep, 'status':next(t['status'] for t in tasks if t['id']==dep)} for dep in spec['dependencies']],
-                    'runnable':task['status']=='queued' and dependencies_ready(spec,tasks),
+                    'runnable':task['status']=='queued' and dependencies_ready(spec,tasks,specs),
                     'review_target':frozen.get('review_target'), 'review_is_current':bool(target and current),
                     'output_is_current':bool(task['latest'] and current)})
+                from . import production_activity
+                progress[-1]['activity']=production_activity.snapshot(root(state),attempt,spec,json.loads(row['plan'])['backend'])
             enabled = bool(state.get('production-enabled:' + row['id']))
             uploads = upload_views(state, row['id'])
             pending = state.db.execute("SELECT id,status,error FROM production_revisions WHERE run=? ORDER BY id DESC LIMIT 3", (row['id'],)).fetchall()
@@ -296,6 +304,55 @@ def resume_review(state,name,legacy=False):
     return 'Scheduling resumed for '+name+' within its existing approved plan. Only remaining tasks may start; no attempts were reset.'
 
 
+def resume_review_evidence(state, name, request):
+    """Explicit recovery of an old scheduler deadlock; retain every assignment."""
+    from orchestrator import contracts as c
+    from orchestrator.runtime import Runtime
+    if not state.db.in_transaction:
+        raise ValueError('Resume requires a transaction.')
+    c.nonempty(request, 'Exact recovery request')
+    view = next(v for v in inspect(state, name, include_files=False) if v['name'] == name)
+    saved = state.get('production-status:' + name, {})
+    if (view['status'] != 'active' or view['scheduler_enabled'] or saved.get('status') != 'blocked'
+        or state.get('production-control-epoch:' + name, 0) != 0
+        or any(t['status'] not in ('queued', 'awaiting_review', 'completed') for t in view['tasks'])):
+        raise ValueError('This is not an unchanged inspection/review scheduling deadlock.')
+    current_tasks = sorted([[t['id'], t['status'], t['attempts']] for t in view['tasks']])
+    if saved.get('tasks') != current_tasks:
+        raise ValueError('Task state changed since the recorded scheduling blocker.')
+    row = state.db.execute("SELECT plan FROM production_plans WHERE run=? AND status='started'", (name,)).fetchone()
+    current = state.db.execute('SELECT plan,status FROM production_runs WHERE id=?', (name,)).fetchone()
+    if not row or current['status'] != 'active' or json.loads(row[0]) != json.loads(current['plan']):
+        raise ValueError('An unchanged, previously started plan is required.')
+    rt = Runtime(root(state), connection=state.db)
+    tasks = rt.db.execute('SELECT * FROM production_tasks WHERE run=?', (name,)).fetchall()
+    specs = [rt.spec(t) for t in tasks]
+    if {a['id']:a for a in specs} != {a['id']:a for a in json.loads(row[0])['tasks']}:
+        raise ValueError('Approved assignments changed.')
+    c.validate_review_order(specs)
+    evidence = c.review_evidence_dependencies(specs)
+    runnable = [t for t in view['tasks'] if t['runnable']]
+    if not runnable or any(t['id'] not in evidence or t['attempts'] for t in runnable):
+        raise ValueError('Only previously planned, unstarted review inspections may recover here.')
+    if state.db.execute("SELECT 1 FROM production_control_cards WHERE run=? AND status='applied'", (name,)).fetchone():
+        raise ValueError('An explicit control decision prevents automatic scheduling recovery.')
+    for target in {d for t in runnable for d in evidence[t['id']]}:
+        task = rt.task(name, target)
+        attempt = state.db.execute('SELECT state,frozen FROM production_attempts WHERE id=?', (task['latest'],)).fetchone()
+        if task['status'] != 'awaiting_review' or not attempt or attempt['state'] != 'completed':
+            raise ValueError('A successfully delivered candidate is required; failed work cannot resume here.')
+        for output in rt.spec(task)['outputs']:
+            artifact = rt.output(name, target, output['path'])
+            from orchestrator.runtime import file_hash
+            if file_hash(artifact['blob']) != artifact['sha256']:
+                raise ValueError('The candidate artifact changed.')
+    state.put('production-enabled:' + name, view['contract_digest'])
+    rt.event(name, None, None, 'review_evidence_scheduling_resumed',
+             {'request': request, 'contract_digest': view['contract_digest'],
+              'remaining_inspections': [t['id'] for t in runnable], 'attempts_reset': False})
+    return 'Resumed the approved inspection and review; successful modeling is retained.'
+
+
 class Worker:
     def __init__(self, state, runtime_factory=None, telegram=None):
         self.state, self.runtime, self.runtime_factory, self.cursor = state, None, runtime_factory, 0
@@ -417,10 +474,18 @@ class Worker:
                 self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)',
                     ('production:' + name + ':changed', 'Production plan changed: ' + name + '. Scheduling stopped; review its saved state.'))
             enabled=False
-        result = self.runtime.tick(name,dispatch=bool(enabled))
+        from .production_repairs import dispatch_allowed
+        result = self.runtime.tick(name,dispatch=bool(enabled) and dispatch_allowed(self.state,name))
         current = next(r for r in inspect(self.state,name) if r['name'] == name)
         summary = sorted([[t['id'], t['status'], t['attempts']] for t in result['tasks']])
+        previous_status=self.state.get('production-status:'+name,{})
+        previous_tasks={t[0]:t[1:] for t in previous_status.get('tasks',[])}
         with self.state.db:
+            for task in current['tasks']:
+                if task['status']=='running' and previous_tasks.get(task['id'])!=['running',task['attempts']]:
+                    from .production_activity import lines as activity_lines
+                    notice(self.state,name,'working:'+task['latest_attempt'],
+                           'Production: '+name+'\n'+task['id']+': Running\n'+'\n'.join(activity_lines(task)))
             self.state.put('production-status:' + name, {'status': result['status'], 'tasks': summary})
             if result['status']=='paused':return
             if result['status'] != 'active':
@@ -444,14 +509,18 @@ class Worker:
                         line += ' (waiting on ' + ', '.join(d['task']+': '+d['status'] for d in task['dependencies']) + ')'
                     if task.get('error') and task['status'] in ('blocked','uncertain','cancelled'):
                         line += '\n' + task['error'][:1800]
-                    details.append(line)
+                    from .production_activity import lines as activity_lines
+                    details.append(line+'\n'+'\n'.join(activity_lines(task)))
                 ending = ('\nWorker termination is confirmed. Saved partial outputs follow where available; they are not accepted results.'
                           if result['status']=='cancelled' else
                           '\nCurrent draft outputs follow where available. They are not approved results. A recovery step is needed; waiting will not resolve this blocker.'
                           if result['status']=='blocked' else
                           '\nSaved outputs follow as documents. Use a Select button for the exact file or declared file set, or reply with feedback to request a revision. You can also attach guides and then send your instructions. A revision card shows what will run. No next stage starts automatically.')
+                from . import pipelines
+                workflow=pipelines.owns_run(self.state,name)
+                if pipelines.owner_of_run(self.state,name):ending=ending.replace('No next stage starts automatically.',pipelines.continuation_text(self.state,name))
                 self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n' +
-                    '\n'.join(details) + pending_execution_text(current) + ending))
+                    '\n'.join(details) + pending_execution_text(current,workflow) + ending))
                 current_outputs = {t['id'] for t in current['tasks'] if t['output_is_current']}
                 for task in result['tasks']:
                     if task['id'] not in current_outputs:
