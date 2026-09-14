@@ -23,9 +23,12 @@ def main():
                          'Native service activation/restart evidence'],
             'provider_calls':0,'live_messages':0,'media_operations':0}
     if sys.platform=='win32':
-        report['profile']='windows-boundaries'
-        report['remaining'][:0]=['Windows process-tree ownership, native lock, junction/reparse-point grants and credential ACL adapter',
-                                'Windows service adapter and task execution/recovery qualification']
+        report['profile']='windows-processes-and-boundaries'
+        report['execution_qualified']=False
+        report['target_os']='Windows 10 and later'
+        report['remaining'][:0]=['Windows 10 and Windows 11 desktop qualification (Server CI is not client evidence)',
+                                'Windows junction/reparse-point grants and credential ACL adapter',
+                                'Windows service adapter and complete task execution/recovery qualification']
     elif sys.platform in ('darwin','linux'):report['profile']='posix-text-runtime'
     else:raise SystemExit('No qualification profile for '+sys.platform)
     def save(): (out/'summary.json').write_text(json.dumps(report,indent=2)+'\n')
@@ -38,7 +41,7 @@ def main():
         save()
         if result.returncode:raise SystemExit('Failed: '+name+'; see '+str(out/(name+'.log')))
     run('host-report',[sys.executable,'-m','task_relay','host'])
-    selected=(['tests.test_native_hosts.WindowsBoundaries'] if sys.platform=='win32' else [
+    selected=(['tests.test_windows_processes','tests.test_native_hosts.WindowsBoundaries'] if sys.platform=='win32' else [
         'tests.test_native_hosts.ProcessTrees','tests.test_native_hosts.LinuxServices',
         'tests.test_host_adapters','tests.test_file_tools','tests.test_worker_factory',
         'tests.test_mixed_execution.Tests.test_ambiguous_api_submission_remains_uncertain_across_restart_and_cancel'])

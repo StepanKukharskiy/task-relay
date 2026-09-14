@@ -111,5 +111,24 @@ class Tests(unittest.TestCase):
         self.assertIn('No later stage starts automatically',text)
         self.assertFalse(self.state.get('production-enabled:demo'))
 
+    def test_activity_is_visible_and_task_start_notice_is_once_per_attempt(self):
+        self.click(self.stage_card()['token']);worker=self.worker();worker.tick();worker.tick()
+        _,text=status.current(self.state,'demo')
+        self.assertIn('AI: fixed-model',text)
+        self.assertIn('Tokens: not reported yet',text)
+        self.assertIn('Relay is working on:',text)
+        notices=lambda:list(self.state.db.execute("SELECT text FROM outbox WHERE id LIKE 'production:demo:working:%'"))
+        self.assertEqual(len(notices()),1)
+        worker.tick();self.assertEqual(len(notices()),1)
+        self.factory.finish(self.rt.task('demo','produce')['latest']);worker.tick();worker.tick()
+        self.assertEqual(len(notices()),2)
+        _,text=status.current(self.state,'demo')
+        self.assertIn('100 input',text)
+        self.assertIn('Tokens reported (final)',text)
+        self.factory.finish(self.rt.task('demo','review')['latest'],decision='accept');worker.tick()
+        terminal=self.state.db.execute("SELECT text FROM outbox WHERE id LIKE 'production:demo:result:%' ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+        self.assertIn('AI: fixed-model',terminal)
+        self.assertIn('100 input',terminal)
+
 
 if __name__=='__main__':unittest.main()

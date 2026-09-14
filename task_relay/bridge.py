@@ -975,7 +975,7 @@ class Bridge:
             return
         if command in ('/workflow', '/workflows'):
             try:
-                orchestrator_chat.workflow_command(self, arg, update_id)
+                orchestrator_chat.workflow_command(self, arg, update_id, source_request=message.get('text',''))
             except ValueError as exc:
                 self.send(str(exc))
             return

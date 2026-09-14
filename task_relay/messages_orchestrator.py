@@ -54,11 +54,12 @@ class OrchestratorRouter:
             latest = state.db.execute('SELECT COALESCE(max(request_id),0) FROM messages_orchestrator_requests').fetchone()[0]
             ident = max(int(time.time() * 1_000_000), latest + 1)
             last = state.db.execute("SELECT c.focus FROM orchestrator_chats c JOIN relay_request_channels r ON r.request_id=c.id "
-                                    "WHERE r.channel='messages' AND c.status='answered' ORDER BY c.id DESC LIMIT 1").fetchone()
+                                    "WHERE r.channel='messages' AND c.status='answered' ORDER BY c.created DESC LIMIT 1").fetchone()
             state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)', (ident, 'messages'))
             state.db.execute('INSERT INTO messages_orchestrator_requests VALUES (?,?)', (guid, ident))
             state.db.execute('INSERT INTO orchestrator_chats(id,prompt,focus,provider,model,created) VALUES (?,?,?,?,?,?)',
                              (ident, prompt, last[0] if last else None, name, model, time.time()))
+            orchestrator_chat.pipelines.bind_reply(relay_channels.ScopedState(state,'messages'),ident,last[0] if last else None)
         return ident
 
     def status(self):
@@ -87,7 +88,13 @@ class OrchestratorRouter:
 
     def tick(self, pilot):
         self.acknowledge(pilot)
-        for row in relay_channels.pending(self.state, 'messages'):
+        # Exported replies keep their original outbox acknowledgement until all
+        # parts are sent. Held replies must not fill the export batch forever.
+        exported = {row['event_id'] for row in self.state.db.execute(
+                    'SELECT e.* FROM messages_orchestrator_exports e JOIN outbox o ON o.id=e.event_id WHERE o.sent=0').fetchall()
+                    if pilot.store.db.execute('SELECT 1 FROM messages_delivery WHERE id=?',
+                                              (row['delivery_key'] + ':1',)).fetchone()}
+        for row in relay_channels.pending(self.state, 'messages', exclude_ids=exported):
             with self.state.db:
                 direct = self.state.db.execute('SELECT 1 FROM messages_provider_requests r '
                     'JOIN backend_jobs j ON j.id=r.job_id WHERE j.thread_id=?', (row['thread_id'],)).fetchone()

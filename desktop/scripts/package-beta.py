@@ -7,6 +7,10 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from task_relay.runtime_check import check_packaged
 
 
 def package(app, output):
@@ -17,6 +21,7 @@ def package(app, output):
     if output.exists():
         raise ValueError('Release artifacts are immutable. Choose a new filename.')
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+    check_packaged(app)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='task-relay-dmg-') as folder:
         root = Path(folder)

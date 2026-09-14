@@ -412,9 +412,14 @@ class Pilot:
         chat = self.store.get('chat')
         if not chat:
             return
-        # Stop after an ambiguous part instead of transmitting later parts out of order.
+        # Hold the remaining parts of an ambiguous reply. Independent replies
+        # must not be stranded behind it, and uncertainty is never acceptance.
         row = None
-        for candidate in self.store.db.execute("SELECT * FROM messages_delivery WHERE status!='sent' ORDER BY rowid"):
+        candidates = self.store.db.execute("SELECT * FROM messages_delivery WHERE status!='sent' ORDER BY rowid").fetchall()
+        held = {item['id'].rsplit(':', 1)[0] for item in candidates if item['status'] != 'pending'}
+        for candidate in candidates:
+            if candidate['id'].rsplit(':', 1)[0] in held:
+                continue
             if (candidate['status'] == 'pending' and candidate['id'].startswith('shared-orchestrator:proactive:')
                     and channel_policy.read(self.store.db)['proactive'] == 'none'):
                 continue
@@ -430,13 +435,23 @@ class Pilot:
             with self.store.db:
                 self.store.db.execute("UPDATE messages_delivery SET status='pending' WHERE id=?", (row['id'],))
             return
-        except Exception:
+        except Exception as exc:
             with self.store.db:
                 self.store.db.execute("UPDATE messages_delivery SET status='uncertain' WHERE id=?", (row['id'],))
+                self.store.put('delivery_failure:' + row['id'], {
+                    'delivery_id': row['id'], 'status': 'uncertain', 'at': time.time(),
+                    'error_type': type(exc).__name__, 'automatic_resend': False})
             raise BridgeError('Message delivery is uncertain. Check Messages and Automation permission. '
                               'No automatic resend. See docs/messages-pilot.md for recovery.') from None
         with self.store.db:
             self.store.db.execute("UPDATE messages_delivery SET status='sent' WHERE id=?", (row['id'],))
+
+    def delivery_attention(self):
+        count = self.store.db.execute("SELECT count(*) FROM messages_delivery WHERE status='uncertain'").fetchone()[0]
+        if not count:
+            return ''
+        return (f'{count} earlier message part(s) have unconfirmed delivery and remain held for review. '
+                'New messages can receive replies. No automatic resend.')
 
 
 def run(args):
@@ -488,8 +503,7 @@ def run(args):
             uncertain = store.db.execute("SELECT id FROM messages_delivery WHERE status='uncertain'").fetchall()
             if uncertain:
                 print('Uncertain deliveries: ' + ', '.join(r['id'] for r in uncertain), flush=True)
-                raise BridgeError('Check these messages on your phone, then use --ack-delivery ID to skip them. '
-                                  'See docs/messages-pilot.md.')
+                print(pilot.delivery_attention() + ' See docs/messages-pilot.md for recovery.', flush=True)
             command = [binary, 'watch', '--json', '--debounce', '500ms']
             chat = store.get('chat')
             if chat:
@@ -541,7 +555,8 @@ def run(args):
                         orchestrator_router.tick(pilot)
                         pilot.deliver()
                         if time.monotonic() - last_health > 5:
-                            write_health(folder, 'running', 'Paired' if store.get('chat') else 'Awaiting pairing')
+                            write_health(folder, 'running', pilot.delivery_attention() or
+                                         ('Paired' if store.get('chat') else 'Awaiting pairing'))
                             last_health = time.monotonic()
                 finally:
                     process.terminate()

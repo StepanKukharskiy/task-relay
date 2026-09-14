@@ -22,11 +22,11 @@ runtime. See [new workflow planning](new-pipeline-planning.md) for limits and ev
 
 | Path | Capabilities | Execution evidence |
 | --- | --- | --- |
-| Direct orchestrator file calls | List, search and read known project text files | Private request/response/read journal; existing file policy |
+| Direct orchestrator file calls | List/search project text and read text or PDF sources | Private request/response/read journal; existing file policy |
 | Direct orchestrator web tools | Google-backed search with configured Gemini; public HTTPS page text | Grounding metadata, cited URLs, timestamped page hashes and source report |
 | Existing Codex desktop task | File inspection/editing and shell; additional plugins/web are not assumed | `task_routes`, then native task progress/result |
 | Existing Claude task | Read, Glob, Grep, Edit, Write, Bash, WebSearch, WebFetch | `backend_jobs`, native permission requests and result |
-| Existing Gemini/OpenAI/Qwen/DeepSeek/OpenRouter text task | Three read-only file tools | `backend_jobs`, native provider/tool receipts |
+| Existing Gemini/OpenAI/Qwen/DeepSeek/OpenRouter text task | Four read-only file tools, including PDF text extraction | `backend_jobs`, native provider/tool receipts |
 | Relay actions | Existing image, reference, research-folder and production/workflow controls | Existing adapter receipts and user gates |
 | Registered production worker | Files/shell within its frozen assignment | Runtime attempts, artifacts, independent review and user selection |
 | Direct Rhino 7/8 host operations | Startup, selected `.3dm` inspection and exact-approved interpreter-specific creation/editing and native rendering on macOS; Grasshopper paused | Exact script/input grants, process ownership, native candidate, independent reopen checks and viewport preview; [scope](rhino.md) |
@@ -114,3 +114,28 @@ failure never makes a summary sufficient for approval. Missing diffs or requests
 above the 1 MB serialized UTF-8 detail bound retain desktop review. This replaces
 the former 10,000-character escaped-JSON cutoff for file changes; command and
 permission cards retain their existing limits. No approval is submitted automatically.
+
+## Direct PDF reading
+
+`pdf_read` reads the actual PDF under the selected project's existing read grant.
+It is offered to the orchestrator and workspace-enabled Gemini, OpenAI, Qwen,
+DeepSeek and OpenRouter text tasks. `file_search` still searches text files only;
+use `file_list` to locate PDFs, then `pdf_read` to inspect their content.
+
+Arguments: `path`, one-based `page`, character `offset`, `limit` (1–24,000), and
+`sha256` (empty initially). Responses contain numbered page text, the source hash,
+`total_pages`, `next_page` and `next_offset`. Continue with the returned hash to
+reject a changed source instead of combining versions. A response covers at most
+eight pages; it does not imply the whole document was inspected. Cite PDF page
+numbers and disclose remaining unread pages. Wiki summaries do not replace a
+requested read of the current PDF.
+
+Bounds are 20 MB, 500 document pages, eight pages/24,000 characters per call and
+15 seconds per extraction process. Decoded stream limits also apply. Parsing runs
+in a separate local process over bytes from the existing protected file opener;
+no additional path grants are created. Symlinks, private paths and traversal
+remain excluded. Malformed/encrypted/oversized PDFs and timeouts return explicit
+errors without automatic retry. `pypdf` is a pinned core dependency, included in
+the packaged desktop runtime. This is text extraction: no OCR, image/diagram
+interpretation, table-layout verification, embedded-script execution or external
+link fetching. Pages lacking text are explicitly marked as blank or needing OCR.

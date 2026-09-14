@@ -119,10 +119,6 @@ class WindowsBoundaries(unittest.TestCase):
         from task_relay import credentials
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); target=root/'child-started'
-            with self.assertRaises(UnsupportedHost):
-                HOST.spawn([sys.executable,'-c','from pathlib import Path; Path(__import__("sys").argv[1]).touch()',str(target)])
-            with (root/'lock').open('w') as stream:
-                with self.assertRaises(UnsupportedHost):HOST.lock(stream)
             with self.assertRaises(UnsupportedHost):FILES.write(Grant(root,'fixture',writes=frozenset({'out.txt'})),'out.txt',b'fixture')
             with self.assertRaises(UnsupportedHost):HOST.telegram_service('install')
             self.assertFalse(target.exists());self.assertFalse((root/'out.txt').exists())

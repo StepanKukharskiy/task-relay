@@ -1,6 +1,429 @@
 # Changelog
 
+## Unreleased — PR integration validation
+
+- Keep application detection results unchanged when adding catalog context, so
+  reused Rhino results cannot create circular planning JSON.
+- Include request-derived workflow documentation in the public source inventory
+  and limit desktop icons to their intended image formats, excluding Finder metadata.
+
+## Unreleased — Windows 10+ process foundation
+
+- Target Windows 10 and later through the shared core and native host adapters.
+  Add atomic worker membership in a Windows Job Object, descendant cancellation,
+  kill-on-owner-exit, explicit inherited pipe handles and native exclusive locks.
+- Keep supervisor lifetime separate from scheduler lifetime. Reconnect using the
+  process creation time and executable identity; missing or changed identity stays
+  uncertain and never triggers replay. Freeze and verify the Windows adapter with
+  every agent, API and registered-operation launch.
+- Add controlled contract tests and native Windows process/lock/recovery fixtures
+  to CI. Local macOS checks preserve existing worker and mixed-execution behavior;
+  native Windows cases are skipped here and still require a Windows run. This is
+  source work, not an installed or released Windows app. File grants, credential
+  ACLs, background startup, installer and client OS qualification remain open.
+
+## Unreleased — planning handoff correction
+
+- Move the unexecuted stage handoff to a planning successor atomically, after
+  verifying unchanged previous-stage selections and state. Applies to explicit
+  rate-limit retry and saved-proposal recovery. Retain a lineage receipt; refuse
+  replaced handoffs or already-started children.
+- Passed 42 stage/pipeline tests, including retry → delivered plan → Start and
+  transaction rollback. Repaired the affected live handoff without changing its
+  plan, token, script, input hashes or starting execution. The general code fix
+  is in source and awaits the next app package; installed version remains 0.13.23.
+
+## 0.13.23 — installed local build; public release pending
+
+- Add explicit planning retry after a confirmed Gemini 429 rejection with no
+  saved response. Keep the failed proposal/call, exact context, provider/model,
+  selected source versions and preparation lineage; queue one bounded successor.
+- Offer Retry planning with a card tied to the failed plan, and a direct
+  `/workflow retry-plan WORKFLOW_ID` command without AI interpretation. Duplicate
+  commands and stale cards cannot create extra attempts. Uncertain submissions
+  remain blocked; host-code execution still needs its exact Start approval.
+- Explain workflow-control failures instead of incorrectly requesting rephrasing.
+  Thirty-four pipeline tests and 62 related integration tests pass with controlled
+  providers. Exact-command preservation passed 28 further checks; four packaged
+  regressions passed under the bundled interpreter. No live retry ran.
+- Installed with all 245 runtime hashes, same signing identity, data compatibility
+  and fresh service health verified. The saved workflow, selected step sources
+  and original failed planning row/calls stayed unchanged.
+
+## 0.13.22 — installed local build; public release pending
+
+- Keep iMessage intake and independent replies available when an earlier reply
+  has uncertain delivery. Preserve its exact parts and unacknowledged controls;
+  never replay or silently accept it. Held exports cannot starve newer replies.
+- Show held-delivery attention in Channels even while Messages is connected,
+  and retain a timestamped exception-type receipt for future send failures.
+- Passed 70 focused Messages, provider-routing, channel-policy and service tests
+  with controlled transports. Older Messages migration fixtures fail on a
+  browser-account table also present in installed 0.13.21; no migration changed.
+- Passed 16 export/shared-storage checks and three packaged regressions. Installed
+  the same-identity build with 245 runtime files and unchanged data compatibility
+  verified. Messages now has a fresh running watcher while the original uncertain
+  reply remains held. A fresh /ping received a reply, confirmed by the user;
+  this qualifies the text transport, not a new AI-provider or workflow run.
+
+## 0.13.21 — installed local build; public release pending
+
+- Report all detected Rhino 7/8 installations separately from the preferred
+  runtime. Add a Models by task preference for new Rhino plans, preserving
+  explicit host overrides and existing exact-runtime approvals.
+- Keep supported image/video/3D providers visible before connection and offer a
+  direct connection action. Disconnected choices cannot be saved as defaults.
+- Add explicit OpenAI/OpenRouter image-catalog refresh without changing text
+  models, credentials, defaults or queued work. OpenRouter discovery uses its
+  documented image-output model filter.
+- Passed 67 focused Python tests and one local companion UI test. An older
+  provider busy-state fixture fails identically against installed 0.13.20;
+  details are recorded privately. No Rhino/Blender operation or media generation ran.
+- Installed and verified the local signed package and provider/version choices.
+  Relay service health is fresh; iMessage's pre-existing uncertain-delivery
+  attention state was preserved rather than acknowledged or replayed.
+
+## 0.13.20 — installed local build; public release pending
+
+- New saved workflows include one bounded script-repair preparation and
+  independent review per stage, using the existing execution model. Confirmed
+  Rhino/Blender script failures carry the exact receipt, original request,
+  assignment, script and unchanged checks into both workers.
+- Successful repair review produces a delivered diagnosis, review, exact script
+  and checks with a fresh Start card. Start resumes the original workflow using
+  a new attempt; earlier attempts and artifact versions remain preserved.
+- Startup/environment failures, uncertain operations, rejected repairs and
+  exhausted repair budgets remain stopped. Workflow pause/cancel and pending
+  human feedback prevent additional repair dispatch. Existing workflows receive
+  no retroactive automatic-work budget.
+- Repair artifacts and history appear in the original workflow folder. Passed
+  83 focused recovery, planning, workflow, file-history, status and activity
+  tests with controlled fixtures. The local package is installed and verified
+  with fresh Relay/Messages service health. Its reviewed additive migration adds
+  one empty repair-tracking table, preserving existing records and grants.
+  Twenty-six update tests and packaged checks pass. No live provider or native
+  modeling task was run for installation; live repair qualification remains open.
+
+## 0.13.19 — local build; public release pending
+
+- Check whether the selected Rhino executable is already running before launch.
+  Preserve existing sessions and report the required save/quit/recovery action.
+- Require an owned PID/token startup acknowledgment within 60 seconds (or the
+  shorter approved task limit). Stop only the newly launched process if startup
+  never completes; confirmed startup retains the remaining task time allowance.
+- Handle missing, null and mismatched Rhino responses without the secondary
+  `NoneType` crash. Preserve the failure receipt and do not run later phases or
+  automatically replay the modeling script.
+- Passed 53 focused Rhino operation/planning tests. Three older handoff tests
+  fail identically against installed 0.13.18; details are recorded privately.
+- The real Rhino 8 startup diagnostic passed with an owned acknowledgment in
+  8.7 seconds while Rhino 7 remained open. No modeling script ran in this check.
+- Installed and verified the local package with fresh service health. Delivered
+  a recovery plan preserving the selected script, checks, limits and failed
+  attempt; model execution remains pending the new attempt's Start action.
+
+## 0.13.18 — local build; public release pending
+
+- Show each production task’s objective, frozen AI model and reasoning setting,
+  elapsed time, task limit, tool count and last recorded activity in status cards.
+  Native operations show their actual executor instead of the planner’s model.
+- Report available provider input, output, cache and reasoning token counts,
+  distinguishing partial reports, final receipts and unreported usage. No usage
+  or cost is estimated. Status reads do not run a provider or change task state.
+- Add bounded supervisor progress snapshots without command/prompt content.
+  Failure to write display telemetry does not interrupt an authorized worker.
+- Announce each newly running task once, including preparation-to-review changes;
+  subsequent activity updates remain available through Check status.
+- Controlled worker/status tests (50), affected integration tests (74), a
+  telemetry-write failure test and 26 update tests passed. Final native-executor
+  display checks passed. Installed locally with all 243 packaged runtime files
+  verified, fresh service health, and read-only model/usage display matched to an
+  existing worker receipt. No workflow was replayed by this update.
+
+## 0.13.17 — local build; public release pending
+
+- Organize workflow files into numbered folders derived from the saved stages.
+  Native Rhino, Blender and other outputs keep their filenames and formats;
+  selected files, drafts, reviews and support files have separate readable paths.
+- Move existing unchanged exports into the new layout without duplicating them.
+  Preserve user edits, earlier versions and exact selection/execution records;
+  interrupted file promotion can resume without replaying the workflow.
+- Keep stage results directly accessible and put internal snapshots under `.relay/`.
+- Installed locally after 98 focused workflow/delivery tests, 26 update tests and
+  packaged runtime/service verification. Migrated all 65 existing workflow files
+  with identical hashes and file identities; attempts, decisions and messages
+  stayed unchanged. Native generation was not rerun.
+
+## 0.13.16 — local build; public release pending
+
+- Give each request-derived workflow a stable folder under the configured
+  generated-files root. Export stage results, exact artifact copies, prior
+  recovery versions, decisions and execution/review records after commit.
+- Include the workflow folder path in workflow and production messages and
+  status context. Provide a readable index and manifests linking exact versions.
+- Keep user-edited copies and original registered artifacts unchanged. Folder
+  edits do not select results or start work; unavailable copies are reported.
+- Include linked follow-up files in the inspection folder without extending
+  workflow execution authorization. Installed after 94 focused tests, 26 update
+  tests and packaged runtime/service checks. Existing workflow files exported
+  without changing attempts, decisions or messages; installed status paths verified.
+
+## 0.13.15 — local build; public release pending
+
+- Register speaker notes at the presentation level so Keynote can discover the
+  existing notes master. Preserve slide content, native objects and source images.
+- Reject missing, mismatched or misplaced notes master references during saved
+  PPTX inspection, beyond the library's permissive reopen check.
+- Reproduced the original Keynote rejection, then imported the repaired 11-slide
+  copy with notes intact. Only presentation XML changed; all other package parts
+  and the original artifact remain unchanged. Installed locally after 20 relevant
+  presentation tests, 26 update tests and packaged runtime/service verification.
+
+## 0.13.14 — local build; public release pending
+
+- Preserve declared artifact paths when binding required operation inputs. Keep
+  source identities/types unchanged; relocate colliding implicit context instead
+  of overwriting explicit aliases. Reject conflicting aliases and unsafe paths.
+- Recover confirmed failed local procedures with corrected declared input paths,
+  retaining completed preparation/review outputs and old attempts. Validate PPTX
+  image references against the recovered inputs before proposing execution.
+- Show the terminal registered-operation failure reason in status cards.
+- Installed after 106 relevant tests, 26 update tests and packaged runtime/service
+  verification. Recovered the stopped deck operation with zero planning calls,
+  preserving all old attempts and completed preparation/review. Relay created
+  the 11-slide editable PPTX; independent structural review passed and Relay
+  delivered the deck and review. Final user selection remains pending; visual
+  layout and Keynote import were not tested.
+
+## 0.13.13 — local build; public release pending
+
+- Distinguish required workflow context from registered operation arguments.
+  Automatically bind compatible implicit sources using capability input types;
+  retain all selected sources for authoring/review and provenance. Explicit
+  incompatible operation inputs remain errors.
+- Clarify planning instructions so native upstream models do not force a later
+  presentation/text operation to consume unsupported binary files.
+- Installed after 66 relevant checks with the bundled PPTX dependency, 26 update
+  tests and packaged runtime/service verification. Recovered the exact saved deck
+  plan with zero new planning calls; slide preparation has started. Earlier blocked
+  planning receipts and all prior attempts remain preserved.
+
+## 0.13.12 — local build; public release pending
+
+- Reconcile a workflow left blocked after its linked production run recovers and
+  completes. Preserve exact selected artifacts, decisions and attempts; queue
+  the next original stage once. No failed or uncertain operation is replayed.
+- Keep workflow ownership visible in completed-stage messages when its parent is
+  blocked, paused, cancelled or completed; do not present it as a standalone job.
+- Respect explicit workflow pause/cancel and reject changed or missing source
+  artifacts before clearing a stale production blocker.
+- Installed after 54 workflow/recovery/selection tests, 26 update tests and packaged
+  runtime/service verification. The live workflow reconciled its selected model,
+  queued visualization once using the exact preview, and completed Gemini image
+  generation. Image and selection card were delivered; PPTX follows image selection.
+
+## 0.13.11 — local build; public release pending
+
+- Let registered read-only inspections feed their declared independent reviewer
+  while the exact candidate awaits review. Ordinary downstream stages still wait
+  for review and user selection. No modeling replay is needed.
+- Validate review completion gates as well as task dependencies, rejecting plans
+  whose reviewer prerequisites form a scheduling cycle.
+- Recover an old inspection/review scheduling deadlock only from its unchanged
+  started plan and intact candidate, preserving attempts and explicit controls.
+- Installed after 132 focused tests, 26 update tests, saved-state recovery and
+  packaged runtime/service verification. The original production run resumed at
+  inspection with its successful modeling attempt unchanged. Native inspection
+  completed and independent review started under the original plan.
+
+## 0.13.10 — local build; public release pending
+
+- Inventory hidden and locked Rhino objects during save/reopen verification and
+  inspection, including hidden references for dependency checks. Hidden analytical
+  layers no longer cause false missing-object/count failures.
+- Permit explicit unchanged-script recovery only when the failed receipt records
+  a different Rhino implementation. Preserve the old attempts and require fresh
+  exact Start for the new runtime assignment.
+- Preserve earlier recovery requests under distinct historical input paths so a
+  second repair cannot collide with the current request file.
+- Installed after 100 focused tests, 26 update tests, saved-state recovery and
+  packaged runtime/service verification. A native reopen check of the existing model
+  passed all 128 objects and 100 named-dimension checks without changing its hash.
+  The new recovery card and exact inputs were delivered; registered modeling,
+  inspection and review await fresh Start. No failed attempt was accepted or replayed.
+
+## 0.13.9 — local build; public release pending
+
+- Surface the Rhino worker exception or validation failure in the execution summary,
+  preserving the full receipt and the no-replay boundary.
+- Prepare an exact-script repair after a confirmed failed host Python operation.
+  Preserve old assignments, reuse completed dependency outputs and keep only unfinished
+  tasks in the proposed plan. The corrected script requires fresh exact Start.
+- Retain workflow output-set selection when preparing native execution and repair
+  plans, so related model and preview files travel together into downstream work.
+- Write planning attachments by immutable plan version so transaction recovery
+  does not overwrite or fail on an earlier read-only document.
+- Installed after 100 focused tests, 26 update tests and packaged runtime/service
+  verification. A corrected private script repair plan was delivered with exact
+  attachments, retaining the completed startup and failed execution history.
+  Corrected native execution is awaiting new Start; geometry remains unverified.
+
+## 0.13.8 — local build; public release pending
+
+- Keep explicitly registered preparation continuations attached to their saved
+  workflow, including recovery of continuations created by older builds. Preserve
+  prior attempts and decisions; paused/cancelled workflows remain stopped.
+- Resolve original planning context through recorded continuation ancestry. After
+  exact output selection, prepare deferred execution once using those files, or
+  advance ordinary file stages to the next saved stage. Native scripts still need Start.
+- Make workflow status cards describe automatic planning after selection instead
+  of asking for a new next-stage request.
+- Installed after 87 workflow/planning/continuation tests, 26 update tests, a copied
+  saved-state recovery probe and complete packaged runtime/service verification.
+  The existing selected continuation rejoined its workflow and delivered a ready
+  native execution plan. Host execution remains pending exact Start.
+
+## 0.13.7 — local build; public release pending
+
+- Plan independent worker deadlines up to 30 minutes per task, including separate
+  authoring and review budgets. Optional task_seconds records a requested ceiling;
+  prior plans retain their frozen limits until explicitly reproposed. Registered
+  operations retain their own narrower limits. Tool and attempt budgets are unchanged.
+- Freeze the automatic time ceiling when a new workflow is created. Legacy workflows
+  keep the 10-minute automatic boundary; a longer stage waits for exact plan Start
+  instead of failing or silently extending an existing grant.
+- Instruct authoring workers to save drafts early and reserve time for essential
+  validation and the final structured handoff before optional analysis.
+- Installed locally after 76 focused tests, 26 update tests, signed bundle/runtime
+  verification and fresh service health checks. The timed-out preparation attempt
+  and its unaccepted drafts remain preserved; no workflow was resubmitted.
+
+## 0.13.6 — local build; public release pending
+
+- Preserve related selected host operations through a deferred exact-input
+  execution phase; startup and future-output inspection no longer disappear when
+  script preparation must happen first. Exact host-code approval remains required.
+- Correct omission diagnostics to exclude operations already explicitly deferred.
+- Deliver workflow plans and concept results through their single decision card,
+  preserving source attachments without duplicate generic replies.
+- Add explicit saved-proposal recovery for blocked, unexecuted planning: revalidate
+  retained responses and exact sources, create a successor and keep the failed
+  plan/call receipts. No provider call, completed stage or uncertain operation is
+  replayed; later execution still uses the existing workflow approval boundaries.
+- Installed after 69 focused tests, 26 update checks, complete runtime verification
+  and fresh service health. A blocked live workflow recovered its original valid
+  proposal and resumed script preparation, preserving completed stages and call
+  receipts. Full native/model-to-presentation acceptance remains open.
+
+## 0.13.5 — local build; public release pending
+
+- Accept workflow stage IDs beginning with digits, including `3d_model`, while
+  preserving exact IDs, uniqueness and bounded character validation.
+- Distinguish parsed workflow validation failures from invalid JSON responses;
+  retain the request and proposed plan without dispatching invalid workflows.
+- Installed locally after 29 focused tests, 26 update checks, unchanged saved-plan
+  validation in the packaged runtime, complete source hash and data compatibility
+  checks, and fresh service health verification. No live workflow was replayed.
+
+## 0.13.4 — local build; public release pending
+
+- Added model-generated ordered workflows from the initial request, with durable
+  stage state and automatic continuation after completed work or exact selection.
+  The scheduler uses generic execution routes; no domain-specific sequence is fixed.
+- Preserved original requests, actual research answers/URLs, artifact hashes and
+  selected versions across stages. Added explicit choice, pause/cancel, clarification,
+  duplicate/restart and failed/uncertain receipt handling without automatic replay.
+- Bounded preparation can start under the workflow scope. Exact host-code approval
+  remains separate, and its plan is prepared automatically after script selection.
+  Related outputs form one selection set; standalone workflows remain compatible.
+- Installed the coherent local build after 65 workflow/integration checks, 26 update
+  checks, complete runtime hash verification and additive-schema review. Telegram
+  and Messages health was verified after restart; existing experiment receipts were
+  preserved. Live end-to-end acceptance and public release remain open.
+
+## Unreleased — website
+
+- Simplified the hero to getting work done with existing tools, connected jobs
+  and user choices. Page metadata and llms.txt use the same three-line brand story.
+
+- Listed Runway and Higgsfield alongside Gemini and Veo in the Programs media
+  entry, with each provider’s supported media operations spelled out.
+
+- Reframed the homepage around jobs, with earlier cross-tool examples, selected
+  versions and review decisions. Programs and file formats retain direct navigation
+  and detailed support tables; the hero, download introduction and llms.txt share
+  the same job-focused description.
+
+- Added `/llms.txt` with product capabilities, formats, workflow boundaries and
+  documentation/download links. The homepage exposes discovery and footer links;
+  Railway serves the file as UTF-8 plain text with GET and HEAD support.
+
+## 0.13.3 — unreleased
+
+- Conversation overviews retain the latest two exchanges with exact original
+  history pointers so short selections remain attached to the choices just offered.
+  Oversized exchanges remain explicitly retrievable; no artifact approval is inferred.
+- Orchestrator response allowance is 8,192 tokens, retaining existing read/action
+  limits. Truncated Gemini/OpenAI/compatible-provider replies are journaled and
+  rejected before tool execution or action interpretation, with a specific response
+  limit message instead of asking users to rephrase. No automatic retry is added.
+- Installed the coherent 0.13.3 repair locally after 80 focused checks and native
+  bundle/PDF checks; Telegram and Messages restarted with fresh health. Prior
+  failed requests remain unchanged. GitHub publication remains separate.
+
+## 0.13.2 — unreleased
+
+- Repair the incomplete 0.13.1 updater candidate with a coherent runtime including
+  the approved PDF/research changes and Settings cleanup. Missing reader modules
+  now return a specific runtime error instead of asking users to rephrase.
+- Both desktop packagers now require a successful offline PDF read through the
+  bundled interpreter and file tools, dependency imports and matching app/runtime
+  versions before emitting release assets. This does not submit provider work.
+- The corrected 0.13.2 app was installed locally with matching bundle/source
+  hashes, successful PDF reading and fresh Telegram/Messages service health.
+  The failed request was preserved without replay; public release remains open.
+
+## 0.13.1 — unreleased
+
+- Roadmap status: P01 marked complete following the user’s confirmation on
+  2026-09-14. Prior trial records remain historical; no new browser acceptance
+  test was run for this status update.
+
+- Consolidated desktop update controls under App updates. Troubleshooting retains
+  diagnostics, service recovery and cache cleanup; the source-package release
+  checker is no longer shown in the desktop app.
+
+- Added Settings → App updates with daily metadata checks, optional beta releases,
+  download/verification progress, release notes and Install and restart. Published
+  0.13.0 needs one manual upgrade to receive this flow.
+- App releases use dedicated ZIP/manifest assets, GitHub size/checksum validation,
+  strict native signatures and continuity with the installed signing certificate.
+  Stable candidates also require Gatekeeper assessment; no security or privacy
+  setting is bypassed. Added a maintainer package/manifest builder.
+- Installation uses an independent helper, exact app/service/data approval,
+  idle checks, unchanged-data probes, retained recovery copies and fresh service
+  readiness. Interrupted updates expose explicit recovery without automatic
+  resubmission or database rollback. Source-package update isolation is retained.
+  This implements the flow in source; no new app release or live replacement was
+  performed by this change. See docs/app-updates.md for qualification limits.
+
 ## 0.13.0 — unreleased
+
+- Website downloads now target the verified 0.13.0-beta.1 Mac DMG and matching
+  reviewed CLI source, with SHA-256 sidecars. Previous beta URLs remain supported.
+  Package-content copy lists included browser, media, PPTX and starter features;
+  this website beta distribution does not publish a stable GitHub release.
+
+- Added direct `pdf_read` for orchestrator and workspace text agents. It reads the
+  actual PDF with numbered pages, a SHA-256 version and bounded continuation;
+  existing project permissions apply. The packaged reader reports encrypted or
+  damaged files, extraction limits and pages needing OCR explicitly. Scanned-image
+  OCR and visual drawing interpretation are not included.
+
+- Orchestrator research now ends with a tool-free final answer turn at the read
+  budget, restoring Gemini JSON output mode. If no final answer is produced, the
+  message identifies the research limit and retains completed reads instead of
+  asking the user to rephrase an otherwise valid request.
 
 - Browser use now shares the Telegram and Messages switch styling. Models by task
   adds Runway and Higgsfield API connections for image/video generation, plus Meshy

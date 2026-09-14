@@ -81,20 +81,32 @@ class Host:
         return result
 
     def lock(self, stream):
+        if self.platform=='win32':return self.windows().lock(stream)
         self.require_posix('Exclusive service locking')
         import fcntl
         fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def spawn(self, command, *, popen=None, **kwargs):
+        if self.platform=='win32':
+            if popen not in (None,subprocess.Popen):
+                raise UnsupportedHost('Windows process ownership cannot use a substituted process launcher')
+            return self.windows().spawn(command,**kwargs)
         self.require_posix('Worker process-tree ownership')
         return (popen or subprocess.Popen)(command, start_new_session=True, **kwargs)
 
     def signal_tree(self, process, force=False):
+        if self.platform=='win32':
+            adapter=self.windows()
+            if not isinstance(process,adapter.Process):raise UnsupportedHost('Only an owned Windows job can be cancelled')
+            process.terminate();return
         self.require_posix('Worker process-tree cancellation')
         try:os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
         except ProcessLookupError:pass
 
     def stop_tree(self, process, timeout=5):
+        if self.platform=='win32':
+            self.signal_tree(process,force=True)
+            process.wait(timeout=max(timeout,1));return
         self.require_posix('Worker process-tree cancellation')
         self.signal_tree(process)
         deadline=time.monotonic()+timeout
@@ -106,11 +118,35 @@ class Host:
         self.signal_tree(process,force=True)
         process.wait(timeout=max(timeout,1))
 
-    def process_matches(self, pid, token):
+    def process_matches(self, pid, token, identity=None):
+        if self.platform=='win32':return self.windows().matches(pid,identity)
         self.require_posix('Worker recovery inspection')
         if type(pid) is not int or pid<2:return False
         result=subprocess.run(['ps','-p',str(pid),'-o','command='],capture_output=True,text=True)
         return result.returncode==0 and token in result.stdout
+
+    def windows(self):
+        if sys.platform!='win32' or sys.getwindowsversion().major<10:
+            raise UnsupportedHost('This adapter requires native Windows 10 or newer')
+        if __package__:
+            from . import host_windows
+        else:
+            import host_windows  # Frozen supervisor support beside host_runtime.py.
+        return host_windows
+
+    def require_processes(self):
+        if self.platform=='win32':self.windows()
+        else:self.require_posix('Worker process-tree ownership')
+
+    def process_identity(self,pid):
+        return self.windows().identity(pid) if self.platform=='win32' else None
+
+    def spawn_supervisor(self,command,**kwargs):
+        """A receipt-writing supervisor survives scheduler restart and owns its children."""
+        if self.platform!='win32':return self.spawn(command,**kwargs)
+        self.windows()
+        return subprocess.Popen(command,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP,
+                                close_fds=True,**kwargs)
 
     def launchctl(self, arguments, **kwargs):
         self.require_macos('Login service management')
@@ -144,15 +180,17 @@ class Host:
     def describe(self):
         return {'platform':self.platform,'services':('launchd' if self.platform=='darwin' else
                 'systemd user manager when available; otherwise foreground CLI' if self.platform=='linux' else 'unavailable; native service adapter required'),
-                'processes':'POSIX session/process group' if self.platform in ('darwin','linux') else 'unavailable; native process-tree adapter required',
+                'processes':'POSIX session/process group' if self.platform in ('darwin','linux') else
+                'Windows 10+ Job Object per worker; native qualification pending' if self.platform=='win32' else 'unavailable; native process-tree adapter required',
                 'filesystem':'descriptor-relative no-follow grants' if self.platform in ('darwin','linux') else 'unavailable; native junction/reparse-point enforcement required',
                 'native_qualification':'macOS only; Linux/Windows qualification remains O12'}
 
 
 def support_hashes():
     import hashlib
-    return {name:hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-            for name in ('host.py','filesystem.py','credentials.py')}
+    names=['host.py','filesystem.py','credentials.py']
+    if HOST.platform=='win32':names.append('host_windows.py')
+    return {name:hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() for name in names}
 
 
 def verify_support(frozen):

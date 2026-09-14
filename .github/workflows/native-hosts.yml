@@ -33,8 +33,11 @@ jobs:
             profile: Linux text runtime
             python: '3.11'
           - os: windows-2025
-            profile: Windows boundaries (execution unqualified)
+            profile: Windows processes and boundaries (execution unqualified)
             python: '3.11'
+          - os: windows-2022
+            profile: Windows processes and boundaries (execution unqualified)
+            python: '3.14'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

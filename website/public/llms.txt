@@ -1,0 +1,66 @@
+# Task Relay
+
+> Get things done with your tools. Task Relay connects the agents, apps and APIs you already use into jobs that can keep moving. You choose what matters. Relay coordinates the work around it.
+
+Task Relay is open-source and self-hosted. Start from Telegram; run on your Mac.
+It keeps requests, files, versions and decisions attached to the job.
+
+The website describes implemented capabilities and provides a macOS beta app and
+matching CLI source. Consult the download section for the current version, package
+contents and installation requirements. Repository documentation tracks development
+and may describe changes not yet included in a published download.
+
+A job connects the original request, stage plans, selected inputs, outputs and
+review decisions across tools. Review important steps and choose the result to
+carry into the next stage. Example paths include brief to research to editable
+presentation, and concept to 3D model to render to presentation. These are staged
+workflows using configured capabilities, not unconditional end-to-end execution.
+
+Relay records dependencies between registered inputs and outputs. A confirmed
+replacement of a saved selection can flag affected downstream outputs within the
+same job for review. This does not imply slide-level change detection or tracking
+of unregistered files. Changing an input does not authorize a rebuild; the user
+decides the scope of the next stage.
+
+Capabilities and boundaries:
+
+- Blender: create, inspect and revise scenes, import selected assets, render and animate. Saves editable `.blend`, PNG previews/frames and MP4 animation; asset import can produce a ZIP bundle. Animation encoding requires FFmpeg and ffprobe.
+- Rhino 7/8 on macOS: native modeling, inspection, reviewed Python edits and Rhino Render. Saves editable `.3dm` in the selected version and PNG previews/renders. Requires an installed, licensed Rhino.
+- PowerPoint generation is implemented: prepared JSON slide content and selected PNG/JPEG images become editable `.pptx` with text, shapes, tables and charts. PowerPoint is not required. Existing-template editing, native Keynote `.key` and PDF export are not part of this operation.
+- Agents: Codex desktop tasks and CLI workers, managed Claude sessions, and Gemini file workers. File editing and command execution depend on the selected worker and its permissions.
+- Text APIs: OpenAI, Gemini, Qwen, DeepSeek and OpenRouter. A direct text connection does not itself provide application control or file editing.
+- Media: Gemini images and speech, Veo video, OpenAI/OpenRouter PNG image stages, Runway/Higgsfield image and video stages, and Meshy text-to-3D untextured GLB assets. Outputs include PNG/JPEG/WEBP, WAV, optional MP3 with FFmpeg, MP4 and GLB according to the selected operation. Accounts, models and required tools must be configured; implemented adapters do not prove live provider access or output quality.
+- Text/code workers can save Markdown, TXT, CSV, JSON, Python, JavaScript, HTML and CSS. DOCX, XLSX, PDF and SVG require a capable worker with suitable libraries or export tools; they are not dedicated Relay converters.
+- Browser use supports a dedicated Chrome profile and a Perplexity Search worker. Other websites require a supported browser executor. Login and verification may require the user.
+- Telegram is the main task and file-delivery channel. Apple Messages is a separate macOS text pilot. macOS is the primary execution host; Windows task execution is not supported. Linux has partial CLI/service support.
+- Grasshopper `.gh`/`.ghx` and native Keynote output are unsupported. General CAD/mesh conversion is not a built-in route; Meshy's GLB generation does not imply arbitrary GLB import/export support.
+
+Five workflow starters cover research-to-report, architecture-to-presentation,
+native-model revision, carousel-to-reel, and data-to-presentation. Starters are
+planning aids: each stage needs available tools, selected inputs and its agreed
+scope. Technical checks do not imply user acceptance. Uncertain submissions are
+not automatically replayed. Task data is stored locally; requested content is sent
+to selected providers and messages travel through the configured messenger.
+
+## Product and downloads
+
+- [Website](https://task-relay-website-production.up.railway.app/): Job overview, examples and supported programs.
+- [Supported programs](https://task-relay-website-production.up.railway.app/#tools): Applications, agents, APIs and their requirements.
+- [Versions and decisions](https://task-relay-website-production.up.railway.app/#changes): Review affected outputs and decide what runs next.
+- [File formats](https://task-relay-website-production.up.railway.app/#formats): Input and saved-output formats, with operation-specific limits.
+- [Workflow starters](https://task-relay-website-production.up.railway.app/#workflows): Example jobs and the five available workflow starters.
+- [Downloads and setup](https://task-relay-website-production.up.railway.app/#download): Current Mac beta, matching CLI source, checksums and package requirements. The beta's signing/notarization limitations are stated here.
+
+## Documentation
+
+- [README](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/README.md): Overview, platform support, installation, providers and data handling.
+- [Onboarding](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/docs/onboarding.md): Connection setup and troubleshooting.
+- [Blender operations](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/docs/local-applications.md): Native files, asset import, reviewed execution and operation limits.
+- [Blender animation](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/docs/blender-animation.md): Rendering, MP4 output, dependencies and recovery.
+- [Rhino operations](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/docs/rhino.md): Rhino 7/8 setup, native modeling, rendering and checked scope.
+
+## Optional
+
+- [Roadmap](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/ROADMAP.md): Implemented milestones, qualification boundaries and deferred work.
+- [Changelog](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/CHANGELOG.md): Release and development changes; unreleased entries are not promises about an existing installer.
+- [License](https://raw.githubusercontent.com/StepanKukharskiy/task-relay/main/LICENSE): Apache License 2.0.

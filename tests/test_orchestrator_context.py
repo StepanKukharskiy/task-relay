@@ -12,6 +12,24 @@ from tests import test_orchestrator_files as file_fixtures
 
 
 class ContextTests(unittest.TestCase):
+    def test_short_choice_keeps_latest_exchange_with_original_history_pointer(self):
+        payload = self.payload()
+        payload['user_message'] = 'concept 1'
+        payload['history'] = [{'id': i, 'prompt': 'Earlier request', 'answer': 'Old answer ' * 100}
+                              for i in range(50)]
+        latest = {'id': 51, 'prompt': 'Plan research, a model, image and deck.',
+                  'answer': 'Concept 1: Terraces. Concept 2: Courtyards. Choose one.'}
+        payload['history'].append(latest)
+        original = copy.deepcopy(payload)
+        view = context.overview(payload)
+        selected = view['recent_conversation'][-1]
+        self.assertEqual(selected['exchange'], latest)
+        full = context.Evidence(payload).execute({'arguments': json.dumps({
+            'pointer': selected['history_pointer'], 'offset': 0, 'limit': context.MAX_PAGE})})
+        self.assertEqual(json.loads(full['text']), latest)
+        self.assertEqual(payload, original)
+        self.assertLessEqual(len(context.encoded(view).encode()), context.MAX_OVERVIEW)
+
     def test_named_task_survives_large_overview_without_changing_source_pointers(self):
         payload = self.payload()
         payload['user_message'] = 'Use the existing Codex task "Review and continue roadmap" for Perplexity.'

@@ -1,54 +1,34 @@
-# Task Relay 0.13.0
+# Task Relay 0.13.1
 
-Release candidate; no new GitHub release has been published by preparing these notes.
-The recommended first distribution is a prerelease with a Mac beta package.
+Beta candidate: this source change does not publish a GitHub release.
 
-## Browser use
+## App updates
 
-- Enable Browser use in Settings to set up Relay's dedicated Chrome profile.
-  Sign in through ordinary Chrome, then reuse saved website sessions for supported
-  jobs. Chrome is required; verification challenges still need the user.
-- Website research now submits a self-contained research query while preserving
-  the exact original request separately. Guarded submission, saved conversation
-  identity and durable receipts prevent automatic replay after uncertainty.
-- Perplexity has a standalone Search worker. Other websites require a supported
-  browser executor; this is not a claim of universal website automation.
+- Settings → App updates checks for new desktop releases and optionally includes
+  betas. Download update verifies the package; Install and restart becomes
+  available after verification. A visible update notice opens the controls.
+- App packages are separate from source releases. ZIP/manifest assets must match
+  GitHub's published byte length and checksum and the installed app's signing
+  certificate. Stable packages additionally require Gatekeeper assessment.
+- Installation preserves the app root and saved data, checks for active work,
+  stops/restarts only the previously running owned services, and verifies fresh
+  readiness. An independent helper retains previous code and per-attempt receipts.
+  Interrupted updates expose explicit recovery without resubmitting work or
+  restoring an older database.
 
-## Media and production
+## Installation
 
-- Choose independent conversation, image, video and 3D defaults in Models by task.
-  Existing tasks and approved plans retain their original models and artifacts.
-- Connect Runway and Higgsfield for image/video generation, or Meshy for
-  text-to-3D untextured GLB assets. Initial model and reference limits are listed
-  in [media workflows](media-workflows.md). API credentials and account access
-  are separate from website sign-in. Live generation remains unqualified.
-- Reuse exact image and production artifact versions across reviewed stages.
-  Shared context archives retain original requests and allow bounded retrieval.
-- Create editable PPTX with native text, shapes, tables and charts. Rhino drawing
-  preparation and continuation retain exact code review and unfinished deliverables.
+Published 0.13.0 and earlier apps need one manual installation of this build to
+receive the updater. Subsequent compatible releases can be installed in-app.
+The Mac beta requires Apple Silicon and macOS 14+. It uses local signing;
+Developer ID signing and Apple notarization remain unavailable with a free
+Apple developer account. macOS may require Open Anyway and refreshed permissions.
 
-## Companion and updates
+Controlled checks cover metadata, archive validation, data compatibility, real
+schema idle checks, exact approval, interruption and recovery. They do not replace
+clean-host installation/update qualification or actual messenger delivery.
+Schema-changing updates, signing-certificate changes, unsupported owners and
+administrator-only app locations require a separate reviewed/manual update.
 
-- Browser use shares the Telegram/Messages switch styling. The companion contains
-  browser setup and media connections; the main app owns its Messages service.
-- Bundled Python includes required browser, image and presentation dependencies.
-  Local builds use a stable signing identity and reviewed installation receipts.
-- Source updates retain protocol 2 additive migration review and recovery. The
-  source updater refuses packaged apps; it cannot update Task Relay.app. Existing
-  0.12.0 users need the [controller bootstrap](updates.md#moving-from-the-0120-controller).
-
-## Qualification and distribution
-
-Controlled checks cover browser guards, provider transports, retained remote IDs,
-artifact identity, planning, settings, update recovery and package boundaries.
-The Mac companion has local installation and service-health evidence. Controlled
-fixtures do not establish live model quality or successful messenger delivery.
-
-The Mac beta targets Apple Silicon on macOS 14 or newer. It is locally signed,
-not Apple Developer ID signed or notarized; macOS may require Open Anyway and
-refreshed privacy permissions. A public notarized installer, packaged automatic
-updates, clean-host qualification and native Windows/Linux companion builds remain
-open. Meshy texturing/image-to-3D and Keynote import are not included.
-
-See the [roadmap](../ROADMAP.md), [Mac beta instructions](../desktop/README.md)
-and [update instructions](updates.md) before selecting an installation path.
+See [app updates](app-updates.md) for the user flow, release contract, packaging
+and recovery limits. Existing source update isolation remains unchanged.

@@ -130,6 +130,94 @@ class Tests(unittest.TestCase):
             response['plan']['tasks'][0].pop('user_gate')
             with self.assertRaisesRegex(ValueError,'selection gate'):planning.validate_result(json.dumps(response),row)
 
+    def failed_host(self):
+        import production_control as pc
+        from orchestrator.step_runner import execute
+        row=self.setup_plan()
+        with self.state.db:
+            self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],))
+            self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE event_id=?",(row['event_id'],))
+            planning.apply(self.state,row['token'],'start')
+        run=self.row()['run'];worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+        aid=self.rt.task(run,'app')['latest'];session=self.factory.sessions[aid]
+        control=Path(session['session']['control']);control.mkdir(parents=True)
+        with patch('task_relay.rhino_host.run',return_value={'passed':False,'returncode':1,'worker':{'error':'AttributeError: unsupported camera method'}}):
+            result=execute(session['frozen'],control)
+        session['status']={'status':'finished','exit_code':0,'reason':None,'usage':[], 'operation':result}
+        worker.tick();self.assertEqual(self.rt.status(run)['status'],'blocked')
+        script=self.rt.root/'fixed.py';script.write_text(rhino_operations.CREATE_SCRIPT+'\n# reviewed correction\n')
+        return run,self.rt.register(script,'Proposed script repair',path='model.py')
+
+    def test_failed_host_script_repair_preserves_attempt_and_requires_new_exact_start(self):
+        from orchestrator.storage import transaction
+        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+            run,script=self.failed_host()
+            before=[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))]
+            with transaction(self.state.db):ident=planning.prepare_host_repair(self.state,run,script,'Fix the script failure and continue.')
+            row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+            self.assertEqual(row['status'],'ready');self.assertEqual(row['calls'],0)
+            self.assertEqual(before,[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))])
+            self.assertEqual(len(self.factory.calls),1)
+            self.assertIn('Repair of failed execution',planning.preview(row))
+            with transaction(self.state.db),self.assertRaisesRegex(ValueError,'already exists'):
+                planning.prepare_host_repair(self.state,run,script,'Fix the script failure and continue.')
+            with transaction(self.state.db),self.assertRaises(ValueError):planning.apply(self.state,row['token'],'start')
+            with transaction(self.state.db):
+                self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],))
+                self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE event_id=?",(row['event_id'],))
+                planning.apply(self.state,row['token'],'start')
+            fresh=self.state.db.execute('SELECT run FROM production_plans WHERE id=?',(ident,)).fetchone()[0]
+            self.assertNotEqual(fresh,run)
+            spec=self.rt.spec(self.rt.task(fresh,'app'))
+            self.assertEqual(spec['execution']['parameters']['script_sha256'],self.rt.artifact(script)['sha256'])
+            self.assertTrue(self.state.db.execute("SELECT 1 FROM production_events WHERE run=? AND kind='execution_repair_started'",(fresh,)).fetchone())
+            # Another confirmed failure keeps every request without colliding
+            # with the current recovery/REQUEST.txt workspace path.
+            import production_control as pc
+            from orchestrator.step_runner import execute
+            worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+            attempt=self.rt.task(fresh,'app')['latest'];session=self.factory.sessions[attempt]
+            control=Path(session['session']['control']);control.mkdir(parents=True)
+            with patch('task_relay.rhino_host.run',return_value={'passed':False,'returncode':1,'worker':{'error':'second fixture failure'}}):
+                result=execute(session['frozen'],control)
+            session['status']={'status':'finished','exit_code':0,'reason':None,'usage':[],'operation':result};worker.tick()
+            candidate=self.rt.root/'second-fix.py';candidate.write_text(rhino_operations.CREATE_SCRIPT+'\n# second correction\n')
+            with transaction(self.state.db):
+                aid=self.rt.register(candidate,'Second repair candidate',path='model.py')
+                ident=planning.prepare_host_repair(self.state,fresh,aid,'Resolve the second failure.')
+            following=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+            sources=json.loads(following['context'])['sources']
+            self.assertEqual(sum(s['path']=='recovery/REQUEST.txt' for s in sources),1)
+            self.assertTrue(any(s['path'].startswith('recovery-history/') for s in sources))
+            self.assertIn('Fix the script failure and continue.',following['request'])
+            self.assertIn('Resolve the second failure.',following['request'])
+
+    def test_host_repair_refuses_uncertain_or_changed_parent_and_rolls_back(self):
+        from orchestrator.storage import transaction
+        from task_relay import production_stages
+        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+            run,script=self.failed_host()
+            with self.assertRaisesRegex(RuntimeError,'rollback'):
+                with transaction(self.state.db):planning.prepare_host_repair(self.state,run,script,'Fix it.');raise RuntimeError('rollback')
+            self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],1)
+            with transaction(self.state.db):ident=planning.prepare_host_repair(self.state,run,script,'Fix it.')
+            row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+            with transaction(self.state.db):self.state.put('production-control-epoch:'+run,99)
+            with self.assertRaisesRegex(ValueError,'changed'):
+                production_stages.verify(self.state,self.rt,json.loads(row['context']),ident,'telegram')
+            with transaction(self.state.db):self.state.db.execute("UPDATE production_attempts SET state='uncertain' WHERE run=?",(run,))
+            with self.assertRaisesRegex(ValueError,'uncertain'):
+                production_stages.failed_execution_snapshot(self.state,self.rt,run,'telegram')
+
+    def test_runtime_repair_does_not_allow_identical_retry_without_implementation_change(self):
+        from orchestrator.storage import transaction
+        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+            run,_=self.failed_host()
+            old=next(i['artifact'] for i in self.rt.spec(self.rt.task(run,'app'))['inputs'] if i.get('media_type')=='text/x-python')
+            with transaction(self.state.db),self.assertRaisesRegex(ValueError,'implementation change'):
+                planning.prepare_host_repair(self.state,run,old,'Repair the verifier.',runtime_repair=True)
+            self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],1)
+
     def test_planning_preserves_request_and_exposes_no_gh_operation(self):
         from orchestrator.execution import catalog
         with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):

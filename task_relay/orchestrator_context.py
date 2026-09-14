@@ -21,6 +21,9 @@ including tasks outside the overview's list prefix. Use those identities and the
 catalog_pointer before choosing a similarly named task or claiming it is busy.
 Matches supply evidence only: negations, questions and quoted examples are not
 dispatch authorization. Multiple matches may require clarification.
+recent_conversation preserves the latest exchanges for short replies and choices.
+Use each history_pointer to retrieve omitted text from the unchanged /history list.
+These conversational choices are not approval of future code or artifact versions.
 '''
 
 
@@ -60,6 +63,19 @@ def overview(payload):
         payload = {**payload, 'mentioned_codex_tasks': mentions}
     if len(encoded(payload).encode()) <= MAX_OVERVIEW:
         return payload
+    # History is chronological, while generic catalog trimming keeps list heads.
+    # Keep the latest exchanges separately without reindexing frozen pointers.
+    recent = []
+    history = payload.get('history', [])
+    for index in range(max(0, len(history) - 2), len(history)):
+        row = history[index]
+        entry = {'history_pointer': '/history/' + str(index), 'exchange': row}
+        if len(encoded(entry).encode()) > 12_000:
+            entry = {'history_pointer': '/history/' + str(index),
+                     'id': row.get('id'), 'omitted': True}
+        recent.append(entry)
+    if recent:
+        payload = {**payload, 'recent_conversation': recent}
     # Identity/status fields remain exact. Long prose and list tails are evidence
     # to retrieve, not a reason to prevent the user's request reaching the model.
     identities = {'id', 'name', 'path', 'cwd', 'sha256', 'revision', 'contract_digest',
@@ -67,7 +83,7 @@ def overview(payload):
     for text_limit, list_limit in ((1800, 40), (800, 25), (300, 12), (100, 5), (0, 1)):
         omitted = []
         def visit(value, at='', key=''):
-            if at in ('/user_message', '/mentioned_codex_tasks'):
+            if at in ('/user_message', '/mentioned_codex_tasks', '/recent_conversation'):
                 return value  # Never shorten the current user's instruction.
             if isinstance(value, str) and key not in identities and len(value) > text_limit:
                 omitted.append({'pointer': at, 'characters': len(value), 'kind': 'text_excerpt'})
@@ -89,6 +105,7 @@ def overview(payload):
     # A very wide dictionary can exceed the list/prose policy. Retain the exact
     # user instruction and an index rather than raising the former global error.
     return {'user_message': payload.get('user_message', ''),
+            **({'recent_conversation': recent} if recent else {}),
             **({'mentioned_codex_tasks': mentions} if mentions['match_count'] else {}),
             'context_overview': {'complete': False, 'original_bytes': original_bytes,
                 'sections': list(payload), 'note': 'Read the relevant sections with context_read before answering.'}}

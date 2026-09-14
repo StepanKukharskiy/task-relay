@@ -1,4 +1,6 @@
 # macOS arm64 CPython 3.14 wheel; native image validation/conversion.
+# Portable PDF text reader; also required by source installations.
+pypdf==6.18.1 --hash=sha256:ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5
 Pillow==12.2.0 --hash=sha256:80b2da48193b2f33ed0c32c38140f9d3186583ce7d516526d462645fd98660ae
 # Browser driver only. Relay uses installed Google Chrome, no Chromium download.
 playwright==1.62.0 --hash=sha256:db755ab27db21a04186f1fe8169888e42356086e439b1059b923ef417f0b6034

@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-GEMINI_LIMITS = {'seconds': 600, 'tool_calls': 24, 'output_bytes': 200000}
+GEMINI_LIMITS = {'seconds': 1800, 'tool_calls': 24, 'output_bytes': 200000}
 MAX_INPUT_BYTES = 512000
 MAX_ROUNDS = 8
 MAX_OUTPUT_TOKENS = 4096
@@ -129,7 +129,7 @@ def catalog(state=None):
         except UnsupportedHost:executable=None
         result.append({'id':'codex-cli','backend':codex,'tools':['files','shell'],'available':executable is not None,
                        'grant_boundary':'Native workspace-write sandbox only; exact read/edit grants unavailable for shell execution',
-                       'limits':{'seconds':600,'tool_calls':60,'output_bytes':100000000}})
+                       'limits':{'seconds':1800,'tool_calls':60,'output_bytes':100000000}})
     entry={'id':'gemini-agent','backend':None,'tools':['files'],'limits':GEMINI_LIMITS.copy(),'available':False,
            'permissions':'Read declared UTF-8 inputs; write declared text outputs only. No shell, web, apps or other file access.',
            'request_bounds':{'rounds':MAX_ROUNDS,'max_output_tokens_per_round':MAX_OUTPUT_TOKENS,'input_bytes':MAX_INPUT_BYTES}}

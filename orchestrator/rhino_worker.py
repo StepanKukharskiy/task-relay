@@ -58,7 +58,19 @@ def snapshot(doc):
     import Rhino
     objects = {}
     dependencies = []
-    for obj in doc.Objects.GetObjectList(Rhino.DocObjects.ObjectType.AnyObject):
+    # The ObjectType overload omits hidden objects. Verification inventories the
+    # saved document, including analytical geometry on hidden or locked layers.
+    settings = Rhino.DocObjects.ObjectEnumeratorSettings()
+    settings.NormalObjects = True
+    settings.HiddenObjects = True
+    settings.LockedObjects = True
+    settings.ActiveObjects = True
+    settings.ReferenceObjects = True
+    settings.DeletedObjects = False
+    settings.IdefObjects = False
+    settings.VisibleFilter = False
+    settings.IncludeLights = True
+    for obj in doc.Objects.GetObjectList(settings):
         if obj.IsDeleted:continue
         if len(objects) >= 5000:raise ValueError('Rhino inventory exceeds 5000 objects')
         geo, attr = obj.Geometry, obj.Attributes
@@ -264,6 +276,9 @@ def main(request_path, exit_process=None):
     # Do not even exit a process if the launch was forwarded to an existing Rhino.
     if owner != {'pid':pid, 'token':request['token']}:
         raise ValueError('Rhino startup was not received by the owned process')
+    # Confirm owned startup before potentially lengthy modeling or rendering.
+    write(os.path.splitext(request_path)[0]+'.started.json',
+          dict(pid=pid, token=request['token'], mode=request['mode']), 200000)
     result = dict(pid=pid, token=request['token'], mode=request['mode'], passed=False)
     try:
         result['details'] = perform(request)

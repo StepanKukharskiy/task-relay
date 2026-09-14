@@ -160,6 +160,51 @@ def validate(document, image_paths=()):
     return document
 
 
+def _register_notes_master(deck):
+    """Register the notes relationship omitted by python-pptx 1.0.2.
+
+    Keynote requires this presentation-level reference even though python-pptx
+    can reopen the notes through slide relationships without it (upstream #1051).
+    Keep the standard CT_Presentation element order and the existing notes bytes.
+    """
+    from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+    from pptx.oxml.xmlchemy import OxmlElement
+    from pptx.oxml.ns import qn
+    relations = [r for r in deck.part.rels.values() if r.reltype == RT.NOTES_MASTER]
+    if not relations:
+        return
+    if len(relations) != 1:
+        raise ValueError('PPTX must have one notes master.')
+    root = deck.part._element
+    lists = root.findall(qn('p:notesMasterIdLst'))
+    if not lists:
+        listing = OxmlElement('p:notesMasterIdLst')
+        masters = root.find(qn('p:sldMasterIdLst'))
+        root.insert(root.index(masters) + 1 if masters is not None else 0, listing)
+        entry = OxmlElement('p:notesMasterId')
+        entry.set(qn('r:id'), relations[0].rId)
+        listing.append(entry)
+    _inspect_notes_master(deck)
+
+
+def _inspect_notes_master(deck):
+    from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+    from pptx.oxml.ns import qn
+    relations = [r for r in deck.part.rels.values() if r.reltype == RT.NOTES_MASTER]
+    lists = deck.part._element.findall(qn('p:notesMasterIdLst'))
+    if not relations and not lists:
+        return
+    if (len(relations) != 1 or len(lists) != 1 or len(lists[0]) != 1
+            or lists[0][0].tag != qn('p:notesMasterId')
+            or lists[0][0].get(qn('r:id')) != relations[0].rId
+            or relations[0].is_external):
+        raise ValueError('PPTX reopen failed: notes master registration is missing or invalid.')
+    root = deck.part._element
+    if any(root.index(e) < root.index(lists[0]) for e in root
+           if e.tag not in (qn('p:sldMasterIdLst'), qn('p:notesMasterIdLst'))):
+        raise ValueError('PPTX reopen failed: notes master registration is out of order.')
+
+
 def create(document, images=None, max_bytes=50000000):
     """Return checked PPTX bytes and structural evidence, before any output write."""
     available()
@@ -242,6 +287,7 @@ def create(document, images=None, max_bytes=50000000):
                 shape.chart.font.name = document.get('font', 'Arial')
                 shape.chart.font.size = Pt(16)
             shape.name = item.get('name') or f'{kind}-{index + 1}'
+    _register_notes_master(deck)
     buffer = io.BytesIO()
     deck.save(buffer)
     raw = buffer.getvalue()
@@ -256,6 +302,7 @@ def inspect(raw, document, images):
     from pptx import Presentation
     from pptx.util import Inches
     deck = Presentation(io.BytesIO(raw))
+    _inspect_notes_master(deck)
     if len(deck.slides) != len(document['slides']) or deck.core_properties.title != document['title']:
         raise ValueError('PPTX reopen failed: slide count or title changed.')
     size = document.get('size', [13.333333, 7.5])

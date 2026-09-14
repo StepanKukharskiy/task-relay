@@ -27,17 +27,26 @@ def atomic(path, value):
 
 
 def prepare_supervisor(control,frozen):
-    HOST.require_posix("Worker process-tree ownership")
+    HOST.require_processes()
     from task_relay import host
     host.verify_support(frozen)
     shutil.copyfile(SUPERVISOR,control/'supervisor.py')
     support=Path(host.__file__).read_bytes()
     (control/'host_runtime.py').write_bytes(support)
+    if HOST.platform=='win32':
+        native=Path(host.__file__).with_name('host_windows.py').read_bytes()
+        (control/'host_windows.py').write_bytes(native)
     return hashlib.sha256(support).hexdigest()
 
 
-def process_matches(pid, token):
-    return HOST.process_matches(pid, token)
+def supervisor_support(control):
+    """Digest the native support actually copied into this immutable launch."""
+    path=Path(control)/'host_windows.py'
+    return {path.name:hashlib.sha256(path.read_bytes()).hexdigest()} if HOST.platform=='win32' else {}
+
+
+def process_matches(pid, token, identity=None):
+    return HOST.process_matches(pid, token, identity=identity)
 
 
 class CodexFactory:
@@ -76,6 +85,11 @@ class CodexFactory:
             'A procedural pass is not user acceptance. For a review assignment inspect the supplied artifact files independently, '
             'write the required review report, and return accept, revise, or blocked. Never fix the producer files. '
             'For a production assignment return delivered or blocked. '
+            'Your limits.seconds is this task’s total wall-clock budget, including reasoning, tools, '
+            'validation and the final response. Save required output drafts early. Reserve the last '
+            '60 seconds for essential checks and the final JSON handoff; finish required deliverables '
+            'before optional analysis or lengthy notes. If the work cannot be completed in the budget, '
+            'preserve the drafts and return blocked with the remaining work instead of claiming delivery. '
             'Return a final JSON object conforming to the supplied schema, using assignment_id '
             + frozen['assignment_id'] + '.\n\n' + encoded(frozen)
         )
@@ -86,6 +100,7 @@ class CodexFactory:
             'token': frozen['assignment_id'], 'workspace': str(workspace),
             'backend': backend, 'executable': self.executable or (HOST.codex() if backend['type']=='codex-cli' and frozen.get('role') not in ('procedure','api') else None), 'limits': frozen['limits'],
             'host_support_sha256':support_hash,
+            'host_support_files':supervisor_support(control),
             'created': time.time(), 'capabilities': self.capabilities})
         return {'id': frozen['assignment_id'], 'control': str(control)}
 
@@ -93,7 +108,7 @@ class CodexFactory:
         control = Path(session['control'])
         # The runtime calls this exactly once, after committing its launch intent.
         with (control / 'supervisor.log').open('ab') as log:
-            child = HOST.spawn([sys.executable, str(control / 'supervisor.py'), str(control), session['id']],
+            child = HOST.spawn_supervisor([sys.executable, str(control / 'supervisor.py'), str(control), session['id']],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         self.children.append(child)
         return {'supervisor_pid': child.pid}
@@ -115,7 +130,7 @@ class CodexFactory:
             if value.get('token') != session['id']:
                 raise ValueError('Worker start identity mismatch')
             try:
-                alive = process_matches(value['supervisor_pid'], str(control))
+                alive = process_matches(value['supervisor_pid'], str(control),value.get('supervisor_identity'))
             except OSError as exc:
                 return {'status': 'uncertain', 'reason': 'Cannot inspect worker process: ' + str(exc)}
             if alive:

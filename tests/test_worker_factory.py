@@ -23,6 +23,10 @@ ws=Path(args[args.index('-C')+1])
 a=json.loads((ws/'.relay/ASSIGNMENT.json').read_text())
 print(json.dumps({'type':'thread.started','thread_id':'fixture-session'}),flush=True)
 if a['instruction']=='wait': time.sleep(20)
+if a['instruction']=='progress':
+    print(json.dumps({'type':'turn.completed','usage':{'input_tokens':30,'output_tokens':5}}),flush=True)
+    print(json.dumps({'type':'item.started','item':{'type':'command_execution','command':'private fixture command'}}),flush=True)
+    time.sleep(3)
 if a['instruction']=='tools':
     for i in range(4): print(json.dumps({'type':'item.started','item':{'type':'command_execution'}}),flush=True)
     time.sleep(20)
@@ -82,6 +86,29 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':17,'output_tok
         self.rt.create(plan([t])); self.rt.tick('demo')
         result=self.until(lambda s:s['status']=='blocked')
         self.assertEqual(json.loads(result['attempts'][0]['receipt'])['reason'], 'tool_limit')
+
+    def test_progress_snapshot_reports_usage_without_copying_command_content(self):
+        t=task();t['instruction']='progress';self.rt.create(plan([t]));self.rt.tick('demo')
+        aid=self.rt.task('demo','produce')['latest']
+        progress=self.root/'runtime/workers'/aid/'progress.json'
+        self.until(lambda _:progress.exists() and json.loads(progress.read_text()).get('tool_calls')==1)
+        value=json.loads(progress.read_text())
+        self.assertEqual(value['token'],aid)
+        self.assertEqual(value['usage'],[{'input_tokens':30,'output_tokens':5}])
+        self.assertEqual(value['activity'],'running_command')
+        self.assertNotIn('private fixture command',progress.read_text())
+        self.until(lambda s:s['status']=='completed')
+
+    def test_progress_write_failure_does_not_fail_worker(self):
+        t=task();t['instruction']='progress';self.rt.create(plan([t]));self.rt.tick('demo')
+        aid=self.rt.task('demo','produce')['latest']
+        progress=self.root/'runtime/workers'/aid/'progress.json'
+        if progress.exists():progress.unlink()
+        progress.mkdir()
+        result=self.until(lambda s:s['status']=='completed')
+        receipt=json.loads(result['attempts'][0]['receipt'])
+        self.assertIsNone(receipt['reason'])
+        self.assertEqual(receipt['exit_code'],0)
 
 
 if __name__ == '__main__':

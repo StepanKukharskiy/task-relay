@@ -5,7 +5,7 @@ import shutil
 import sys
 import time
 
-from .workers import CodexFactory, SUPERVISOR, atomic, prepare_supervisor
+from .workers import CodexFactory, SUPERVISOR, atomic, prepare_supervisor, supervisor_support
 from . import execution, executors
 
 
@@ -29,7 +29,7 @@ class GeminiFactory(CodexFactory):
             from .browser_worker import support_hashes
             browser_support=support_hashes()
         command=[python,str(Path(__file__).with_name(worker)),str(control),str(workspace)]
-        atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,'workspace':str(workspace),
+        atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,'host_support_files':supervisor_support(control),'workspace':str(workspace),
             'limits':frozen['limits'],'registered_command':command,'backend':backend,
             'browser_support':browser_support,
             'credential_fingerprint':executors.fingerprint(config,backend)})
@@ -70,7 +70,7 @@ class RegisteredFactory(CodexFactory):
         (control/'prompt.txt').write_text('Registered operation; no agent prompt.\n')
         # This argv is service-owned. It cannot be supplied by a graph or model.
         command=[sys.executable,str(Path(__file__).with_name('step_runner.py')),str(control),str(workspace)]
-        atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,
+        atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,'host_support_files':supervisor_support(control),
             'workspace':str(workspace),'limits':frozen['limits'],'registered_command':command,
             'execution':frozen['execution'],'kind':execution.REGISTRY[frozen['execution']['capability']]['kind']})
         return {'id':frozen['assignment_id'],'control':str(control),'adapter':'registered','execution':frozen['execution']}

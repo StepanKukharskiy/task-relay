@@ -10,12 +10,14 @@ for (const [route, file, type] of [
   ['/', 'index.html', 'text/html; charset=utf-8'],
   ['/style.css', 'style.css', 'text/css; charset=utf-8'],
   ['/logo.png', 'logo.png', 'image/png'],
+  ['/llms.txt', 'llms.txt', 'text/plain; charset=utf-8'],
 ]) assets.set(route, { body: await readFile(new URL(`./public/${file}`, import.meta.url)), type });
 assets.set('/index.html', assets.get('/'));
 assets.set('/health', { body: Buffer.from('ok\n'), type: 'text/plain; charset=utf-8' });
 const downloads = new Map();
 const directory = process.env.TASK_RELAY_DOWNLOAD_DIR || fileURLToPath(new URL('./downloads/', import.meta.url));
-for (const name of ['Task-Relay-0.12.1-beta.1-arm64.dmg', 'Task-Relay-0.12.1-beta.1-source.tar.gz']) {
+for (const name of ['Task-Relay-0.12.1-beta.1-arm64.dmg', 'Task-Relay-0.12.1-beta.1-source.tar.gz',
+  'Task-Relay-0.13.0-beta.1-arm64.dmg', 'Task-Relay-0.13.0-beta.1-source.tar.gz']) {
   for (const suffix of ['', '.sha256']) {
     const filename = name + suffix, path = join(directory, filename);
     const info = await stat(path); // Fail deployment health if an advertised asset is missing.

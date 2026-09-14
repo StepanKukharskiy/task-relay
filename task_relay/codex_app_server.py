@@ -21,6 +21,9 @@ class Client:
         self.number = 0
 
     def __enter__(self):
+        # Windows selectors cannot monitor anonymous process pipes. Keep this
+        # transport unavailable until it has its own native implementation.
+        HOST.require_posix('Codex app-server pipe transport')
         try:
             self.process = HOST.spawn(self.command or [HOST.codex(), 'app-server'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)

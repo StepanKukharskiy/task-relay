@@ -14,6 +14,7 @@ from .desktop_usage import summary as usage_summary, breakdown as storage_breakd
 from .desktop_approvals import decide as decide_approval
 from .host import UnsupportedHost
 from .relay_paths import PATHS, Paths
+from .app_updates import UpdateError as AppUpdateError
 
 
 def _cleanup_paths():
@@ -24,6 +25,40 @@ def _cleanup_paths():
 
 
 def dispatch(action, value):
+    if action.startswith('app-update-'):
+        from .app_updates import Updater
+        updater = Updater()
+        if not isinstance(value, dict): raise ValueError('Expected update settings.')
+        if action == 'app-update-status': return updater.status()
+        if action == 'app-update-check': return updater.check(value.get('beta', False))
+        if action == 'app-update-download': return updater.download(value.get('id'))
+        if action == 'app-update-install': return updater.install(value.get('id'))
+        if action == 'app-update-recover': return updater.recover(value.get('id'))
+        raise ValueError('Unknown app update action.')
+    # Serialize desktop mutations with the replacement helper. Read-only status
+    # remains available so an interrupted update can be inspected.
+    reads = {'status', 'companion-status', 'conversation', 'channel-status', 'handoff-status',
+             'service-status', 'tasks', 'plans', 'approval-inbox', 'automation-tools', 'workflows',
+             'usage-summary', 'storage-breakdown', 'approval-detail', 'task-detail', 'plan-detail'}
+    if action not in reads:
+        from .app_updates import Updater, read, TERMINAL
+        updater = Updater()
+        if updater.host.support()['supported']:
+            with updater.lock():
+                pending = read(updater.receipt, {})
+                if pending.get('approved') and pending.get('phase') not in TERMINAL:
+                    raise AppUpdateError('Finish app update recovery before changing Relay settings or submitting work.')
+                return _dispatch(action, value)
+    return _dispatch(action, value)
+
+
+def _dispatch(action, value):
+    if action == 'rhino-preference':
+        from .rhino_preferences import update
+        return update(value)
+    if action == 'image-model-refresh':
+        from .capability_defaults import refresh_images
+        return refresh_images(value)
     if action == 'media-provider':
         from .cloud_providers import connect
         try: return connect(value)
@@ -182,7 +217,7 @@ def main():
         with contextlib.redirect_stdout(sys.stderr):
             result = dispatch(sys.argv[1], value)
         reply = {'ok': True, 'value': result}
-    except (launcher.LauncherError, DesktopServiceError, DesktopTaskError, DesktopPlanError, DesktopBindingError, UnsupportedHost) as exc:
+    except (AppUpdateError, launcher.LauncherError, DesktopServiceError, DesktopTaskError, DesktopPlanError, DesktopBindingError, UnsupportedHost) as exc:
         reply = {'ok': False, 'error': str(exc)}
     except (ValueError, UnicodeError):
         reply = {'ok': False, 'error': 'Invalid setup request.'}

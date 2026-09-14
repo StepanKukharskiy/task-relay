@@ -224,6 +224,7 @@ class Tests(unittest.TestCase):
 
     def test_uncertain_send_never_retried_and_later_parts_blocked(self):
         self.pair()
+        self.drain()
         with self.store.db:
             self.pilot.notify('long', 'x' * 6000)
         self.transport.fail = True
@@ -232,7 +233,7 @@ class Tests(unittest.TestCase):
         self.transport.fail = False
         self.pilot = self.new_pilot()
         self.drain()
-        self.assertEqual(len(self.transport.sent), 1)
+        self.assertEqual(len(self.transport.sent), 2)
 
     def test_all_split_parts_cannot_be_commands(self):
         self.pair()
@@ -244,6 +245,63 @@ class Tests(unittest.TestCase):
             self.assertTrue(text.startswith('🤖 Codex'))
             self.pilot.receive(self.msg(text, f'echo{index}'))
         self.assertEqual(self.desktop.starts, [])
+
+    def test_uncertain_reply_survives_restart_without_blocking_fresh_ping(self):
+        self.pair()
+        self.drain()
+        with self.store.db:
+            self.pilot.notify('long', 'x' * 6000)
+        self.transport.fail = True
+        with self.assertRaises(BridgeError):
+            self.pilot.deliver()
+        self.assertEqual(self.store.get('delivery_failure:long:1')['error_type'], 'TimeoutError')
+        before = [tuple(r) for r in self.store.db.execute("SELECT * FROM messages_delivery WHERE id LIKE 'long:%'")]
+        self.store.db.close()
+        self.store = Store(self.root / 'state.sqlite')
+        self.pilot = self.new_pilot()
+        self.transport.fail = False
+        self.pilot.receive(self.msg('/ping', 'fresh'))
+        self.drain()
+        self.assertEqual([tuple(r) for r in self.store.db.execute("SELECT * FROM messages_delivery WHERE id LIKE 'long:%'")], before)
+        self.assertEqual(self.store.db.execute("SELECT status FROM messages_delivery WHERE id='fresh:1'").fetchone()[0], 'sent')
+        self.assertIn('New messages can receive replies', self.pilot.delivery_attention())
+        self.assertEqual(len(self.transport.sent), 3)  # Pairing, uncertain part, fresh ping.
+
+    def test_service_starts_watcher_with_uncertain_delivery(self):
+        import io
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from task_relay import messages_pilot as module
+        self.pair()
+        with self.store.db:
+            self.pilot.notify('messages-orchestrator-v1', 'Previously delivered setup help')
+        self.drain()
+        with self.store.db:
+            self.pilot.notify('held', 'Original response')
+            self.store.db.execute("UPDATE messages_delivery SET status='uncertain' WHERE id='held:1'")
+        paths = SimpleNamespace(state=self.root/'state.sqlite', messages=self.root/'service')
+        process = MagicMock()
+        process.__enter__.return_value = process
+        process.poll.return_value = None
+        process.stdout = io.StringIO(json.dumps(self.msg('/ping', 'live')) + '\n')
+        original = module.Pilot
+        def pilot(*args, **kwargs):
+            return original(*args, **kwargs, task_reader=lambda: [self.task])
+        args = SimpleNamespace(state=str(paths.messages), task=None, background=True,
+                               ack_delivery=None, clear_pending=False)
+        with patch.object(module, 'PATHS', paths), patch.object(module, 'Pilot', side_effect=pilot), \
+             patch.object(module, 'Messages', return_value=self.transport), \
+             patch.object(module.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+             patch.object(module.subprocess, 'Popen', return_value=process) as watcher, \
+             patch.object(module.signal, 'signal'), patch.object(module.time, 'sleep'):
+            with self.assertRaisesRegex(BridgeError, 'watcher stopped'):
+                module.run(args)
+        watcher.assert_called_once()
+        self.assertEqual(self.store.db.execute("SELECT status FROM messages_delivery WHERE id='held:1'").fetchone()[0], 'uncertain')
+        self.assertEqual(self.store.db.execute("SELECT status FROM messages_delivery WHERE id='live:1'").fetchone()[0], 'sent')
+        health = json.loads((paths.messages/'health.json').read_text())
+        self.assertEqual(health['status'], 'running')
+        self.assertIn('held for review', health['detail'])
 
     def test_restart_does_not_accept_offline_command(self):
         self.pair()

@@ -44,6 +44,36 @@ def inputs(rt, root, source=None, script=CREATE_SCRIPT, contract=None):
 
 
 class Tests(unittest.TestCase):
+    def test_snapshot_checks_hidden_and_locked_geometry_and_hidden_references(self):
+        import types
+        from orchestrator.rhino_worker import snapshot
+        ns=types.SimpleNamespace
+        class Settings:
+            HiddenObjects=False;LockedObjects=True;NormalObjects=True;ReferenceObjects=False;VisibleFilter=False
+        vector=ns(X=1,Y=2,Z=3)
+        box=ns(IsValid=True,Min=vector,Max=vector,Diagonal=vector)
+        def obj(ident,name,hidden=False,locked=False,reference=False):
+            return ns(Id=ident,IsDeleted=False,Geometry=ns(IsValid=True,GetBoundingBox=lambda _:box,UserData=ns(Count=0)),
+                      Attributes=ns(Name=name,LayerIndex=0,MaterialIndex=-1,UserData=ns(Count=0)),
+                      ObjectType='Brep',IsReference=reference,hidden=hidden,locked=locked)
+        objects=[obj('visible','Visible'),obj('hidden','Zone',hidden=True),obj('locked','Locked',locked=True),
+                 obj('ref','HiddenReference',hidden=True,reference=True)]
+        def enumerate_objects(settings):
+            if not isinstance(settings,Settings):return objects[:1] # SDK ObjectType overload omits hidden geometry
+            return [o for o in objects if (not o.hidden or settings.HiddenObjects) and (not o.locked or settings.LockedObjects)
+                    and (not o.IsReference or settings.ReferenceObjects)]
+        doc=ns(Objects=ns(GetObjectList=enumerate_objects),Materials=[],Layers=[],NamedViews=[],InstanceDefinitions=[],
+               ModelUnitSystem='Meters',ModelAbsoluteTolerance=.001,ModelAngleToleranceRadians=.01)
+        rhino=ns(DocObjects=ns(ObjectEnumeratorSettings=Settings,ObjectType=ns(AnyObject=0,InstanceReference='InstanceReference')),RhinoApp=ns(Version='fixture'))
+        with patch.dict('sys.modules',{'Rhino':rhino}),patch('orchestrator.rhino_worker.fingerprint',return_value='fixed'):
+            result=snapshot(doc)
+        self.assertEqual({o['name'] for o in result['objects'].values()},{'Visible','Zone','Locked','HiddenReference'})
+        self.assertEqual(result['dependencies'],[{'kind':'reference_or_block','object':'ref'}])
+        contract=checks();contract.update(expected_object_count=4,expected_dimensions={'Zone':[1,2,3]})
+        self.assertEqual(compare({'objects':{}},result,contract),[])
+        result['objects']['duplicate']=dict(result['objects']['hidden'])
+        self.assertIn('Expected object name is missing or ambiguous: Zone',compare({'objects':{}},result,contract))
+
     def test_preview_named_view_is_required_in_reopened_scene(self):
         contract=checks();contract['preview']['named_view']='FacadeSheet';validate_checks(contract)
         snap=dict(objects={'one':dict(name='Tower',dimensions=[2,3,4],valid=True)},units='Meters',tolerance=.001,named_views={})
@@ -110,6 +140,21 @@ class Tests(unittest.TestCase):
         with patch('task_relay.rhino_host.run',return_value=dict(passed=False,timeout=True)) as calls:
             self.assertEqual(execute(frozen,control)['outcome'],'failed');self.assertEqual(calls.call_count,1)
         self.assertFalse((Path(frozen['workspace'])/'delivery/render.png').exists())
+
+    def test_model_exception_reaches_result_without_verification_or_replay(self):
+        frozen,control=self.frozen()
+        def run(*args):
+            request=json.loads(Path(args[2]).read_text())
+            if request['mode']=='before':return self.fake_run(*args)
+            return dict(passed=False,returncode=1,worker={'error':"Traceback (most recent call last):\n  File 'model.py', line 270\nAttributeError: 'RhinoViewport' object has no attribute 'SetCameraUp'\n"})
+        with patch('task_relay.rhino_host.run',side_effect=run) as calls:
+            result=execute(frozen,control)
+            self.assertEqual(result['outcome'],'failed')
+            self.assertIn("AttributeError: 'RhinoViewport' object has no attribute 'SetCameraUp'",result['summary'])
+            with self.assertRaisesRegex(ValueError,'replay'):execute(frozen,control)
+            self.assertEqual(calls.call_count,2)
+        saved=json.loads((Path(frozen['workspace'])/'.relay/result.json').read_text())
+        self.assertEqual(saved['decision'],'blocked');self.assertIn('SetCameraUp',saved['checks'][0]['evidence'])
 
     def test_render_manifest_drift_and_future_inputs_block_dispatch(self):
         from orchestrator.rhino_render import bind_registered
@@ -274,8 +319,23 @@ class Tests(unittest.TestCase):
         contract=checks();contract['preview']['resolution']=[8000,64]
         with self.assertRaises(ValueError):validate_checks(contract)
 
+    def test_missing_native_response_preserves_clear_failure_and_does_not_run_model(self):
+        frozen,control=self.frozen()
+        with patch('task_relay.rhino_host.run',return_value=dict(passed=False,worker=None,returncode=0)) as calls:
+            result=execute(frozen,control)
+        self.assertEqual(result['outcome'],'failed')
+        self.assertIn('without a matching worker response',result['summary'])
+        self.assertNotIn('NoneType',result['summary'])
+        self.assertEqual(calls.call_count,1)
+        self.assertFalse((Path(frozen['workspace'])/'delivery/candidate.3dm').exists())
+        self.assertEqual(json.loads((Path(frozen['workspace'])/'delivery/execution.json').read_text())['runs'][0]['worker'],None)
+
 
 class AdapterTests(unittest.TestCase):
+    def setUp(self):
+        guard=patch('task_relay.rhino_host.running_instances',return_value=[])
+        guard.start();self.addCleanup(guard.stop)
+
     def test_failed_owner_receipt_closes_new_process_before_returning(self):
         from task_relay.rhino_host import run
         with tempfile.TemporaryDirectory() as tmp:
@@ -388,11 +448,81 @@ class AdapterTests(unittest.TestCase):
             p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='startup')))
             with patch('task_relay.rhino_host.subprocess.Popen') as spawn:
                 process=spawn.return_value;process.pid=123;process.returncode=-9
-                process.wait.side_effect=[subprocess.TimeoutExpired([],1),-9];process.poll.return_value=-9
-                result=run('/rhino',Path(tmp)/'script.py',p,1,'darwin')
+                def timed_out(**kwargs):
+                    if kwargs.get('timeout')==5:return -9
+                    clock[0]+=kwargs['timeout']
+                    raise subprocess.TimeoutExpired([],kwargs['timeout'])
+                clock=[0.]
+                process.wait.side_effect=timed_out;process.poll.return_value=-9
+                with patch('task_relay.rhino_host.time.monotonic',side_effect=lambda:clock[0]):
+                    result=run('/rhino',Path(tmp)/'script.py',p,1,'darwin')
                 process.kill.assert_called_once();spawn.assert_called_once()
                 self.assertNotIn('start_new_session',spawn.call_args.kwargs)
                 self.assertTrue(result['timeout']);self.assertFalse(result['passed'])
+
+    def test_existing_selected_rhino_prevents_launch_without_touching_process(self):
+        from task_relay.rhino_host import run
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='before')))
+            with patch('task_relay.rhino_host.running_instances',return_value=[42]),patch('task_relay.rhino_host.subprocess.Popen') as spawn:
+                result=run('/rhino',Path(tmp)/'script.py',p,600,'darwin')
+        self.assertEqual(result['error_code'],'rhino_already_running')
+        self.assertFalse(result['launched']);spawn.assert_not_called()
+        self.assertIn('Save your work',result['error'])
+
+    def test_startup_timeout_is_separate_and_only_stops_owned_process(self):
+        from task_relay.rhino_host import run
+        clock=[0.]
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='before')))
+            with patch('task_relay.rhino_host.subprocess.Popen') as spawn,patch('task_relay.rhino_host.time.monotonic',side_effect=lambda:clock[0]):
+                process=spawn.return_value;process.pid=123;process.returncode=-9;process.poll.return_value=-9
+                def waiting(**kwargs):
+                    if kwargs['timeout']==5:return -9
+                    clock[0]+=kwargs['timeout'];raise subprocess.TimeoutExpired([],kwargs['timeout'])
+                process.wait.side_effect=waiting
+                result=run('/rhino',Path(tmp)/'script.py',p,600,'darwin')
+                process.kill.assert_called_once();spawn.assert_called_once()
+        self.assertEqual(result['error_code'],'rhino_startup_timeout')
+        self.assertEqual(result['elapsed_seconds'],60)
+        self.assertFalse(result['startup_received'])
+
+    def test_owned_startup_allows_long_work_but_wrong_pid_does_not(self):
+        from task_relay.rhino_host import run
+        for owner in (123,999):
+            with self.subTest(owner=owner),tempfile.TemporaryDirectory() as tmp:
+                clock=[0.];p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='model')))
+                p.with_suffix('.started.json').write_text(json.dumps(dict(pid=owner,token='test',mode='model')))
+                with patch('task_relay.rhino_host.subprocess.Popen') as spawn,patch('task_relay.rhino_host.time.monotonic',side_effect=lambda:clock[0]):
+                    process=spawn.return_value;process.pid=123;process.returncode=0;process.poll.return_value=0
+                    def waiting(**kwargs):
+                        if kwargs['timeout']==5:return 0
+                        clock[0]+=kwargs['timeout']
+                        if clock[0]>=75:
+                            p.with_suffix('.result.json').write_text(json.dumps(dict(pid=123,token='test',mode='model',passed=True)))
+                            return 0
+                        raise subprocess.TimeoutExpired([],kwargs['timeout'])
+                    process.wait.side_effect=waiting
+                    result=run('/rhino',Path(tmp)/'script.py',p,600,'darwin')
+                self.assertEqual(result['passed'],owner==123)
+                self.assertEqual(result['startup_received'],owner==123)
+
+
+class ProcessInspectionTests(unittest.TestCase):
+    def test_exact_application_match_ignores_other_versions_and_helper_processes(self):
+        from task_relay.rhino_host import running_instances
+        output='42 /Applications/Rhino 8.app/Contents/MacOS/Rhinoceros\n43 /Applications/Rhino 7.app/Contents/MacOS/Rhinoceros\n44 /Applications/Rhino 8.app/Contents/Frameworks/RhinoMonitor.app/Contents/MacOS/RhinoMonitor\n'
+        with patch('task_relay.rhino_host.subprocess.run',return_value=subprocess.CompletedProcess([],0,output,'')):
+            self.assertEqual(running_instances('/Applications/Rhino 8.app/Contents/MacOS/Rhinoceros','darwin'),[42])
+
+    def test_unavailable_process_inspection_does_not_launch(self):
+        from task_relay.rhino_host import run
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='before')))
+            with patch('task_relay.rhino_host.subprocess.run',side_effect=PermissionError('Denied')),patch('task_relay.rhino_host.subprocess.Popen') as spawn:
+                with self.assertRaisesRegex(RuntimeError,'no worker was launched'):
+                    run('/rhino',Path(tmp)/'script.py',p,600,'darwin')
+                spawn.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
