@@ -212,11 +212,15 @@ function render(info) {
   if (firstRead && setup.selected_provider) $('provider-name').value = setup.selected_provider;
   providerFields();
   text('telegram-summary', setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
+  renderAppAccess(info.app_access);
   const browser = info.browser || {};
+  text('browser-installation', browser.executable ? `Google Chrome ${browser.version || ''}\n${browser.executable}` : 'Google Chrome not detected');
   const codeRuntime = info.code_runtime || {};
   text('code-runtime-detail', codeRuntime.error || ((codeRuntime.enabled ? 'Enabled. ' : 'Off. ') + (codeRuntime.detail || '') + '\n' + Object.entries(codeRuntime.tools || {}).map(([name, tool]) => name + ': ' + (tool.available ? (tool.checked || 'Detected') + ' · ' + tool.version : 'Not installed')).join('; ')));
   $('code-runtime-check').disabled = mutating || !codeRuntime.available;
-  $('code-runtime-disable').disabled = mutating || !codeRuntime.enabled;
+  $('code-runtime-toggle').disabled = mutating || (!codeRuntime.available && !codeRuntime.enabled);
+  $('code-runtime-toggle').setAttribute('aria-checked', String(!!codeRuntime.enabled));
+  text('code-runtime-toggle', codeRuntime.enabled ? 'On' : 'Off');
   text('browser-summary', browser.error ? 'Needs attention' : browser.enabled ? browser.manual_sign_in ? 'Sign-in in progress' : 'On' : 'Off');
   text('browser-toggle', browser.enabled ? 'On' : 'Off');
   $('browser-toggle').setAttribute('aria-checked', String(!!browser.enabled));
@@ -285,7 +289,8 @@ async function refresh() {
     $('status-dot').className = 'dot attention';
     $('service-action').hidden = true;
     $('open-conversation').disabled = true;
-    for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination', 'browser-toggle', 'browser-open', 'browser-sign-in-done']) $(id).disabled = true;
+    for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination', 'browser-toggle', 'browser-open', 'browser-sign-in-done', 'code-runtime-toggle', 'code-runtime-check']) $(id).disabled = true;
+    $('app-access-list').querySelectorAll('button').forEach(button => {button.disabled = true;});
     $('grant-data-access').hidden = false;
     message(String(error), true);
   } finally { refreshing = false; $('refresh').disabled = false; }
@@ -443,7 +448,9 @@ $('browser-toggle').onclick = () => {
   if (snapshot?.browser) return change('browser-configure', {enabled: !snapshot.browser.enabled}, $('browser-toggle'));
 };
 $('code-runtime-check').onclick = () => change('code-runtime-configure', {enabled:true}, $('code-runtime-check'));
-$('code-runtime-disable').onclick = () => change('code-runtime-configure', {enabled:false}, $('code-runtime-disable'));
+$('code-runtime-toggle').onclick = () => {
+  if (snapshot?.code_runtime) return change('code-runtime-configure', {enabled:!snapshot.code_runtime.enabled}, $('code-runtime-toggle'));
+};
 $('worker-verify').onclick = () => change('worker-verify', {provider:$('worker-provider').value}, $('worker-verify'));
 $('browser-open').onclick = () => change('browser-open', {}, $('browser-open'));
 $('browser-sign-in-done').onclick = () => change('browser-sign-in-done', {}, $('browser-sign-in-done'));
@@ -524,4 +531,38 @@ if (native) {
 } else {
   message('Open Task Relay.app to connect your services. This page is a desktop companion, not a standalone installer.', true);
   document.querySelectorAll('button, input, select').forEach(element => element.disabled = true);
+}
+
+function renderAppAccess(access) {
+  const list = $('app-access-list'); list.replaceChildren();
+  text('app-access-detail', access?.error || access?.detail || 'App discovery is unavailable. Refresh to try again.');
+  if (!access?.groups) return;
+  const names = {rhino:'Rhino', blender:'Blender', codex:'Codex', claude:'Claude', ffmpeg:'FFmpeg and FFprobe'};
+  const toggle = (id, name, enabled, disabled) => {
+    const button = document.createElement('button'); button.type = 'button';
+    button.setAttribute('role','switch'); button.setAttribute('aria-label',name);
+    button.setAttribute('aria-checked',String(enabled)); button.textContent = enabled ? 'On' : 'Off';
+    button.disabled = mutating || disabled;
+    button.onclick = () => change('app-access-update',{id,enabled:!enabled},button);
+    return button;
+  };
+  for (const group of access.groups) {
+    const rows = access.apps.filter(app => app.family === group.id);
+    if (!rows.length) continue;
+    const card = document.createElement('div'); card.className = 'channel-card';
+    const heading = document.createElement('div'); heading.className = 'channel-row';
+    const name = document.createElement('strong'); name.textContent = names[group.id] || group.id;
+    heading.append(name,toggle(group.id,name.textContent,group.enabled,!rows.some(app=>app.supported) && !group.enabled)); card.append(heading);
+    for (const app of rows) {
+      const row = document.createElement('div'); row.className='app-installation';
+      const header = document.createElement('div'); header.className='channel-row';
+      const label = document.createElement('span'); label.textContent=app.name+(app.version ? ' '+app.version : ' · '+app.executable.split(/[\\/]/).pop());
+      if (app.supported) header.append(label,toggle(app.id,label.textContent,app.enabled,!group.enabled));
+      else header.append(label);
+      const path=document.createElement('p'); path.className='path'; path.textContent=app.executable;
+      const detail=document.createElement('p'); detail.className='hint'; detail.textContent=app.detail;
+      row.append(header,path,detail); card.append(row);
+    }
+    list.append(card);
+  }
 }

@@ -11,7 +11,7 @@ use tauri_plugin_opener::OpenerExt;
 const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-download", "app-update-install", "app-update-recover",
     "status", "project", "provider", "telegram", "update-check",
     "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider", "image-model-refresh", "rhino-preference",
-    "code-runtime-configure", "worker-verify",
+    "code-runtime-configure", "worker-verify", "app-access-update",
     "channel-update", "channel-status",
     "companion-status", "conversation", "approval-detail", "messages-start", "messages-stop",
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",

@@ -139,7 +139,10 @@ def probe(provider='gemini'):
 
 def available(backend):
     validate(backend)
-    if backend['type']=='codex-cli':return
+    if backend['type']=='codex-cli':
+        from task_relay.app_access import require
+        require('codex')
+        return
     if backend['type'] in CODE_TYPES:
         from task_relay.code_runtime import available as runtime_available
         runtime_available(backend['runtime'])

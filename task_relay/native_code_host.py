@@ -13,7 +13,7 @@ import stat
 def identity():
     from .host import HOST
     if HOST.platform!='darwin' or not Path('/usr/bin/sandbox-exec').is_file():
-        raise ValueError('Native code isolation is currently available on macOS. Windows AppContainer qualification is pending; file/browser workers remain available.')
+        raise ValueError('Native code isolation is currently available on macOS. Windows code isolation and file-grant qualification are pending.')
     python=Path(sys.executable).resolve()
     # python.org framework's bin/python is a posix_spawn launcher. Run its real
     # interpreter directly so the sandbox can prohibit all child processes.

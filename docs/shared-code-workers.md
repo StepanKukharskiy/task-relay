@@ -1,12 +1,14 @@
 # Shared code and document workers
 
-Included in the locally installed 0.13.24 app. Packaged runtime and native sandbox
+Included in the locally installed 0.13.25 app. Packaged runtime and native sandbox
 checks pass; paid-provider execution has not been live-qualified. A new public
 release has not been published by this local update.
 
 Relay uses its bundled Python and document libraries. Users do not install Docker,
-Python, or packages to use this feature in the desktop app. In Settings, **Code and
-document tools → Check tools and enable** runs fixed local qualification fixtures.
+Python, or packages to use this feature in the desktop app. Code and document tools are on by default. Relay runs fixed local qualification
+fixtures before first use; Settings → Apps and tools shows the switch and a
+**Check tools** action. Explicit Off choices and failed checks remain off. A
+frozen runtime cannot be reapproved automatically if its receipt is missing.
 **Check worker connection** verifies the selected provider/model metadata without
 generating content. The provider must already be connected with an exact text model.
 OpenRouter automatic/free model routing is excluded from these workers.
@@ -35,8 +37,9 @@ not proof of generation quota or a model's tool-calling quality.
 
 The current adapter uses macOS Seatbelt (`sandbox-exec`). Windows 10+ remains the
 compatibility target, but Windows code execution is unavailable until a native
-isolation adapter is implemented and qualified. This does not disable existing
-Windows text-file workers. OS-specific execution stays in `native_code_host.py`.
+isolation adapter is implemented and qualified. Windows file-grant enforcement is also unqualified, so successful POSIX file-worker
+fixtures are not evidence of Windows execution. OS-specific execution stays in
+`native_code_host.py`.
 
 Each `python_run` call receives fresh copies of the exact granted inputs and prior
 declared outputs. Python reads them under `RELAY_INPUTS` and writes under

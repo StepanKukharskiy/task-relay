@@ -30,6 +30,6 @@ jobs:
           tests.test_procedures
           tests.test_opportunities
           tests.test_worker_capabilities tests.test_executor_planning
-          tests.test_shared_code_workers
+          tests.test_shared_code_workers tests.test_app_access
           tests.test_browser_screenshots
           tests.test_mixed_planning tests.test_channel_policy

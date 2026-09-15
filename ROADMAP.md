@@ -21,6 +21,20 @@ outputs and next decision. Distinguish waiting for a human from missing input,
 missing capability, failure and uncertain submission. Never infer acceptance from
 an ambiguous response or replay an uncertain external operation.
 
+### App access settings and Windows CI correction — locally installed 0.13.25
+
+Settings groups installed apps and tools, shows detected versions and paths, and
+provides persistent family/installation switches. Discovery and new registered
+operations honor disabled choices; exact approved code keeps its selected runtime.
+Codex and Claude dispatch respect their controls. External agent OS permissions
+and already running work are unchanged. Bundled Python/document tools default on,
+qualify on first use, and preserve explicit Off or failed qualification.
+Windows CI now separates POSIX grant fixtures from Windows fail-closed checks and
+closes the usage fixture database. Native Windows file/code execution remains O12.
+Controlled macOS integration, settings and native document checks pass; the app
+was installed with verified backups and fresh messaging-service health. Windows
+runner validation and a public release remain separate.
+
 ## Implemented foundations
 
 | ID | Scope | Boundary |

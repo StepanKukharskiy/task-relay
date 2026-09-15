@@ -53,6 +53,9 @@ def dispatch(action, value):
 
 
 def _dispatch(action, value):
+    if action == 'app-access-update':
+        from .app_access import update
+        return update(value)
     if action == 'code-runtime-configure':
         from .code_runtime import configure
         if set(value)!={'enabled'}:raise ValueError('Choose whether to enable code tools.')

@@ -65,6 +65,9 @@ class CodexFactory:
         self.children = []
 
     def create(self, control, workspace, frozen, backend):
+        if backend['type']=='codex-cli' and frozen.get('role') not in ('procedure','api'):
+            from task_relay.app_access import require
+            require('codex',self.executable)
         from task_relay.host_apps import catalog as app_catalog
         control = Path(control); control.mkdir(parents=True, exist_ok=False)
         prompt = (
@@ -106,6 +109,10 @@ class CodexFactory:
 
     def submit(self, session):
         control = Path(session['control'])
+        launch=json.loads((control/'launch.json').read_text())
+        if launch.get('executable') and launch['backend']['type']=='codex-cli':
+            from task_relay.app_access import require
+            require('codex',launch['executable'])
         # The runtime calls this exactly once, after committing its launch intent.
         with (control / 'supervisor.log').open('ab') as log:
             child = HOST.spawn_supervisor([sys.executable, str(control / 'supervisor.py'), str(control), session['id']],

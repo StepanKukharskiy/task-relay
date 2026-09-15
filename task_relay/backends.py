@@ -50,6 +50,11 @@ def initialize(db):
 
 
 def claude_config():
+    from .app_access import enabled
+    if not enabled('claude',CLAUDE_PYTHON):return None
+    from .host_apps import claude_cli
+    try:claude_cli()
+    except ValueError:return None
     try:
         config = private_json(DATA/'claude.json')
     except (OSError, ValueError):
@@ -287,6 +292,11 @@ class BackendWorker:
         if row['cancel']:
             finish(self.state, row['id'], 'stopped', 'Cancelled before the runner started. A previously submitted video operation may still run at Google.' if self.backend == 'gemini' else 'Cancelled before the runner started. No new request was sent.')
             return
+        if self.backend == 'claude':
+            from .app_access import enabled
+            if not enabled('claude',CLAUDE_PYTHON):
+                finish(self.state, row['id'], 'failed', 'Claude is off in Settings → Apps and tools. No instruction was sent.')
+                return
         with self.state.db:
             claimed = self.state.db.execute("UPDATE backend_jobs SET status='running',started_at=? WHERE id=? AND status='queued'",
                                             (time.time(), row['id'])).rowcount
