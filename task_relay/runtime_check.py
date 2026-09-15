@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from task_relay.releases import VERSION
 from task_relay import file_tools, pdf_reader
-for name in ('pypdf', 'PIL', 'playwright.sync_api', 'pptx'):
+for name in ('pypdf', 'PIL', 'playwright.sync_api', 'pptx', 'docx', 'openpyxl', 'reportlab'):
     importlib.import_module(name)
 from pypdf import PdfWriter
 from pypdf.generic import NameObject, DictionaryObject, DecodedStreamObject

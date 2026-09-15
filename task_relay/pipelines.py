@@ -63,6 +63,8 @@ fallback. Do not instruct the user to ask for the next stage after a selection.
 
 
 def initialize(db):
+    from . import procedures
+    procedures.initialize(db)
     from . import production_repairs
     production_repairs.initialize(db)
     db.executescript('''CREATE TABLE IF NOT EXISTS relay_pipelines(
@@ -314,7 +316,7 @@ def response_event(state,job,action):
     if kind=='pipeline_result':
         ctx=request_context(state,job['id'])
         return f'pipeline:{ctx["pipeline_id"]}:{ctx["stage"]["id"]}:result'
-    if kind=='plan_pipeline':
+    if kind in ('plan_pipeline','run_procedure'):
         row=state.db.execute('SELECT id FROM relay_pipelines WHERE request_id=?',(job['id'],)).fetchone()
         return f'pipeline:{row[0]}:workflow:created'
     return None
@@ -364,6 +366,9 @@ def enqueue_step(state,p,s):
     for a in sources.values():
         if artifact_source(state,a['artifact'])!=a:raise ValueError('An upstream artifact changed; workflow stopped.')
     inputs={'prior_results':[dict(id=r['id'],result=r['result']) for r in prior], 'sources':list(sources.values())}
+    from . import procedures
+    procedure=procedures.run_context(state,p['id'])
+    if procedure:inputs['procedure']=procedure
     stage=json.loads(p['spec'])['stages'][s['position']]
     prompt=stage['instruction']+'\n\nOriginal user request:\n'+p['request']+'\n\nSaved workflow stage and exact upstream context:\n'+encoded({'stage':stage,**inputs})
     if json.loads(p['spec'])['planning_only']:
@@ -386,7 +391,8 @@ def check_plan(state,p,s,row):
     spec=json.loads(p['spec'])['stages'][s['position']];plan=json.loads(row['plan'])
     from orchestrator import host_code
     from orchestrator.execution import REGISTRY
-    caps=set(spec['capabilities']);needs_approval=False
+    from orchestrator.worker_capabilities import needs_approval as worker_approval
+    caps=set(spec['capabilities']);needs_approval=worker_approval(plan)
     receipt=state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created' ORDER BY id LIMIT 1",(p['id'],)).fetchone()
     automatic_seconds=json.loads(receipt[0]).get('automatic_task_seconds',600) if receipt else 600
     for t in plan['tasks']:
@@ -643,7 +649,7 @@ def verify_start(state,row,grant=None):
     if grant:
         p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(grant,)).fetchone()
         if not p or grant!=link['pipeline'] or p['channel']!=getattr(state,'channel','telegram') or not check_plan(state,p,link,row):
-            raise ValueError('Exact host-code Start is required; workflow intent does not authorize this code.')
+            raise ValueError('Exact stage Start is required for its host code, worker backend or extended limits; the saved workflow grant does not cover this change.')
 
 
 def bind_reply(state,ident,focus):

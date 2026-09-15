@@ -11,6 +11,20 @@ PPTX generation. The 0.13.0-beta.1 download includes browser setup, media provid
 editable PPTX and workflow starters; other document exports are worker-dependent. Check the
 actual published source archive before claiming an operation is in the beta.
 No dependencies or build step.
+The `/guides/` section focuses on five current local-tool workflows: site research
+into PPTX, precise Rhino model revisions, named-view renders, Blender asset
+packing and editable design presentations. Each article links to a reported pain
+point, names required inputs and operations, and distinguishes implementation
+from complete live workflow proof. The capability audit used bundled 0.13.24;
+the public 0.13.0-beta.1 download is explicitly a different release.
+Exact routes serve the guides and reviewed sample artifacts. The earlier
+invoice/CSV/complaint recipes remain reachable with archive notices and noindex;
+the hub and sitemap list only the current collection. The original architecture
+request and sample deck retain their bytes; the revised request has a v2 URL.
+The architecture deck is a separately authored output example. No app or provider
+was run to qualify these new guide prompts. Guide changes are local source changes
+until separately deployed. Run `node --test tests/website-downloads.test.cjs` from
+the repository root to check routes, local links, archive indexing and downloads.
 `/llms.txt` provides a Markdown overview and curated documentation links for AI
 readers. The homepage advertises it with `rel="describedby"` and a footer link.
 Keep it aligned with the programs, formats and release boundaries on the page.

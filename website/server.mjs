@@ -11,8 +11,25 @@ for (const [route, file, type] of [
   ['/style.css', 'style.css', 'text/css; charset=utf-8'],
   ['/logo.png', 'logo.png', 'image/png'],
   ['/llms.txt', 'llms.txt', 'text/plain; charset=utf-8'],
+  ['/guides/', 'guides/index.html', 'text/html; charset=utf-8'],
+  ['/guides/guide.css', 'guides/guide.css', 'text/css; charset=utf-8'],
+  ...['architectural-site-analysis', 'rhino-model-revisions', 'rhino-named-view-renders', 'blender-asset-handoff', 'design-review-presentation',
+      'rename-invoice-pdfs', 'combine-csv-exports', 'find-automation-opportunities']
+    .map(slug => ['/guides/' + slug, 'guides/' + slug + '.html', 'text/html; charset=utf-8']),
+  ...['invoice-sample.zip', 'csv-sample.zip'].map(name => ['/guides/assets/' + name, 'guides/assets/' + name, 'application/zip']),
+  ['/guides/assets/file-recipes.py', 'guides/assets/file-recipes.py', 'text/plain; charset=utf-8'],
+  ['/guides/assets/barcelona-pre-schematic-v1.pptx', 'guides/assets/barcelona-pre-schematic-v1.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['/guides/assets/architecture-preview.png', 'guides/assets/architecture-preview.png', 'image/png'],
+  ['/guides/assets/architecture-sources.json', 'guides/assets/architecture-sources.json', 'application/json; charset=utf-8'],
+  ...['architecture-request.txt', 'architecture-request-v2.txt', 'complaint-research-request.txt'].map(name => ['/guides/assets/' + name, 'guides/assets/' + name, 'text/plain; charset=utf-8']),
+  ['/sitemap.xml', 'sitemap.xml', 'application/xml; charset=utf-8'],
+  ['/robots.txt', 'robots.txt', 'text/plain; charset=utf-8'],
 ]) assets.set(route, { body: await readFile(new URL(`./public/${file}`, import.meta.url)), type });
 assets.set('/index.html', assets.get('/'));
+assets.set('/guides', assets.get('/guides/'));
+for (const [route, asset] of [...assets]) {
+  if (route.startsWith('/guides/') && asset.type.startsWith('text/html') && !route.endsWith('/')) assets.set(route + '/', asset);
+}
 assets.set('/health', { body: Buffer.from('ok\n'), type: 'text/plain; charset=utf-8' });
 const downloads = new Map();
 const directory = process.env.TASK_RELAY_DOWNLOAD_DIR || fileURLToPath(new URL('./downloads/', import.meta.url));

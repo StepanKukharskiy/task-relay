@@ -54,10 +54,16 @@ task-relay workflows --json
 In Telegram or Messages use `/templates` and `/templates ID`. The existing
 `/workflow` and `/workflows` linked-workflow controls retain their meaning.
 
+Starter requirements are provider-neutral. The production planner composes roles
+and resolves each worker against its frozen capability/executor catalog; it does
+not need a dedicated domain worker per starter. See
+[capability-driven workers](capability-workers.md) for supported profiles and
+the approval boundary when a proposed worker uses a different backend.
+
 | ID | Stages | Tool requirements and boundaries |
 | --- | --- | --- |
 | research-report | Research → report | Qualified browser/research executor, then file/document tools |
-| architecture-presentation | Research → concept → model → presentation | Research, Codex, registered Blender or Rhino, PPTX tooling; native Keynote/Slides remain unqualified |
+| architecture-presentation | Research → concept → model → optional visualization → presentation | Research/file workers, registered Blender or Rhino, configured reference-image provider, PPTX tooling; native Keynote/Slides remain unqualified |
 | model-revision | Inspect → prepare edit → apply | Exact Blender/Rhino source, reviewed script/checks, separately approved host operation |
 | carousel-reel | Adaptation → production | Exact approved cards/assets/guides, then qualified media tools; preserve the first render for review |
 | data-presentation | Analysis → presentation | Exact CSV/XLSX, reproducible calculations, chart/PPTX tooling |
@@ -65,15 +71,21 @@ In Telegram or Messages use `/templates` and `/templates ID`. The existing
 Each stage lists inputs, outputs, tools and its review point. Request, for example,
 “Prepare the analysis stage of data-presentation for Project Alpha.” The interpreter
 selects `plan_production` with `template=custom`, `starter_workflow` and optionally
-`starter_stage`. Starting a workflow defaults to its first stage. Existing source,
-executor, budget and exact-plan approval checks still apply.
+`starter_stage`. A request for the full workflow instead uses `plan_pipeline` to
+derive all requested stages and continue through their agreed boundaries. Existing
+source, executor, budget and exact-plan approval checks still apply.
 
 The complete definition, version, hash and selected stage are captured in the
 planning context. A clarification keeps that captured definition even if the
-installed catalog changes. Changing stages requires a separate request. Templates
-are planning aids, not executable universal app adapters: required tools must be
-available, missing inputs must be resolved, and later stages are not authorized.
+installed catalog changes. A single-stage plan grants only that stage. A saved
+full workflow continues after completed work and explicit selections without a new
+continuation request at every stage. Required tools must be available and missing
+inputs must be resolved. Templates describe stages; registered operations or
+capable workers execute them. Native code still needs exact Start.
 No provider, application installation, publication or user acceptance is inferred.
+
+See the [workflow implementation audit and reusable procedures](reusable-procedures.md)
+for automation coverage, media-worker dependencies and saving completed workflows.
 
 ## Validation boundary
 

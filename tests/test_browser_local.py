@@ -24,6 +24,16 @@ from tests.test_gemini_executor import CONFIG
 class Page(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def do_GET(self):
+        if self.path=='/fixture':
+            self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers()
+            self.wfile.write(b'''<title>Screenshot fixture</title><body style="margin:24px;height:2000px">
+              <h1>Study location capture fixture</h1><canvas id="map" width="600" height="300"></canvas>
+              <p>Fixture map attribution stays visible</p><script>
+              const ctx=document.getElementById('map').getContext('2d');ctx.fillStyle='#e4eedc';ctx.fillRect(0,0,600,300);
+              ctx.strokeStyle='#60758b';ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(0,150);ctx.lineTo(600,150);ctx.stroke();
+              ctx.fillStyle='#cf302c';ctx.beginPath();ctx.arc(300,150,12,0,Math.PI*2);ctx.fill();
+              ctx.fillStyle='#18272f';ctx.font='20px sans-serif';ctx.fillText('Study point',320,130);
+              </script></body>''');return
         if self.path=='/redirect':
             self.send_response(302);self.send_header('Location','https://outside.invalid/');self.end_headers();return
         if self.path=='/download':
@@ -86,6 +96,27 @@ class Tests(unittest.TestCase):
             self.assertEqual(result['outcome'],'blocked')
             self.assertFalse(session.journal.pending(scope['profile']))
             self.assertFalse(self.server.submissions)
+
+    def test_real_viewport_capture_through_scripted_provider_and_png_delivery(self):
+        from tests.test_browser_screenshots import capture_graph,CaptureClient
+        from orchestrator.browser_contract import png_info,validate_captures
+        workspace=self.root/'capture';(workspace/'.relay').mkdir(parents=True)
+        control=self.root/'capture-control';control.mkdir()
+        frozen=c.assignment(capture_graph()['tasks'][0])
+        frozen.update(assignment_id='viewport-fixture',workspace=str(workspace),backend=capture_graph()['backend'])
+        frozen['browser']['origins']=[self.origin]
+        atomic(control/'launch.json',{'credential_fingerprint':executors.fingerprint(CONFIG,frozen['backend'])})
+        result=run(frozen,control,self.db,self.root,client=CaptureClient(frozen,'gemini'),
+                   config_reader=lambda:(CONFIG,frozen['backend']),
+                   driver_context=browser(self.root,frozen['browser'],headless=True))
+        self.assertEqual(result['decision'],'delivered');validate_captures(frozen,workspace)
+        raw=(workspace/'map.png').read_bytes();info=png_info(raw)
+        self.assertEqual((info['width'],info['height']),(1280,720))
+        self.assertFalse(self.server.submissions)
+        if os.environ.get('TASK_RELAY_SCREENSHOT_EVIDENCE'):
+            target=Path(os.environ['TASK_RELAY_SCREENSHOT_EVIDENCE']);target.mkdir(parents=True,exist_ok=True)
+            (target/'local-viewport.png').write_bytes(raw)
+            (target/'local-viewport.png.json').write_bytes((workspace/'map.png.json').read_bytes())
 
 
 if __name__=='__main__':unittest.main()

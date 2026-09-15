@@ -14,8 +14,8 @@ class GeminiFactory(CodexFactory):
     def create(self,control,workspace,frozen,backend):
         from . import executors
         executors.available(backend)
-        provider=backend['type'].removesuffix('-browser') if backend['type'] in executors.BROWSER_TYPES else 'gemini'
-        config,_=executors.configured() if provider=='gemini' else executors.configured(provider)
+        provider=executors.provider_for(backend)
+        config,_=executors.configured_worker(provider,'code' if backend['type'] in executors.CODE_TYPES else 'browser' if backend['type'] in executors.BROWSER_TYPES else 'agent')
         control=Path(control);control.mkdir(parents=True,exist_ok=False)
         support_hash=prepare_supervisor(control,frozen)
         (control/'prompt.txt').write_text('API executor; frozen assignment supplies scope.\n')
@@ -43,6 +43,8 @@ class GeminiFactory(CodexFactory):
             stem=request.name.removesuffix('.request.json');outcome=control/(stem+'.outcome.json')
             detail=json.loads(outcome.read_text()) if outcome.exists() else {}
             if not (control/(stem+'.response.json')).exists() and detail.get('outcome')!='rejected':unknown.append(stem)
+        for intent in control.glob('code-*/intent.json'):
+            if not intent.with_name('outcome.json').exists():unknown.append(intent.parent.name)
         result.update(backend=session['backend'],api_requests=len(list(control.glob('api-*.request.json'))))
         browser_result=control/'browser-result.json'
         if session['backend']['type'] in executors.BROWSER_TYPES and browser_result.exists():
@@ -58,7 +60,7 @@ class GeminiFactory(CodexFactory):
             unknown.append('missing_browser_receipt')
         result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
         if unknown and not (control/'cancel.json').exists():
-            result.update(status='uncertain',local_terminal=True,reason='Provider or browser outcome is unknown; stopped locally, never replayed or switched providers.')
+            result.update(status='uncertain',local_terminal=True,reason='Provider, browser or code outcome is unknown; stopped locally, never replayed or switched providers.')
         return result
 
 

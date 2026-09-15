@@ -13,7 +13,7 @@ from task_relay import production_control
 from task_relay import production_folders
 from task_relay import orchestrator_images
 from task_relay import task_routing
-from task_relay import task_creation, workflow_library
+from task_relay import task_creation, workflow_library, procedures, opportunities
 from task_relay import reference_packs
 from task_relay import project_roadmaps
 from task_relay import orchestrator_files
@@ -287,7 +287,7 @@ def model_context(payload):
     focused = next((p for p in snap.get('production_runs', []) if p['name'] == snap.get('focus')), None)
     system = SYSTEM + '\n' + production_planning.INSTRUCTIONS + '\n' + conversation_inputs.INSTRUCTIONS + '\n' + capabilities.INSTRUCTIONS + '\n' + routing_inputs.INSTRUCTIONS + '\n' + orchestrator_guides.INSTRUCTIONS + '\n' + ROADMAP_EVIDENCE + '\n' + PROGRESS_EVIDENCE + '\n' + IMAGE_ACTION + '\n' + CONTINUATION_ACTION
     from task_relay import browser_requests
-    system+='\n'+task_creation.INSTRUCTIONS+'\n'+workflow_library.INSTRUCTIONS+'\n'+pipelines.INSTRUCTIONS
+    system+='\n'+task_creation.INSTRUCTIONS+'\n'+workflow_library.INSTRUCTIONS+'\n'+pipelines.INSTRUCTIONS+'\n'+procedures.INSTRUCTIONS+'\n'+opportunities.INSTRUCTIONS
     if browser_requests.is_request(payload.get('user_message','')):system+='\n'+browser_requests.instructions(payload['user_message'])
     if focused:
         system += '''\nThe user is replying to the focused production. Treat ordinary
@@ -423,6 +423,17 @@ def handle(bridge, message, text, update_id):
         except ValueError as exc:reply=str(exc)
         bridge.send(reply)
         return True
+    if command.split('@')[0] in ('/procedures','/opportunities'):
+        from orchestrator.storage import transaction
+        try:
+            with transaction(state.db):
+                if state.db.execute('SELECT 1 FROM incoming WHERE id=?',(update_id,)).fetchone():return True
+                handler=opportunities if command.split('@')[0]=='/opportunities' else procedures
+                reply=handler.command(state,arg,update_id,text)
+                state.db.execute('INSERT INTO incoming VALUES (?,?,NULL)',(update_id,'handled'))
+                queue_notice(state, 'procedure-command-'+str(update_id), reply)
+        except ValueError as exc:bridge.send(str(exc))
+        return True
     explicit = command.split('@')[0] == '/orchestrator'
     # A generated image supplies reply context, not permanent generation intent.
     # Use the same model decision path for edits, questions and a change of tools.
@@ -557,6 +568,10 @@ def snapshot(state, focus):
     result['codex_tasks'] = []
     result['codex_projects'] = []
     result['starter_workflows'] = workflow_library.catalog()
+    result['procedures'] = procedures.catalog(state)
+    result['procedure_sources'] = procedures.examples(state)
+    result['automation_opportunities'] = opportunities.catalog(state)
+    result['automation_opportunity'] = opportunities.focused(state)
     if state.get('orchestrator_routing_enabled', False):
         from task_relay.bridge import BridgeError
         try:
@@ -622,6 +637,13 @@ def interpret(text, snap):
     if snap.get('browser_request'):
         from task_relay.browser_requests import validate
         validate(action,snap.get('browser_request_text',''))
+    if isinstance(action,dict) and action.get('kind')=='discover_opportunities':
+        if set(action)!={'kind'} or snap.get('pipeline_step'):
+            raise ValueError('Discovery is a separate history request, not a workflow execution step.')
+        return value
+    if isinstance(action,dict) and action.get('kind') in procedures.ACTIONS:
+        procedures.validate(action,snap)
+        return value
     if isinstance(action,dict) and action.get('kind') in pipelines.ACTIONS:
         pipelines.validate(action,snap)
         return value
@@ -839,7 +861,13 @@ class Worker:
             if is_request(job['prompt']):refresh_connection(job['prompt'])
             snap = snapshot(scoped, job['focus'])
             pipeline_step=pipelines.request_context(scoped,job['id'])
-            if pipeline_step:snap['pipeline_step']=pipeline_step
+            if pipeline_step:
+                snap['pipeline_step']=pipeline_step
+                # Completed examples are for extracting procedures, not inputs
+                # for executing a fresh project's saved stage.
+                snap.pop('procedure_sources',None)
+                snap.pop('automation_opportunities',None)
+                snap.pop('automation_opportunity',None)
             media_task=state.get('orchestrator-media-reply:'+str(job['id']))
             if media_task:
                 snap['media_reply']={'task_id':media_task,

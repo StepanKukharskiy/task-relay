@@ -145,9 +145,15 @@ inherits Codex configuration; uncertain creation is never automatically retried.
 Connected creation still needs live qualification on the installed Codex version.
 
 Use `/templates` in Telegram or Messages to see the five bundled cross-tool
-workflow starters, or `task-relay workflows` locally. Ask to prepare a chosen
-stage for your project; the existing planner presents its concrete scope before
-execution. See [project tasks and starter workflows](docs/project-tasks-and-starters.md)
+workflow starters, or `task-relay workflows` locally. Request a chosen stage or a
+full workflow; the saved pipeline continues through its agreed stages and decisions.
+Development source also supports saving a completed workflow as a reviewed,
+parameterized procedure. Use `/procedures` to inspect saved versions; see
+[reusable procedures and the workflow audit](docs/reusable-procedures.md).
+`/opportunities` analyzes local history for repeated workflows, shared stages,
+requests and failures; inspect the evidence before promoting a completed example.
+See [automation opportunities](docs/automation-opportunities.md) for coverage and limits.
+See [project tasks and starter workflows](docs/project-tasks-and-starters.md)
 for stage lists, required integrations and current limits.
 
 Replace the example path with an existing folder on the execution host. Reply to

@@ -70,6 +70,15 @@ translation, not permission to expand work. Honor provider choices. Capability a
 status questions have action=null; inspect recent_requests. Other sites still use
 their supported browser executors.
 
+General browser workers also support
+browser_screenshot for explicitly granted viewport PNG outputs plus .png.json
+provenance. For capture requests use plan_production with a supported browser worker,
+exact website origins and browser.screenshots PNG paths. No Codex or GIS adapter is
+required. PNG reads return metadata only; screenshot capture does not add visual
+reasoning, canvas clicking or verification that map tiles loaded. Do not promise
+visual acceptance; preserve a user review gate for that. Screenshot grants and PNG
+outputs must be shown in the exact plan before Start.
+
 Editable presentation creation uses plan_production with step_capabilities=["pptx.create"]
 when the operation catalog reports it available. An agent prepares a bounded slide
 JSON specification, independent review checks it, then the local operation creates
@@ -149,7 +158,7 @@ EXECUTION_ROUTING += '\n'+WEBSITE_TASK_INSTRUCTIONS
 from .capability_defaults import INSTRUCTIONS as MODEL_DEFAULT_INSTRUCTIONS
 EXECUTION_ROUTING += '\n' + MODEL_DEFAULT_INSTRUCTIONS
 
-IMMEDIATE = ('plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'continue_production', 'collect_references',
+IMMEDIATE = ('discover_opportunities','draft_procedure','run_procedure','plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'continue_production', 'collect_references',
              'resume_production',
              'route_task', 'choose_task', 'create_codex_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
@@ -215,8 +224,12 @@ Continuation needs an exact checkpoint from a confirmed stopped attempt with the
 manifest; uncertain frame work is never silently replayed. Simulation/UI work remains unsupported.
 plan_production can propose a bounded producer/reviewer stage using graph_executors
 and the optional executor field. Honor exact provider choice; unavailable or
-unsupported work is blocked without fallback. gemini-agent supports declared text file
-tools only; gemini-browser, openai-browser and qwen-browser add the same general
+unsupported work is blocked without fallback. Gemini/OpenAI/Qwen/DeepSeek/OpenRouter
+-agent profiles support declared text file tools. Their -code profiles use verified
+native Python with exact inputs/outputs and no network, subprocesses or app access.
+Check runtime_tools for usable document libraries; no package installation. Native
+code is currently macOS only; Windows requires its native isolation adapter.
+gemini-browser, openai-browser and qwen-browser add the same general
 website tools under an exact approved profile, origin list, interaction scope and
 file-transfer grants. Honor the requested provider and use its available browser
 executor for website control. An OpenAI/Qwen browser executor does not need Gemini
@@ -360,6 +373,9 @@ def catalog(state, snapshot):
         if kind=='browser_research':continue
         specs.append(dict(id=kind,executor='relay.'+kind,
             inputs=('task_id, provider, required_capabilities' if kind=='delegate_task' else
+                    'no parameters; local history analysis only' if kind=='discover_opportunities' else
+                    'pipeline_id, name, parameters; optional opportunity_id' if kind=='draft_procedure' else
+                    'procedure_id, bindings' if kind=='run_procedure' else
                     'title, planning_only, stages' if kind=='plan_pipeline' else
                     'result, choices' if kind=='pipeline_result' else
                     'pipeline_id, stage_id, choice_id' if kind=='pipeline_decision' else
@@ -411,7 +427,9 @@ def catalog(state, snapshot):
     from task_relay.host_apps import catalog as app_catalog
     from task_relay.browser_sites import catalog as site_catalog
     from .capability_defaults import read as model_defaults
+    from orchestrator.worker_capabilities import CAPABILITIES
     return dict(version=1,operations=specs,graph_operations=graph_catalog(),graph_executors=executor_catalog(state),targets=targets,routing_enabled=enabled,dispatches=receipts,
+        worker_capabilities=CAPABILITIES.copy(),
         model_defaults=model_defaults(state.db)['choices'],
         browser_account_sites=site_catalog(state.db),
         host_applications=app_catalog(state),
@@ -420,7 +438,7 @@ def catalog(state, snapshot):
         direct_unavailable=['shell','file_write']+([] if gemini.read_config() else ['web_search']),
         web={'web_fetch':'Public HTTPS text reader; no login/JavaScript/PDF.',
              'web_search':'Gemini/Google Search; configured' if gemini.read_config() else 'Connect Gemini to enable search.'},
-        production_worker='Graph agents use their frozen executor profile: Codex files/shell, Gemini declared text files, or Gemini text files plus scoped browser tools. They are not free routing targets.')
+        production_worker='Task-specific roles resolve required worker_capabilities to captured executor profiles. Each approved task freezes its model and tools; explicit executor choice has no fallback. Registered operations remain separate. Workers are not free routing targets.')
 
 
 def validate_delegate(action, snapshot):
@@ -495,6 +513,19 @@ def dispatch(state, job, action, snapshot):
         from .relay_channels import ScopedState, request_channel
         text,tid=pipelines.dispatch(ScopedState(state,request_channel(state,job['id'])),job,action,snapshot)
         executor='relay_pipelines'
+    elif kind=='discover_opportunities':
+        from . import opportunities
+        from .relay_channels import ScopedState, request_channel
+        if set(action)!={'kind'}:raise CapabilityError('History discovery takes no execution parameters.')
+        scoped=ScopedState(state,request_channel(state,job['id']))
+        text=opportunities.listing(opportunities.scan(scoped,job['id'],job['prompt']))
+        executor='relay_opportunities'
+    elif kind in ('draft_procedure','run_procedure'):
+        from . import procedures
+        from .relay_channels import ScopedState, request_channel
+        try:text,tid=procedures.dispatch(ScopedState(state,request_channel(state,job['id'])),job,action,snapshot)
+        except ValueError as exc:raise CapabilityError(str(exc)) from exc
+        executor='relay_procedures'
     elif kind=='browser_research':
         from . import browser_research
         try:text,receipt=browser_research.dispatch(state,job,action)

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keep Blender assets and textures together | Task Relay</title>
+<meta name="description" content="Prepare a portable candidate from selected mesh assets and image files, then check that it reopens after relocation.">
+<link rel="canonical" href="https://task-relay-website-production.up.railway.app/guides/blender-asset-handoff"><link rel="icon" href="/logo.png" type="image/png">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/guides/guide.css">
+<meta property="og:title" content="Keep Blender assets and textures together"><meta property="og:description" content="Prepare a portable candidate from selected mesh assets and image files, then check that it reopens after relocation."><meta property="og:type" content="article">
+</head>
+<body><a class="skip-link" href="#main">Skip to content</a><div class="page">
+<header><a class="wordmark" href="/"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a><nav aria-label="Main navigation"><a href="/guides/">Guides</a><a href="/#tools">Programs</a><a href="/#download">Download</a></nav></header>
+<main id="main" class="guide"><p class="eyebrow">Task Relay guides · Research / Model / Present</p><h1>Keep Blender assets and textures together</h1>
+<p class="lede">Prepare a portable candidate from selected mesh assets and image files, then check that it reopens after relocation.</p>
+<h2>The problem people report</h2><p>A Blender Artists user describes <a href="https://blenderartists.org/t/textures-wont-transfer-to-other-computer/497456">textures disappearing between work and home computers</a>. Another user reports <a href="https://www.reddit.com/r/blenderhelp/comments/1fo5i7u">still needing to find missing files after making paths relative</a>. The reports establish repeated dependency trouble; they do not show that every missing texture can be recovered.</p>
+<h2>Choose a small, supported asset set</h2><p><strong>You provide:</strong> a selected target .blend, a source .blend library with the exact mesh names to append, and the required PNG/JPEG images. Identify the destination collection and image-node bindings. Keep source URLs and licenses with supplied assets.</p><p><strong>You get:</strong> a candidate .blend, preview, retained source bundle, manifest and relocation/reopen checks. Use an installed Blender host and a worker to prepare and review the import choices.</p><aside class="setup"><h2>Before you start</h2><p>These instructions are matched to the capabilities bundled in Relay <strong>0.13.24</strong>, checked on 15 September 2026. The website download is still <strong>0.13.0-beta.1</strong>; it does not establish availability of this whole workflow. Ask your running Relay to check the required tools before starting.</p><p>Use a configured worker to prepare and review the work. Select the exact input files, review the proposed plan, then press Start. For model edits, Relay prepares the code first and asks you to approve that exact code before running it in the local app.</p></aside><h2>Give Relay this request</h2>
+<pre class="prompt"><code>Inspect my selected target .blend and source .blend library.
+Prepare an asset import manifest to append [mesh names] into [collection]
+and bind the supplied [PNG/JPEG files] to [existing image nodes].
+Preserve source provenance and relative file layout. Report missing files
+or unsupported dependencies before execution; do not substitute assets.
+Stop for review of the exact manifest and selected source files.
+Then propose the Blender import/packing operation. Return a candidate
+.blend, preview and source bundle with relocation/reopen checks.</code></pre>
+
+<h2>Check the handoff</h2><ol><li>Read the scene inventory and confirm the intended mesh and material names.</li><li>Review every selected library and image in the manifest. Missing files must be supplied before packing.</li><li>Approve the import operation. Relay appends the selected meshes, packs supported images and checks the candidate after relocation.</li><li>Open the candidate and inspect the preview before choosing it for handoff.</li></ol>
+<p>This is a selected-asset import and packing workflow. It does not reconstruct lost image bytes or collect arbitrary dependencies from your computer. Linked libraries, simulations, add-ons, HDR/EXR environments and other unsupported dependencies need separate handling. The current packing route covers PNG/JPEG images and explicit mesh imports.</p>
+<p>For a self-contained model that needs a dimension change instead, Relay also has a separate inspect → exact-script review → Blender edit route. New primitive or numeric-mesh study models have their own creation operations. Keep those changes separate from the asset handoff.</p><p class="verification"><strong>Capability check:</strong> <code>blender.inspect</code> and <code>blender.import_asset</code> are present in the audited app bundle. See the <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/blender-qualification.md">operation documentation</a> for implementation scope and recorded checks. This article is a workflow recipe; its exact prompt has not been qualified through a complete live Relay run. Forum reports establish a problem, not measured time savings.</p>
+</main><footer><a href="/guides/">All guides</a><a href="https://github.com/StepanKukharskiy/task-relay">Source on GitHub</a></footer></div></body></html>

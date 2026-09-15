@@ -92,11 +92,12 @@ def begin(state, p, s, run):
             context = json.loads(parent['context'])
             if c.digest(context) != parent['context_hash']:raise ValueError('Original execution context changed.')
             original = json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?', (run,)).fetchone()[0])
-            backend = original['backend']; tools = executors.validate(backend)
-            if tools == ['files', 'browser']:raise ValueError('A browser executor cannot be used for local script repair.')
             reviewer = rt.reviewer(run, failed['id'])
             if not reviewer:raise ValueError('Original execution has no independent review contract.')
             review_spec = rt.spec(reviewer)
+            from orchestrator.worker_capabilities import backend_for
+            backend = backend_for(review_spec,original['backend']); tools = executors.validate(backend)
+            if tools == ['files', 'browser']:raise ValueError('A browser executor cannot be used for local script repair.')
             limits = {k: min(POLICY[k], review_spec['limits'][k], spec['limits'][k])
                       for k in ('seconds', 'tool_calls', 'output_bytes')}
             # Host operations have one tool call; repair uses the frozen AI review allowance.

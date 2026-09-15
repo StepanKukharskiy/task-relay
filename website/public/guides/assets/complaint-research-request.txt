@@ -1,0 +1,8 @@
+Find 20 repetitive-work problems in [public communities] for [audience].
+Compare each with the attached current capability summary.
+Retain source URL, title and date, a frustration paraphrase, current workaround, repeat trigger, intended input/output, required worker/tools, gaps, proposed how-to title and validation needed.
+Prefer firsthand requests. Mark promotional posts, secondhand accounts and hypotheses separately. Count cross-posts once. Distinguish multiple replies in one thread from independent threads. Never invent complaints, search volume, willingness to pay or time savings.
+Preserve existing IDs and decisions from any supplied previous backlog.
+Return a new versioned Markdown backlog, a structured source register and five proposed pilot candidates. Rank by evidence, product fit and ease of demonstrating a correct result.
+Stop at research artifacts. Do not post replies, contact people, publish website content, run proposed workflows or create recurring monitoring.
+

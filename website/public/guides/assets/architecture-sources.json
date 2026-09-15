@@ -1,0 +1,71 @@
+{
+  "sources": {
+    "climate": "https://www.aemet.es/es/serviciosclimaticos/datosclimatologicos/valoresclimatologicos?k=cat&l=0076",
+    "oak": "https://parcnaturalcollserola.cat/habitats/alzinars/",
+    "pine": "https://parcnaturalcollserola.cat/habitats/pinedes/",
+    "photo": "https://commons.wikimedia.org/wiki/File:Barcelona_Parc_de_la_Ciutadella.jpg",
+    "leaf": "https://commons.wikimedia.org/wiki/File:HolmOak.jpg"
+  },
+  "climate": {
+    "station": "0076",
+    "period": "1981-2010",
+    "months": [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ],
+    "temperature_c": [
+      9.2,
+      9.9,
+      11.8,
+      13.7,
+      16.9,
+      20.9,
+      23.9,
+      24.4,
+      21.7,
+      17.8,
+      13,
+      10
+    ],
+    "rainfall_mm": [
+      37,
+      35,
+      36,
+      40,
+      47,
+      30,
+      21,
+      62,
+      81,
+      91,
+      59,
+      40
+    ]
+  },
+  "photo_credits": [
+    {
+      "file": "ciutadella.jpg",
+      "author": "Ad Meskens",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "changes": "Unmodified; fitted in slide frame"
+    },
+    {
+      "file": "holm-oak.jpg",
+      "author": "MPF",
+      "license": "CC BY-SA 3.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "changes": "Unmodified; fitted in slide frame"
+    }
+  ]
+}

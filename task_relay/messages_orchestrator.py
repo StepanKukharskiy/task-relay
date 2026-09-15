@@ -30,6 +30,20 @@ class OrchestratorRouter:
         # nor a long model request should prevent phone submissions.
         return worker.get('interface_version') == 1 and time.time() - health.get('last_success', 0) < 60
 
+    def procedure_command(self, guid, argument, original):
+        from . import procedures
+        from orchestrator.storage import transaction
+        with transaction(self.state.db):
+            return procedures.command(relay_channels.ScopedState(self.state, 'messages'),
+                                      argument, 'messages:' + guid, original)
+
+    def opportunity_command(self, guid, argument, original):
+        from . import opportunities
+        from orchestrator.storage import transaction
+        with transaction(self.state.db):
+            return opportunities.command(relay_channels.ScopedState(self.state,'messages'),
+                                         argument,'messages:'+guid,original)
+
     def bind_task(self, task_id):
         with self.state.db:
             relay_channels.bind(self.state, 'task', task_id, 'messages')

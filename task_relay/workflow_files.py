@@ -92,6 +92,9 @@ def _snapshot(state, pid):
             raise ValueError('Workflow is not available in this channel.')
         report = {'format_version':2, 'id':pid, 'title':p['title'], 'request':p['request'], 'status':p['status'],
                   'plan':json.loads(p['spec']), 'stages':[], 'artifacts':[], 'missing_artifacts':[]}
+        from . import procedures
+        procedure = procedures.run_context(state, pid)
+        if procedure:report['procedure'] = procedure
         artifact_ids = set()
         runs = set()
         plans = set()

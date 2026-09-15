@@ -53,6 +53,14 @@ def dispatch(action, value):
 
 
 def _dispatch(action, value):
+    if action == 'code-runtime-configure':
+        from .code_runtime import configure
+        if set(value)!={'enabled'}:raise ValueError('Choose whether to enable code tools.')
+        return configure(value['enabled'])
+    if action == 'worker-verify':
+        from orchestrator.executors import probe,PROVIDERS
+        if set(value)!={'provider'} or value['provider'] not in PROVIDERS:raise ValueError('Choose a supported worker provider.')
+        return probe(value['provider'])
     if action == 'rhino-preference':
         from .rhino_preferences import update
         return update(value)

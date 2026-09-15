@@ -76,9 +76,52 @@ also appear in declared inputs/outputs. Uploads verify the selected file hash;
 downloads use the existing output byte limit. The convenience `prepare` command
 does not grant transfers; use an authored graph with exact registered artifacts
 for that work. Password and OTP fields, replacing existing drafts, canvas-only
-interfaces, screenshots/visual reasoning, arbitrary frames and automatic account
+interfaces requiring visual interaction, visual reasoning, arbitrary frames and automatic account
 setup are outside this slice. Body text is capped at 24,000 characters per
 observation; the controller considers up to 150 DOM controls.
+
+## Viewport screenshots
+
+Browser workers can save the current managed tab as a PNG through
+`browser_screenshot`. The optional `browser.screenshots` list grants exact relative
+PNG output paths. Each path must be declared as `image/png`, together with a
+provenance output at the PNG path plus `.json` declared as `application/json`.
+Older scopes without this list grant no captures. Uploads/downloads remain text-only.
+
+For example, ask Relay in the paired chat:
+
+> Open Google Maps at Parc de la Ciutadella, Barcelona, and capture one standard
+> map viewport as study-location.png. Keep the location and Google's attribution
+> visible. Return the PNG and its source URL and capture time. I will review the
+> screenshot; stop before making a presentation.
+
+On a runtime containing this change, the planner should show the browser executor,
+exact website origins, `screenshots: ["study-location.png"]`, and the PNG/provenance
+outputs before Start. This is a suggested first trial, not a verified Google Maps
+workflow. Existing provider connection and browser setup requirements still apply.
+The implementation has been exercised with a local Chromium canvas fixture and
+scripted provider responses; installed-app and live Google Maps delivery are separate.
+
+The tool takes `tab`, the latest `observation`, `path` and `purpose`. It captures
+only the viewport, at CSS pixel resolution, with a five-second capture timeout.
+There is no crop, automatic scrolling, full-page stitching or coordinate clicking.
+Dimensions are limited to 4096 pixels per side and eight million pixels; the total
+browser output allowance is 10 MB, with text outputs still capped at 200 KB.
+PNG inputs have a separate combined 10 MB bound; text inputs remain capped at 512 KB.
+
+The provenance records URL, title, UTC capture time, tab/observation, assignment and
+action IDs, dimensions, byte count and SHA-256. Capture intent commits before work.
+PNG/provenance files are written exclusively; prior outputs are not overwritten.
+A repeated completed action returns its receipt. Failed or interrupted capture
+remains uncertain and cannot be automatically replayed under another action ID.
+Collection checks that the PNG and provenance agree before treating delivery as
+successful. Normal artifact registration, downstream input copies and delivery apply.
+
+PNG `file_read` returns container metadata only. Image pixels are saved locally and
+are not sent to Gemini/OpenAI/Qwen by this tool. Capturing canvas content therefore
+does not give the worker visual understanding or prove that map tiles loaded,
+attribution is readable, or a study boundary is correct. Keep those checks for a
+capable visual reviewer or the user. Native browser interaction remains DOM-based.
 
 ## Local use
 
@@ -114,6 +157,11 @@ task-relay browser general prepare --profile research \
   --origin https://example.com --request-file request.txt \
   --model YOUR_CONFIGURED_GEMINI_MODEL --id website-check --out browser-plan.json
 ```
+
+For screenshot work, add `--screenshot study-location.png` to `prepare`; repeat the
+option for up to three views explicitly requested in the request file. Preparation
+adds PNG/provenance outputs, reviewer inputs and a visual selection gate without
+starting a browser or provider. Inspect the saved plan before creating/running it.
 
 For OpenAI or Qwen, add `--provider openai` or `--provider qwen` and use that
 provider's configured model. The default remains Gemini.
