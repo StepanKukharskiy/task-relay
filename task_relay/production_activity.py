@@ -58,7 +58,8 @@ def snapshot(root, attempt, spec, backend, now=None):
         model=execution.get('parameters',{}).get('model') if ai else None
         executor=capability;reasoning=None
     else:
-        chosen=frozen.get('backend') or backend
+        from orchestrator.worker_capabilities import backend_for
+        chosen=frozen.get('backend') or backend_for(spec,backend)
         ai=True;model=chosen.get('model');reasoning=chosen.get('reasoning');executor=chosen.get('type')
     result={'ai':ai,'model':model,'reasoning':reasoning,'executor':executor,
             'objective':assignment.get('objective',spec.get('objective')),

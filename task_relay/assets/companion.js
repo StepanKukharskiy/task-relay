@@ -213,6 +213,10 @@ function render(info) {
   providerFields();
   text('telegram-summary', setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
   const browser = info.browser || {};
+  const codeRuntime = info.code_runtime || {};
+  text('code-runtime-detail', codeRuntime.error || ((codeRuntime.enabled ? 'Enabled. ' : 'Off. ') + (codeRuntime.detail || '') + '\n' + Object.entries(codeRuntime.tools || {}).map(([name, tool]) => name + ': ' + (tool.available ? (tool.checked || 'Detected') + ' · ' + tool.version : 'Not installed')).join('; ')));
+  $('code-runtime-check').disabled = mutating || !codeRuntime.available;
+  $('code-runtime-disable').disabled = mutating || !codeRuntime.enabled;
   text('browser-summary', browser.error ? 'Needs attention' : browser.enabled ? browser.manual_sign_in ? 'Sign-in in progress' : 'On' : 'Off');
   text('browser-toggle', browser.enabled ? 'On' : 'Off');
   $('browser-toggle').setAttribute('aria-checked', String(!!browser.enabled));
@@ -438,6 +442,9 @@ $('connect-existing').onclick = () => change('service-connect', {}, $('connect-e
 $('browser-toggle').onclick = () => {
   if (snapshot?.browser) return change('browser-configure', {enabled: !snapshot.browser.enabled}, $('browser-toggle'));
 };
+$('code-runtime-check').onclick = () => change('code-runtime-configure', {enabled:true}, $('code-runtime-check'));
+$('code-runtime-disable').onclick = () => change('code-runtime-configure', {enabled:false}, $('code-runtime-disable'));
+$('worker-verify').onclick = () => change('worker-verify', {provider:$('worker-provider').value}, $('worker-verify'));
 $('browser-open').onclick = () => change('browser-open', {}, $('browser-open'));
 $('browser-sign-in-done').onclick = () => change('browser-sign-in-done', {}, $('browser-sign-in-done'));
 $('messages-action').onclick = () => change(snapshot?.messages?.loaded ? 'messages-stop' : 'messages-start', {}, $('messages-action'));

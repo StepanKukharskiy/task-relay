@@ -107,7 +107,7 @@ class Filesystem:
         if len(raw)>limit:raise AccessDenied('File exceeds the read limit')
         return raw
 
-    def write(self,grant,path,raw):
+    def write(self,grant,path,raw,*,exclusive=False):
         with self.parent(grant,path,write=True) as (fd,dest):
             try:
                 old=os.stat(dest,dir_fd=fd,follow_symlinks=False)
@@ -117,7 +117,8 @@ class Filesystem:
             f=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=fd)
             try:
                 with os.fdopen(f,'wb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
-                os.replace(temp,dest,src_dir_fd=fd,dst_dir_fd=fd)
+                if exclusive:os.link(temp,dest,src_dir_fd=fd,dst_dir_fd=fd,follow_symlinks=False)
+                else:os.replace(temp,dest,src_dir_fd=fd,dst_dir_fd=fd)
             finally:
                 try:os.unlink(temp,dir_fd=fd)
                 except FileNotFoundError:pass

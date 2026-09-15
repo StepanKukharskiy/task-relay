@@ -58,6 +58,8 @@ HELP = ('New messages go to the orchestrator. Reply to a task message to continu
         '/emoji 🏠 — set emoji for the replied-to or selected task\n'
         '/status — connection and selected task\n/routing — where your messages go\n/help — this help\n'
         '/usage [DAYS] [provider|model|project|day] — recorded token usage\n'
+        '/templates — workflow starters\n/procedures — saved reusable workflows\n'
+        '/opportunities — find repeated work and failure patterns\n'
         '/new PROVIDER "/project/path" Title — create a task\n'
         '/gemini INSTRUCTION · /openai INSTRUCTION · /qwen INSTRUCTION\n'
         '/deepseek INSTRUCTION · /openrouter INSTRUCTION · /claude INSTRUCTION\n'

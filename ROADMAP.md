@@ -89,6 +89,36 @@ remains open.
 
 ## Current work and next steps
 
+**0.13.24 local app checkpoint:** the combined procedure/discovery, worker,
+document-runtime and browser screenshot additions are packaged and installed on
+the existing Mac. All 252 packaged runtime files match source; native isolation
+and document fixtures pass. Both messaging services reported fresh health after
+the update. This establishes local installation/runtime readiness, not live
+provider output quality, message delivery, a public release or Windows execution.
+
+O03/O06 shared provider file/code workers are implemented in development source.
+Gemini, OpenAI, Qwen, DeepSeek and OpenRouter can use a common declared-file loop;
+qualified macOS Python workers also author and inspect binary documents/data with
+the bundled libraries. Settings checks the runtime and provider connection without
+requiring Docker or end-user package installation. Known code failures can be
+corrected within task limits; uncertain outcomes preserve their receipt and stop.
+Seven native qualification checks pass using the generated desktop interpreter,
+including exact XLSX producer/reviewer handoff and owner-death cleanup. The shared
+provider checks use scripted transports. Windows native code isolation, installed
+app rollout, live provider qualification and a verified reel composition renderer
+remain open. See [shared code workers](docs/shared-code-workers.md).
+
+O03/O06 capability-driven workers are implemented in development source. Each new
+planning scope captures eligible executor profiles; the planner can create role-
+specific assignments with text, binary-file, local-code or scoped-browser needs.
+Relay freezes the resolved model/tools per task and preserves those choices across
+dispatch, restart and recovery. Explicit executor choice remains fixed; a different
+worker backend requires stage approval before automatic workflow continuation.
+The five starter definitions now use provider-neutral requirements. Composition
+does not install missing integrations or qualify the reel renderer. See
+[capability-driven workers](docs/capability-workers.md). Installer rollout and live
+multi-provider qualification remain open.
+
 A follow-up to 0.13.23 fixes planning successor handoffs in source. A retry had
 updated the workflow target while leaving the completed preparation stage linked
 to the failed plan, causing Start to reject the valid new card. The correction
@@ -288,7 +318,7 @@ through visualization and editable presentation remains unqualified.
 | --- | --- | --- | --- |
 | 1 | **O13 — installation and onboarding** | **In progress; prioritized for product onboarding** | Clean installation, channel/provider/project setup, interrupted-setup recovery, safe upgrades and explicit reversible data migration. |
 | 2 | **O12 — native Windows/Linux qualification** | Windows 10+ foundation active by user priority | Native process ownership, locking, access enforcement, service recovery, an authorized provider text task and Telegram delivery on each host. |
-| — | O08 — reusable procedures | Parked | Resume when a repeated operation demonstrates a measurable benefit over a simple reusable-script baseline. |
+| Active by user priority | O08 — reusable procedures | Extraction and history discovery implemented in development source | Discover repeated stage contracts, shared sequences, requests and failures with source evidence; promote completed exemplars into immutable reviewed procedures. Cross-project quality, standalone component contracts and benefit over a reusable-script baseline remain to qualify. |
 
 ### Status review — 2026-09-14
 
@@ -310,11 +340,28 @@ through visualization and editable presentation remains unqualified.
   status records the user’s confirmation, not a new agent-run acceptance test.
   Next product integration: reuse the working research flow in a brief/PDF →
   research → editable presentation workflow; O13 remains the release priority.
-- O12 stays after macOS onboarding; O08 remains parked until repeated work shows
-  a measurable advantage over a reusable script. The architecture pipeline is
-  a proposed subsequent integration benchmark, not an O13 release prerequisite.
+- O12 Windows 10+ foundation remains active. O08 resumed by user priority using
+  the repeated research → model → visualization → presentation cases. This first
+  implementation saves completed Relay workflows as reviewed procedures with
+  explicit variables, fresh run identity and existing gates/recovery. It does not
+  record desktop demonstrations. See [scope and workflow audit](docs/reusable-procedures.md).
+  Local `/opportunities` discovery now measures repetition, recorded outcomes,
+  interventions and available planning usage, retaining immutable evidence for
+  review. It never approves a repair or procedure. Shared-sequence promotion
+  retains a complete exemplar until standalone input contracts are implemented;
+  see [history discovery](docs/automation-opportunities.md).
+  Cross-project live quality and measurable benefit over a reusable script remain
+  qualification work; neither becomes an O13 release prerequisite.
 
 ## Current build: O13
+
+**Browser screenshot capture — implemented in source.** General browser workers
+can save explicitly granted viewport PNGs and provenance, register their exact
+bytes, and supply PNG metadata to downstream browser reviewers. Planning and CLI
+preparation expose the grants; old browser scopes grant no screenshot authority.
+Local Chromium capture and controlled provider/collection/recovery checks exercise
+the path. Visual reasoning, canvas interactions and installed-app/Google Maps
+qualification remain open. See [browser screenshots](docs/general-browser.md#viewport-screenshots).
 
 **Direct beta distribution and guided first launch.** The primary website route
 is an Apple Silicon/macOS 14+ DMG; matching CLI source is secondary. Disk images
@@ -338,6 +385,18 @@ workflow examples retain their version boundary. macOS links to the beta DMG and
 matching CLI source; Windows remains unavailable. The existing desktop logo is
 used throughout. Public signing and installation acceptance retain their release
 gates. See [website setup](website/README.md).
+
+**Practical workflow guides — source implemented; publication open.** Five
+capability-audited guides cover site research decks, precise Rhino model revisions,
+named-view rendering, Blender asset handoffs and editable design presentations.
+Each ties a reported problem to required inputs, current operations and limits.
+The bundled 0.13.24 audit is distinguished from the public 0.13.0-beta.1 download
+and from full live workflow qualification. Earlier invoice/CSV/complaint recipes
+remain accessible as noindex archives, outside the current hub and sitemap.
+The sourced Barcelona deck and original request retain their versions; the
+revised request has a separate v2 URL. The website route/download check covers
+the current collection and archived links. Full installed Relay execution of
+these prompts and website publication remain open; this work does not close O13.
 
 Implemented: a source installer with a dedicated environment and interrupted-install
 retry; guided local API-provider/model, Telegram and first-project setup; saved

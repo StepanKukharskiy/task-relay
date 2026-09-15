@@ -78,6 +78,20 @@ class Tests(unittest.TestCase):
         self.rt.tick(child)
         return child
 
+    def test_repair_preserves_the_assigned_review_worker_model(self):
+        from orchestrator import worker_capabilities
+        self.setup_failure()
+        run=self.row()['run'];reviewer=self.rt.reviewer(run,'app')
+        spec=self.rt.spec(reviewer)
+        backend={'type':'codex-cli','model':'fixed-review-model','reasoning':'high'}
+        spec['worker']={'requires':['code.execute']}
+        worker_capabilities.resolve(spec,[worker_capabilities.entry(backend)],backend)
+        self.rt.replace_future(run,spec)
+        pipelines.tick(self.state)
+        row=self.repair();self.assertEqual(row['status'],'preparing',row['error'])
+        plan=json.loads(self.state.db.execute('SELECT plan FROM production_runs WHERE id=?',(row['preparation'],)).fetchone()[0])
+        self.assertEqual(plan['backend'],backend)
+
     def test_failure_diagnosis_review_start_and_saved_workflow_lineage(self):
         self.setup_failure();pipelines.tick(self.state)
         row = self.repair();self.assertEqual(row['status'], 'preparing');self.assertEqual(self.step()['status'], 'repairing')

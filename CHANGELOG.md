@@ -1,5 +1,140 @@
 # Changelog
 
+## 0.13.24 — local app update and source PR
+
+- Include the shared provider/code workers, bundled document libraries, browser
+  screenshots, reusable procedures, history opportunity discovery and current
+  workflow starters/guides in one version-consistent update.
+- Build and locally sign the macOS Apple Silicon app. Verify all 252 packaged
+  runtime files against the reviewed source, packaged dependencies/PDF reading,
+  and seven native Python isolation/document checks.
+- Complete the existing-install maintenance path with verified app/database
+  backups and fresh Telegram and Messages service health. Preserve saved data and
+  settings. No paid provider trial or test message was sent.
+- Controlled validation: 216 browser/media/workflow/provider integration checks,
+  37 installer/signing/update/publication checks, eight guide recipe tests and the
+  website route/download test passed. This local update does not publish a new
+  GitHub release or replace website download assets. Windows native code isolation
+  and Developer ID/notarized distribution remain open.
+
+## Unreleased — shared code and document workers
+
+- Add provider-neutral declared-file and native Python profiles for Gemini,
+  OpenAI, Qwen, DeepSeek and OpenRouter. Preserve exact models, runtime identities,
+  file grants, provider histories, usage and failure receipts. Automatic OpenRouter
+  model routing and silent provider substitution are unavailable.
+- Add Settings runtime/connection checks and bundle document/data libraries for
+  DOCX, PPTX, XLSX, PDF and PNG work. No Docker or end-user package installation.
+  Expose verified library status to planning; failed checks disable prior success.
+- Isolate Python on macOS with no network, subprocess or host-app access. Bound
+  calls and output files, preserve exact input copies, and kill the code child if
+  its worker exits. Reject linked logs/outputs and block unknown execution replay;
+  known failures can be corrected within the approved task budget.
+- Keep Windows native code execution unavailable pending its isolation adapter.
+  Document checks do not certify visual quality, Keynote import, or a video renderer.
+  Controlled provider/planning/usage checks and seven native sandbox/document tests
+  pass. Desktop Rust checks and JavaScript syntax checks pass. No app installation,
+  live provider generation or message delivery was performed for this change.
+
+## Unreleased — browser screenshot capture
+
+- Add explicitly granted viewport PNG capture to Gemini, OpenAI and Qwen browser
+  workers, with URL/time/dimension/hash provenance and normal artifact delivery.
+  Planning and CLI preparation declare the capture pairs before Start.
+- Preserve existing files and uncertain attempts; prohibit automatic recapture
+  after interruption. Validate capture provenance during artifact collection.
+- PNG inputs expose metadata only. This adds capture, not model vision, canvas
+  interaction, GIS analysis or proof that a map loaded correctly. Text-only workers
+  retain their existing limits. Installed-app and Google Maps trials remain open.
+- Controlled validation: 97 screenshot, browser/provider, worker-planning, text
+  executor and filesystem/host checks passed. Three local Chromium tests passed,
+  including a viewport PNG with canvas content; the capture was visually inspected.
+
+## Unreleased — capability-driven workers
+
+- Compose task-specific agent workers from a frozen capability/executor catalog.
+  Preserve each role, exact sources, outputs, review criteria, model, tool profile
+  and limits in the approved plan and dispatch receipt. Existing single-backend
+  plans retain their behavior.
+- Reject unsupported capabilities, binary inputs for text-only workers, injected
+  backend options and conflicting tools. Explicit executor choices have no fallback;
+  disconnected workers block without redispatch or provider substitution.
+- Display per-task models and transfer scope in plan cards and queued activity.
+  Require stage Start when a workflow proposes a different worker backend. Script
+  repair retains its original review worker backend.
+- Version all five starter definitions with provider-neutral requirements. Native
+  operations and media composition still require their real integrations; this
+  adds no new provider, renderer or automatic installation. Live rollout is pending.
+
+## Unreleased — guides aligned with local tools
+
+- Refocus the guide collection on site research, Rhino model revisions and
+  named-view renders, Blender asset packing and editable design presentations.
+  Link reported forum problems and name exact inputs, operation limits and
+  review steps. Distinguish bundled 0.13.24 capabilities from the website's
+  0.13.0-beta.1 download and unqualified complete live workflows.
+- Preserve earlier invoice, CSV and complaint recipes as noindex archives;
+  remove them from the hub and sitemap. Retain sample artifact versions and
+  provide a separately versioned architecture request.
+- Extend the website route/download check to cover the new guides, their local
+  links and exclusion of archived pages from discovery. No live native work or
+  website deployment is included in this editorial change.
+
+## Unreleased — practical workflow guides
+
+- Add four website guides for architectural research decks, invoice PDF naming,
+  CSV consolidation and finding automation opportunities in forum complaints.
+  Include reusable requests, downloadable samples, a sourced seven-slide Barcelona
+  deck, navigation and sitemap entries.
+- Provide narrow file recipes that preserve invoice originals, verify source
+  hashes and flag naming collisions; CSV merging checks schema, conflicting IDs,
+  source lineage and totals by currency. Completed outputs carry receipts.
+- Controlled validation: eight recipe tests and the website route/download
+  integration test pass. The deck passes package, layout, import and editable-chart
+  checks and was visually reviewed. Local examples do not qualify a full installed
+  Relay run. Website publication and live workflow validation remain open.
+
+## Unreleased — automation opportunity discovery
+
+- Analyze bounded local history through `/opportunities` in Telegram/Messages or
+  an explicit orchestrator discovery action. Find repeated workflow contracts,
+  shared stage sequences, repeated human requests and recurring failure families.
+  Preserve operation/gate differences while tolerating generated stage-name changes.
+- Show supporting records, completion and decision counts, clarification/failure
+  events, repair receipts, elapsed spans and directly linked planning usage.
+  Unknown outcomes/usage stay unknown; savings and successful repair are not inferred.
+- Save immutable, channel-scoped analysis snapshots and promote an exact completed
+  exemplar to a procedure draft with source fingerprints. Drafting starts no work;
+  stale/tampered evidence is rejected. Shared patterns retain the complete exemplar
+  rather than discarding its prerequisites.
+- Provide read-only SQLite analysis for earlier installations without database
+  migration. No background monitoring, provider calls, automatic preference
+  application, repair deployment or standalone component extraction is added.
+- Controlled validation: 98 history-discovery, procedure, Messages, pipeline,
+  workflow-file and channel-policy tests pass locally. This does not qualify
+  installed-app delivery, live procedure reuse or estimated savings.
+
+## Unreleased — reusable workflow procedures
+
+- Extract completed Relay workflows into immutable, reviewed procedures with
+  explicit project variables. `/procedures` lists and inspects versions in
+  Telegram/Messages; exact approval needs no model. New runs preserve the user
+  request, bound brief, version hash and normal workflow file structure.
+- Prepare fresh pipelines with the existing scheduler, selections, native-code
+  Start and recovery rules. Do not inherit old outputs, accepted choices, scripts
+  or execution approval. Reject missing bindings, changed versions/receipts,
+  cross-channel access and implicit old output identities; commit queues and
+  procedure receipts atomically.
+- Full starter-workflow requests can use the saved pipeline scheduler rather
+  than requiring a new request at every stage. Architecture starter v3 includes
+  optional visualization from the exact selected model preview.
+- Audit all five website starters and clarify worker/tool dependencies in website
+  source. This change does not publish the website, install an app, or qualify
+  live providers or creative output quality.
+- Controlled validation: 98 procedure, starter, pipeline, Messages, workflow-file,
+  mixed-planning and channel-policy tests pass locally. No provider or host-app
+  execution was exercised.
+
 ## Unreleased — browser/media CI expectations
 
 - Update two stale contract expectations: disconnected text providers remain

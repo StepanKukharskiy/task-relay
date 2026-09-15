@@ -52,7 +52,7 @@ def assignment(value):
     if 'execution' in a:
         from .execution import validate
         validate(a)
-    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser']):
+    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser'],['files','python']):
         raise ValueError('Use a supported files or files + shell capability profile')
     outputs = a.get('outputs')
     if not isinstance(outputs, list) or not 1 <= len(outputs) <= 30:
@@ -85,8 +85,9 @@ def assignment(value):
             if entry['from_task'] not in deps:
                 raise ValueError('Artifact producer must be an explicit dependency')
     if a.get('tools')==['files','browser']:
-        from .browser_contract import validate
+        from .browser_contract import validate,validate_files
         policy=validate(a.get('browser'))
+        validate_files(a)
         resource='browser-'+hashlib.sha256(policy['profile'].encode()).hexdigest()
         if a.setdefault('resource',resource)!=resource:raise ValueError('Browser resource ownership must match its profile')
         if not set(policy['uploads'])<=set(i['path'] for i in inputs) or not set(policy['downloads'])<=set(o['path'] for o in outputs):
@@ -123,6 +124,9 @@ def assignment(value):
             raise ValueError('A selection set requires a user gate and 2–6 distinct declared output paths')
     if a.get('resource'):
         label(a['resource'])
+    if 'worker' in a:
+        from .worker_capabilities import validate
+        validate(a)
     if len(encoded(a)) > 180000:
         raise ValueError('Assignment exceeds 180,000 characters')
     return a
@@ -185,17 +189,20 @@ def plan(value):
     label(p['id'])
     nonempty(p.get('brief'), 'brief')
     backend = p.get('backend', {})
-    from .executors import validate, GEMINI_LIMITS, API_TYPES
-    profile=validate(backend)
+    from .executors import validate, limits_for, API_TYPES, BROWSER_TYPES, CODE_TYPES
+    validate(backend)
     if not isinstance(p.get('tasks'), list) or not 1 <= len(p['tasks']) <= 30:
         raise ValueError('Workflow permits 1–30 tasks')
     p['tasks'] = [assignment(a) for a in p['tasks']]
     for a in p['tasks']:
         if a.get('execution'):continue
+        from .worker_capabilities import backend_for
+        chosen=backend_for(a,backend)
+        profile=validate(chosen)
         if a['tools']!=profile:raise ValueError('Assignment tools do not match the selected execution provider.')
-        if backend['type'] in API_TYPES:
-            if any(a['limits'][k]>v for k,v in GEMINI_LIMITS.items()):raise ValueError('API assignment exceeds its bounded executor limits.')
-            if any(o.get('media_type','text/plain') not in ('text/plain','text/markdown','application/json') for o in a['outputs']):
+        if chosen['type'] in API_TYPES:
+            if any(a['limits'][k]>v for k,v in limits_for(chosen).items()):raise ValueError('API assignment exceeds its bounded executor limits.')
+            if chosen['type'] not in (*BROWSER_TYPES,*CODE_TYPES) and any(o.get('media_type','text/plain') not in ('text/plain','text/markdown','application/json') for o in a['outputs']):
                 raise ValueError('API file executor produces UTF-8 text only.')
     tasks = {a['id']: a for a in p['tasks']}
     if len(tasks) != len(p['tasks']):

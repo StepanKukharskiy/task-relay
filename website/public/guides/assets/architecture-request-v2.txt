@@ -1,0 +1,11 @@
+Prepare a pre-schematic research pack for [location] and [project type].
+Use my attached brief and boundary. Research location, climate and regional
+vegetation through the available browser research tools. Return a source
+register with URLs, dates, units, image credits and gaps, plus a slide outline.
+Separate observed site facts from regional references and design assumptions.
+For a location image, check whether browser screenshot capture is available.
+If available, propose one PNG capture from [exact map URL], with its source
+record, for my visual review. Otherwise ask me to supply the image.
+Stop for my selection of the evidence and image files. Then propose a new
+editable PPTX using those files, native text, tables and climate charts.
+Keep citations and assumptions in the deck. I will open it to review layout.

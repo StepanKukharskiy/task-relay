@@ -22,6 +22,8 @@ ROOT = PATHS.install
 HELP = ('Ordinary text goes to the orchestrator.\n'
         '/orchestrator YOUR INSTRUCTION — talk to the orchestrator\n/routing — where your messages go\n'
         '/choose CODE NUMBER — answer the choices on a card\n'
+        '/templates — workflow starters\n/procedures — saved reusable workflows\n'
+        '/opportunities — find repeated work and failure patterns\n'
         '/browser TASK — plan a browser task; connect|status|cancel — Perplexity sign-in\n'
         '/ping — check Messages connection\n/status — check the task\n'
         '/gemini YOUR INSTRUCTION — talk to Gemini\n/codex YOUR INSTRUCTION — continue this Codex task\n'
@@ -215,6 +217,14 @@ class Pilot:
         if command == '/templates':
             from .workflow_library import describe
             try:result=describe(argument)
+            except ValueError as exc:result=str(exc)
+            with self.store.db:self.notify(guid,result,provider='Orchestrator')
+            return
+        if command in ('/procedures','/opportunities'):
+            try:
+                if not self.orchestrator:raise ValueError('The shared Relay connection is unavailable.')
+                handler=self.orchestrator.opportunity_command if command=='/opportunities' else self.orchestrator.procedure_command
+                result=handler(guid,argument,raw_text)
             except ValueError as exc:result=str(exc)
             with self.store.db:self.notify(guid,result,provider='Orchestrator')
             return

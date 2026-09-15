@@ -51,7 +51,7 @@ def build(name, run_id, inputs, backend):
         inputs=inputs + [{'from_task':'produce','output':o['path'],'path':'candidate/'+o['path'],
                           'purpose':o['purpose'],'authority':'Unaccepted candidate to review'} for o in outputs],
         outputs=[{'path':'review.md','purpose':'Independent model review'}])
-    if backend.get('type')=='gemini-agent':
-        from .executors import GEMINI_LIMITS
-        for task in (producer,review):task.update(tools=['files'],limits=GEMINI_LIMITS.copy())
+    from .executors import FILE_TYPES,CODE_TYPES,validate,limits_for
+    if backend.get('type') in (*FILE_TYPES,*CODE_TYPES):
+        for task in (producer,review):task.update(tools=validate(backend),limits=limits_for(backend))
     return plan(dict(id=run_id, brief=stage['objective'], backend=backend, tasks=[producer,review], concurrency=2))

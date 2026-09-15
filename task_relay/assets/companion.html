@@ -88,6 +88,16 @@
         </div>
         <p class="hint">Explicit choices in your request and existing task models take precedence. Saved defaults apply to future work. Queued jobs and approved plans keep their models.</p>
       </details>
+      <details id="code-settings"><summary>Code and document tools</summary>
+        <p>Use Relay’s bundled Python with your connected model. No additional installation.</p>
+        <p id="code-runtime-detail" class="hint" role="status"></p>
+        <button id="code-runtime-check" type="button">Check tools and enable</button>
+        <button id="code-runtime-disable" type="button" class="quiet">Turn off</button>
+        <label for="worker-provider">Worker provider</label>
+        <select id="worker-provider"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option></select>
+        <button id="worker-verify" type="button">Check worker connection</button>
+        <p class="hint">Code works on assigned files. Browser access, native modeling and media rendering use their separate tools. Missing libraries are reported by the check.</p>
+      </details>
       <details id="browser-settings"><summary><span>Browser use</span><span id="browser-summary" class="muted">Off</span></summary>
         <p>Let Relay use webpages in its own Chrome window. Requires Google Chrome.</p>
         <button id="browser-toggle" type="button" role="switch" aria-checked="false" aria-label="Browser use">Off</button>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repeat a precise model edit in Rhino | Task Relay</title>
+<meta name="description" content="Apply the same dimension change to selected objects, keep the rest of the model intact, and review a new .3dm version.">
+<link rel="canonical" href="https://task-relay-website-production.up.railway.app/guides/rhino-model-revisions"><link rel="icon" href="/logo.png" type="image/png">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/guides/guide.css">
+<meta property="og:title" content="Repeat a precise model edit in Rhino"><meta property="og:description" content="Apply the same dimension change to selected objects, keep the rest of the model intact, and review a new .3dm version."><meta property="og:type" content="article">
+</head>
+<body><a class="skip-link" href="#main">Skip to content</a><div class="page">
+<header><a class="wordmark" href="/"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a><nav aria-label="Main navigation"><a href="/guides/">Guides</a><a href="/#tools">Programs</a><a href="/#download">Download</a></nav></header>
+<main id="main" class="guide"><p class="eyebrow">Task Relay guides · Research / Model / Present</p><h1>Repeat a precise model edit in Rhino</h1>
+<p class="lede">Apply the same dimension change to selected objects, keep the rest of the model intact, and review a new .3dm version.</p>
+<h2>The problem people report</h2><p>McNeel users describe <a href="https://discourse.mcneel.com/t/resizing-multiple-objects/132731">resizing dozens of objects to the same height</a> while preserving their widths, with later replies discussing furniture modules and a script workaround. A separate user asks about <a href="https://discourse.mcneel.com/t/how-to-resize-or-set-sizes-of-an-object/93280">setting object dimensions through Python</a>. These are concrete examples of repeated dimension edits. The historical BoxEdit discussion is not a claim that its bug persists today.</p>
+<h2>Start with one clear change</h2><p><strong>You provide:</strong> the exact .3dm, target object names or IDs, units, target dimension, fixed anchor and what must remain unchanged. Start with a few simple objects. Use installed and licensed Rhino 7 or 8 on macOS, plus a worker able to prepare and review Rhino Python.</p>
+<p><strong>You get:</strong> a candidate .3dm, viewport preview and checks against the selected source and requested dimensions. You choose whether the candidate becomes the next version.</p><aside class="setup"><h2>Before you start</h2><p>These instructions are matched to the capabilities bundled in Relay <strong>0.13.24</strong>, checked on 15 September 2026. The website download is still <strong>0.13.0-beta.1</strong>; it does not establish availability of this whole workflow. Ask your running Relay to check the required tools before starting.</p><p>Use a configured worker to prepare and review the work. Select the exact input files, review the proposed plan, then press Start. For model edits, Relay prepares the code first and asks you to approve that exact code before running it in the local app.</p></aside><h2>Give Relay this request</h2>
+<pre class="prompt"><code>Inspect this selected .3dm and identify [object names or IDs].
+I want each object&#x27;s world-Z height to be [value and units], keeping its
+base elevation and X/Y dimensions unchanged. Preserve all other objects,
+layers and materials. List ambiguous targets before preparing an edit.
+Prepare the Rhino-compatible script and checks, then stop for review.
+After I select the exact script, checks and source model, propose the host
+execution plan. Save a new candidate .3dm, reopen it independently and
+return dimension/preservation checks and a viewport preview.</code></pre>
+
+<h2>Review the edit before running it</h2><ol><li>Check the inspection: correct version, units, object selection and orientation.</li><li>Review the prepared change and checks. Scaling a bounding box is suitable for simple study geometry; it may distort detailed parts.</li><li>Approve the exact script and source model in the execution plan. The script runs with the local app's normal host permissions.</li><li>Check the candidate dimensions and preview, then select or reject it. Reuse the request with a newly selected model for the next revision.</li></ol>
+<p>The same route can create a new model from an explicit geometry brief. That is a separate prepared script with its own checks. Grasshopper execution is not part of this guide. A viewport preview is not a finished render; use <a href="/guides/rhino-named-view-renders">named-view rendering</a> when you need presentation images.</p><p class="verification"><strong>Capability check:</strong> <code>rhino.inspect</code> and <code>rhino.run_python</code> are present in the audited app bundle. See the <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/rhino.md">operation documentation</a> for implementation scope and recorded checks. This article is a workflow recipe; its exact prompt has not been qualified through a complete live Relay run. Forum reports establish a problem, not measured time savings.</p>
+</main><footer><a href="/guides/">All guides</a><a href="https://github.com/StepanKukharskiy/task-relay">Source on GitHub</a></footer></div></body></html>

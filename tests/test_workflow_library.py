@@ -59,7 +59,7 @@ class PlanningTests(unittest.TestCase):
         with self.state.db:self.state.db.execute("UPDATE production_plans SET status='needs_input'")
         changed=copy.deepcopy(library.WORKFLOWS)
         for w in changed:
-            if w['id']=='carousel-reel':w['version']=2;w['stages'][0]['instructions']='changed default'
+            if w['id']=='carousel-reel':w['version']+=1;w['stages'][0]['instructions']='changed default'
         with patch.object(library,'WORKFLOWS',changed):
             revised=self.queue(ident=2,action=self.action(parent_id=row['id']),text='Preserve all exact cards.')
         self.assertEqual(json.loads(revised['context'])['starter_workflow'],frozen)

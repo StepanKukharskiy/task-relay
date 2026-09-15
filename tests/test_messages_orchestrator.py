@@ -71,6 +71,47 @@ class Tests(unittest.TestCase):
         texts='\n'.join(row[0] for row in self.pilot.store.db.execute('SELECT text FROM messages_delivery'))
         self.assertIn('model-revision',texts);self.assertIn('Native model',texts)
 
+    def test_procedure_listing_and_approval_stay_in_messages_without_a_model(self):
+        from task_relay import procedures, pipelines
+        from orchestrator.storage import transaction
+        r=self.router();self.pair()
+        scoped=channels.ScopedState(r.state,'messages')
+        stage=lambda ident:dict(id=ident,instruction='Explain the sample project',route='conversation',gate='none',capabilities=[],deliverables={ident:'Explanation'})
+        plan=dict(kind='plan_pipeline',title='Sample procedure',planning_only=True,stages=[stage('one'),stage('two')])
+        with transaction(r.state.db):
+            r.state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(99,'messages'))
+            pipelines.dispatch(scoped,dict(id=99,prompt='Explain the sample project in two stages',provider='gemini',model='fixture'),plan,{})
+            r.state.db.execute("UPDATE relay_pipelines SET status='completed'")
+            r.state.db.execute("UPDATE relay_pipeline_steps SET status='completed'")
+            pid=r.state.db.execute('SELECT id FROM relay_pipelines').fetchone()[0]
+            procedures.dispatch(scoped,dict(id=100,prompt='Save this'),dict(kind='draft_procedure',pipeline_id=pid,name='Study',parameters=[dict(name='subject',example='sample project')]),{})
+        ident=procedures.catalog(scoped)[0]['id']
+        self.pilot.receive(self.msg('/procedures','procedures-list'))
+        self.pilot.receive(self.msg('/procedures approve '+ident,'procedures-approve'))
+        self.pilot.receive(self.msg('/procedures approve '+ident,'procedures-approve'))
+        self.assertEqual(procedures.load(scoped,ident)[0]['status'],'approved')
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        self.assertEqual(r.state.db.execute("SELECT count(*) FROM relay_procedure_events WHERE kind='approved'").fetchone()[0],1)
+        self.assertEqual(procedures.catalog(r.state),[])
+        texts='\n'.join(row[0] for row in self.pilot.store.db.execute('SELECT text FROM messages_delivery'))
+        self.assertIn('Procedure approved',texts)
+
+    def test_opportunities_are_channel_scoped_local_analysis_without_a_model(self):
+        from task_relay import opportunities
+        r=self.router();self.pair()
+        self.pilot.receive(self.msg('/opportunities','wrong',chat_id=99))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM relay_opportunity_scans').fetchone()[0],0)
+        self.pilot.receive(self.msg('/opportunities','opportunity-scan'))
+        self.pilot.receive(self.msg('/opportunities','opportunity-scan'))
+        self.pilot.receive(self.msg('/opportunities list','opportunity-list'))
+        scans=r.state.db.execute('SELECT channel,request FROM relay_opportunity_scans').fetchall()
+        self.assertEqual([(s['channel'],s['request']) for s in scans],[('messages','/opportunities')])
+        self.assertIsNone(opportunities.latest(r.state))
+        self.assertEqual(r.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        texts='\n'.join(row[0] for row in self.pilot.store.db.execute('SELECT text FROM messages_delivery'))
+        self.assertIn('Automation opportunities',texts)
+        self.assertIn('Local analysis only; no work started.',texts)
+
     def test_browser_setup_command_is_paired_and_bypasses_the_model(self):
         r=self.router();self.pair()
         self.pilot.receive(self.msg('/browser connect','wrong',chat_id=99))

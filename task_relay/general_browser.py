@@ -181,6 +181,15 @@ class PlaywrightDriver:
         page=self.managed_page(tab);page.close();self.navigation_blocks.pop(page,None);del self.pages[tab]
     def wait(self,tab,seconds):self.page(tab).wait_for_timeout(seconds*1000)
 
+    def screenshot(self,tab):
+        page=self.page(tab);url=page.url
+        size=page.viewport_size or page.evaluate('() => ({width:innerWidth,height:innerHeight})')
+        if not size or not 1<=size['width']<=4096 or not 1<=size['height']<=4096 or size['width']*size['height']>8000000:
+            raise ValueError('Screenshot requires a bounded viewport')
+        raw=page.screenshot(type='png',full_page=False,scale='css',timeout=5000)
+        if self.page(tab).url!=url:raise ValueError('Tab navigated during screenshot capture')
+        return raw
+
     def act(self,tab,element,operation,args,files):
         self.page(tab)
         try:return self.interact(tab,element,operation,args,files)
@@ -265,13 +274,17 @@ class Session:
         return result
 
     def target(self,args):
+        observation=self.observed(args)
+        ref=args.get('ref')
+        if not isinstance(ref,str) or not ref.isdigit() or int(ref)>=len(observation['handles']):raise ValueError('Unknown element ref')
+        return observation['handles'][int(ref)],observation['raw']['controls'][int(ref)]
+
+    def observed(self,args):
         tab=args['tab'];observation=self.observations.get(tab)
         if not observation or args.get('observation')!=observation['id']:raise ValueError('Inspect this tab before acting; stale observation')
         raw,_=self.driver.snapshot(tab)
         if digest(raw)!=observation['fingerprint']:raise ValueError('Page changed; inspect again before acting')
-        ref=args.get('ref')
-        if not isinstance(ref,str) or not ref.isdigit() or int(ref)>=len(observation['handles']):raise ValueError('Unknown element ref')
-        return observation['handles'][int(ref)],observation['raw']['controls'][int(ref)]
+        return observation
 
     def call(self,ident,name,args):
         from orchestrator.browser_contract import definitions
@@ -290,6 +303,11 @@ class Session:
         if op=='open' and len(self.tabs)>=self.policy['max_tabs']:raise ValueError('Tab budget exhausted')
         if op=='wait' and not 0<=args['seconds']<=5:raise ValueError('Wait must be 0–5 seconds')
         interactive=op in INTERACTIVE
+        if op=='screenshot':
+            if not args['purpose'].strip():raise ValueError('State the screenshot purpose')
+            if args['path'] not in self.policy.get('screenshots',[]) or self.files is None:raise ValueError('No exact screenshot grant')
+            self.files.capture_ready(args['path'])
+            capture_observation=self.observed(args)
         if interactive:
             if not args['purpose'].strip():raise ValueError('State this action purpose within the assignment')
             element,descriptor=self.target(args)
@@ -303,7 +321,7 @@ class Session:
                 raise ValueError('Unsupported key')
             if op in ('upload','download'):
                 if args['path'] not in self.policy[op+'s'] or self.files is None:raise ValueError('No exact file transfer grant')
-        old=self.journal.claim(self.profile,self.job,ident,name,args,self.policy['max_actions'],interactive)
+        old=self.journal.claim(self.profile,self.job,ident,name,args,self.policy['max_actions'],interactive or op=='screenshot')
         if old is not None:return old
         # No external interaction occurs before the committed intent above.
         try:
@@ -316,6 +334,18 @@ class Session:
                 self.journal.tab(self.profile,tab,args['url'],'opening')
                 self.driver.open(tab,args['url']);result=self.inspect(tab)
             elif op=='read':result=self.inspect(tab)
+            elif op=='screenshot':
+                from datetime import datetime,timezone
+                raw=self.driver.screenshot(tab)
+                # Capture does not freeze a dynamic canvas. Recheck DOM identity
+                # and URL; retain that limitation in the provenance record.
+                self.observed(args)
+                metadata={'schema':'relay.browser-screenshot.v1','tab':tab,'observation':args['observation'],
+                          'url':capture_observation['raw']['url'],'title':capture_observation['raw']['title'],
+                          'captured_at':datetime.now(timezone.utc).isoformat(),'mode':'viewport',
+                          'purpose':args['purpose'],'job':self.job,'action_id':ident,
+                          'limitation':'Capture does not establish page completeness, map accuracy or visual acceptance.'}
+                result={**metadata,'capture':self.files.write_capture(args['path'],raw,metadata)}
             elif op=='close':
                 self.driver.close(tab);self.tabs.remove(tab)
                 previous=self.observations.pop(tab,None)

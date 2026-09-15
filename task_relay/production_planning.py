@@ -43,11 +43,17 @@ conversation.json. If multiple baselines fit, ask which one. Selecting a baselin
 does not mark it accepted or supersede it. Do not send a relative revision with []
 merely because the current user did not repeat the artifact name.
 Optional executor is an available ID from snapshot.capabilities.graph_executors.
-Use it when the user names a provider; never substitute another provider. Gemini
-file workers support bounded text work. The gemini-browser, openai-browser and
+Use it when the user names a provider; never substitute another provider. Available
+Gemini/OpenAI/Qwen/DeepSeek/OpenRouter file workers support bounded text work.
+Their -code profiles provide isolated Python only when the native runtime is verified.
+The gemini-browser, openai-browser and
 qwen-browser executors support general website work with declared origins and
 interaction scope, using a dedicated profile. Select the requested available provider;
 never infer browser access from the file-only executor. A selected provider stays fixed.
+New scopes capture available worker profiles. The stage planner can create task-
+specific roles and match files.text, files.binary, code.execute or browser.use to
+those profiles. Missing adapters stay explicit blockers. A named executor locks
+the scope; other proposed backend choices require stage Start before dispatch.
 For every new production request, include deliverables as {stable_id: exact requested output description}, covering every requested result regardless of tool or file type. Do not add outcomes beyond the user request.
 For a requested mixed workflow, optional step_capabilities lists needed IDs
 from snapshot.capabilities.graph_operations (pptx.create, text.bundle, gemini.text, gemini.image,
@@ -160,7 +166,8 @@ def verify_artifact(rt, item):
 
 def source_entry(rt,aid,path,purpose,authority):
     a=rt.artifact(aid)
-    return dict(artifact=aid,path=path,purpose=purpose,authority=authority,sha256=a['sha256'],bytes=a['bytes'])
+    return dict(artifact=aid,path=path,purpose=purpose,authority=authority,sha256=a['sha256'],bytes=a['bytes'],
+                **({'media_type':'image/png'} if Path(path).suffix.lower()=='.png' else {}))
 
 
 def blender_preparation_validator(capability):
@@ -228,9 +235,21 @@ def enqueue(state,job,action,snap):
     options={**action,'backend':backend,'limits':{'seconds':1800,'tool_calls':60,'output_bytes':100000000},'max_attempts':1,
              'planning_limits':{'calls':2,'max_output_tokens':10000,'request_timeout_seconds_at_most':180,'context_chars':MAX_CONTEXT}}
     options['tools']=tools
-    if backend['type'] in executors.API_TYPES:options['limits']=executors.GEMINI_LIMITS.copy()
+    if backend['type'] in executors.API_TYPES:options['limits']=executors.limits_for(backend)
     if parent:options['limits']=json.loads(parent['options'])['limits'].copy()
     if 'task_seconds' in action:options['limits']['seconds']=action['task_seconds']
+    from orchestrator import worker_capabilities
+    # A clarification retains its captured model choices. A named executor locks
+    # this scope to that profile, including later clarifications/continuations.
+    prior_options=json.loads(parent['options']) if parent else {}
+    if stage and not parent:
+        prior_plan=state.db.execute('SELECT options FROM production_plans WHERE run=?',(stage['run'],)).fetchone()
+        if prior_plan:prior_options=json.loads(prior_plan['options'])
+    options['executor_locked']=bool(action.get('executor') or prior_options.get('executor_locked') or prior_options.get('executor'))
+    if prior_options and not action.get('executor'):
+        if 'worker_catalog' in prior_options:options['worker_catalog']=copy.deepcopy(prior_options['worker_catalog'])
+    else:
+        options['worker_catalog']=worker_capabilities.capture(state,backend,options['executor_locked'])
     if parent and 'step_capabilities' not in action:options['step_capabilities']=json.loads(parent['options']).get('step_capabilities',[])
     if parent and 'deliverables' not in action:options['deliverables']=json.loads(parent['options']).get('deliverables',{})
     options['job_request_id']=json.loads(parent['options']).get('job_request_id',parent['request_id']) if parent else (stage_job if stage else job['id'])
@@ -318,10 +337,14 @@ def enqueue(state,job,action,snap):
                 support['operation_support']=operation['id'];sources.append(support);required.append(aid)
     # Keep records distinct by artifact identity, avoiding a full copy per stage.
     sources=list({s['artifact']:s for s in sources}.values())
-    if backend['type'] in executors.API_TYPES:
-        if sum(s['bytes'] for s in sources)>executors.MAX_INPUT_BYTES:raise ValueError('API executors require a text input pack of at most 512 KB.')
+    if backend['type'] in executors.API_TYPES and not any('code.execute' in x['capabilities'] for x in options.get('worker_catalog',[])):
+        executors.validate_input_sizes(sources,backend)
         for source in sources:
-            try:verify_artifact(rt,source).read_bytes().decode('utf-8')
+            try:
+                raw=verify_artifact(rt,source).read_bytes()
+                from orchestrator.browser_contract import png_input,png_info
+                if backend['type'] in executors.BROWSER_TYPES and png_input(source):png_info(raw)
+                else:raw.decode('utf-8')
             except UnicodeError:raise ValueError('API executors require UTF-8 text inputs.') from None
     texts=[];used=0
     for source in sources:
@@ -338,7 +361,7 @@ def enqueue(state,job,action,snap):
         template_plan={k:template_plan[k] for k in ('brief','tasks')}
     from task_relay.host_apps import catalog as app_catalog
     payload={'original_request':request,'project':action['project'],'template':action['template'],
-        'host_applications':app_catalog(state) if 'shell' in options['tools'] else [],
+        'host_applications':app_catalog(state) if 'shell' in options['tools'] or any('code.execute' in x['capabilities'] for x in options.get('worker_catalog',[])) else [],
         'planner_instructions':PLANNER_SYSTEM,
         'template_definition':templates.STAGES.get(action['template']),'template_plan':template_plan, 'options':options,'sources':sources,
         'required_artifacts':required,'source_texts':texts,'reference_pack':pack,
@@ -365,7 +388,7 @@ def enqueue(state,job,action,snap):
             '\nUse only this selected stage as a starting point. The exact user request takes precedence. '
             'Do not execute later stages or assume listed tools are installed. Check the executor/operation contracts; '
             'return blocked or needs_input when required tooling or exact inputs are missing.')
-    if options.get('backend',{}).get('type') in executors.BROWSER_TYPES:
+    if options.get('backend',{}).get('type') in executors.BROWSER_TYPES or any('browser.use' in x['capabilities'] for x in options.get('worker_catalog',[])):
         from task_relay.orchestrator_chat import clock_context
         from task_relay.browser_sites import catalog as site_catalog
         payload['browser_account_sites']=site_catalog(state.db)
@@ -432,19 +455,54 @@ limits, max_attempts, optional review_of and user_gate. Every input has artifact
 path, purpose, authority OR from_task, output, path, purpose, authority.
 Every output has path,purpose. Use exactly one producer and one independent reviewer.
 Reviewer dependencies include producer, inputs include every output under candidate/,
-and criteria exactly equal the producer's. Each task has max_attempts=1 and tools
-options.tools, within options.limits. Choose limits.seconds independently for each
+and criteria exactly equal the producer's. Each task has max_attempts=1, within
+options.limits. When options.worker_catalog exists, compose each agent dynamically:
+include worker={"requires":["files.text"]}, optionally executor with an exact catalog ID.
+Choose a task-specific role, objective, exact inputs, outputs and review criteria.
+Use code.execute for local calculations/validation, files.binary for binary files,
+browser.use for scoped website control. These are adapter capabilities, not role names.
+Omit tools: Relay resolves and freezes the actual tools and model from that catalog.
+The default is preferred when compatible. An explicitly named executor never falls
+back. Respect the chosen profile's limits as well as options.limits. Missing
+capabilities require a specific blocker, not a fabricated worker or an installation.
+Registered execution steps never have worker. Do not call native applications or
+external generation through code.execute to bypass registered operation approval.
+Legacy plans without worker use options.tools and the selected default backend.
+The gemini-agent, openai-agent, qwen-agent, deepseek-agent and openrouter-agent
+profiles have declared text file tools only. Their -code variants also have
+python_run: isolated Python, exact input copies, declared binary outputs, 100 MB
+input/output ceilings and at most 120 seconds per code call within task limits.
+Use runtime_tools from the captured profile to check format libraries. Missing
+libraries are blockers; do not install packages. These workers have no subprocess,
+network, browser, native application or media-encoder access. They do not replace
+Rhino/Blender, generation, or registered pptx.create operations. Binary input bytes
+remain local; read text, code logs and extracted summaries go to the selected model.
+Format save/reopen checks do not prove visual quality or Office/Keynote compatibility.
+Choose limits.seconds independently for each
 task based on its actual work; the ceiling is not a required duration. Complex
 authoring may need 1200–1800 seconds; a focused review may need 300–900 seconds.
 Respect any time budgets in the user request. Include saving required outputs,
 validation and the final completion response in that task budget. Prioritize
 required deliverables and completion before optional analysis or long notes. gemini-agent has only file tools and text outputs.
-gemini-browser, openai-browser and qwen-browser have file and browser tools, also with UTF-8 inputs/outputs only.
-For any browser executor each task requires browser with exactly profile (a dedicated
+gemini-browser, openai-browser and qwen-browser have text file and browser tools.
+They can also save explicitly granted viewport PNG screenshots. For that task use
+browser.capture with browser.use; declare image/png outputs and an application/json
+provenance output for each PNG at its exact path plus .json (map.png.json).
+Add the PNG paths to browser.screenshots. These reserved pairs are written only by
+browser_screenshot. A task has a total output budget up to 10 MB. PNG inputs with
+media_type=image/png can be read as metadata only (up to 10 MB combined); text input
+limits remain 512 KB. Screenshot pixels are NOT sent to these workers' models.
+Reviewers can check file metadata, provenance and independent DOM evidence but
+cannot verify screenshot appearance or canvas content. Require user visual review,
+or a separately available capable reviewer, for map completeness/visual criteria.
+Keep attribution visible; no automatic full-page scrolling, canvas clicking or GIS
+analysis is provided. Request the actual location if essential and missing.
+For any browser executor each task requires browser with profile (a dedicated
 profile name), origins (exact https://host origins without paths/wildcards),
 interaction_scope (precise authorized website actions, empty for reading/navigation),
 max_tabs (1–8), max_actions (1–60), uploads (exact declared input paths), downloads
-(exact declared output paths). Choose origins and actions only from the request's
+(exact declared text output paths), and optional screenshots (exact PNG output paths).
+Choose origins and actions only from the request's
 scope, and preserve an explicitly named profile. If the needed account/site is
 ambiguous, ask; never invent a signed-in session. Empty transfer lists by default.
 The reviewer uses the same profile/origins but empty interaction_scope/uploads/downloads.
@@ -452,8 +510,10 @@ No login automation, secret entry, arbitrary JavaScript or shell is available.
 Retain evidence URLs and distinguish observed interactions from verified remote
 outcomes. An uncertain action stops the worker without resubmission. Completion
 may require the user to sign in locally. Never promise support for every website.
-Never propose shell work or render/build tasks for either Gemini profile. Examples below show the Codex
-profile; adapt tools and limits to the frozen options, never change the executor.
+Never propose shell work for API profiles. Python-only document/data tasks require
+a verified -code profile; media composition still needs its own renderer. Examples below show the Codex
+profile; adapt capabilities and limits to the frozen catalog. Never invent models
+or change a resolved executor after approval.
 Put user_gate on the PRODUCER ONLY; omit it entirely from the reviewer. Reviewers
 must not have user_gate, even when their report is presented for user review.
 In a mixed graph requested to deliver a visual/native artifact, the relevant
@@ -859,10 +919,11 @@ def validate_result(raw,row):
             raise ValueError('A modification requires exact baseline artifacts; independent new work has none.')
     for task in plan['tasks']:
         if not isinstance(task,dict):raise ValueError('Invalid task object.')
-        if set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','selection_outputs','tools','execution','browser'}:
+        if set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','selection_outputs','tools','execution','browser','worker'}:
             raise ValueError('Unsupported assignment field.')
         registered='execution' in task
         if registered:
+            if 'worker' in task:raise ValueError('Registered operations cannot carry agent workers.')
             e=task['execution']
             if not isinstance(e,dict) or e.get('capability') not in options.get('step_capabilities',[]):
                 raise ValueError('This operation was not included in the planning scope.')
@@ -893,6 +954,7 @@ def validate_result(raw,row):
             if registered and source.get('operation_support') in ('pptx.create','rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
                 continue
             item={k:source[k] for k in ('artifact','path','purpose','authority')}
+            if source.get('media_type')=='image/png':item['media_type']='image/png'
             if any(i.get('artifact')!=aid and i['path']==item['path'] for i in declared_inputs):
                 item['path']='context/'+aid+'/'+item['path']
             if registered:
@@ -1052,6 +1114,18 @@ def validate_result(raw,row):
                 else:task.pop('selection_outputs',None)
             elif pipeline_stage['gate']=='none' and task.get('user_gate'):
                 raise ValueError('This automatic workflow stage has no user selection gate; retain independent review without inventing acceptance.')
+    from orchestrator import worker_capabilities
+    from orchestrator import executors
+    for task in plan['tasks']:
+        if 'worker' in task:
+            if 'worker_catalog' not in options:raise ValueError('This saved planning scope has no dynamic worker catalog.')
+            worker_capabilities.resolve(task,options['worker_catalog'],options['backend'])
+        if not task.get('execution') and 'worker_catalog' in options:
+            if worker_capabilities.backend_for(task,options['backend'])['type'] in executors.API_TYPES:
+                chosen=worker_capabilities.backend_for(task,options['backend'])
+                supported_capture=chosen['type'] in executors.BROWSER_TYPES and worker_capabilities.matches(task,['browser.use'],chosen)
+                if worker_capabilities.has_binary(task) and not supported_capture and chosen['type'] not in executors.CODE_TYPES:raise ValueError('Resolved API worker requires text or explicitly supported browser PNG files; other binary files need a compatible executor.')
+                executors.validate_input_sizes([{**known[i['artifact']],**i} for i in task['inputs'] if 'artifact' in i],chosen)
     plan=c.plan(plan)
     for task in plan['tasks']:
         if task.get('execution',{}).get('capability')=='pptx.create':
@@ -1136,6 +1210,7 @@ def attach_host_code(state,row,event,rt):
 
 
 def preview(row):
+    from orchestrator import executors
     plan=json.loads(row['plan']);options=json.loads(row['options'])
     lines=['Proposed production: '+plan['brief'], 'Planning only.' if options['planning_only'] else 'Ready for your approval; no workers have started.']
     payload=json.loads(row['context'])
@@ -1148,11 +1223,18 @@ def preview(row):
         lines.append('Deliverable: '+options['deliverables'][ident]+' → '+target)
     for capability,reason in json.loads(row['result'] or '{}').get('deferred_operations',{}).items():
         lines.append('Not executed by this stage: '+capability+' — '+reason+' Separate approval required after preparation.')
-    lines.append('Executor: '+c.encoded(plan['backend']))
-    if plan['backend']['type']=='gemini-agent':
-        lines.append('File tools only: declared UTF-8 inputs and text outputs. External transfer: assignment and read text go to Gemini. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB inputs. Cancellation stops local work; an accepted remote request cannot be undone. Unknown cost stays unknown.')
+    dynamic=any(t.get('worker') for t in plan['tasks'])
+    lines.append(('Default executor: ' if dynamic else 'Executor: ')+c.encoded(plan['backend']))
+    if dynamic:
+        from orchestrator.worker_capabilities import needs_approval
+        if needs_approval(plan):lines.append('This plan includes a different worker backend. Use Start to approve the displayed worker models and transfers; the workflow will not switch automatically.')
+    if plan['backend']['type'] in executors.FILE_TYPES:
+        lines.append('File tools only: declared UTF-8 inputs and text outputs. External transfer: assignment and read text go to '+executors.provider_for(plan['backend'])+'. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB inputs. Cancellation stops local work; an accepted remote request cannot be undone. Unknown cost stays unknown.')
+    code_profiles=[plan['backend'],*(t['worker']['backend'] for t in plan['tasks'] if t.get('worker'))]
+    if any(b['type'] in executors.CODE_TYPES for b in code_profiles):
+        lines.append('Native Python code: exact input copies and declared outputs, no network or subprocesses. Up to 120 seconds per call within task limits; 100 MB input/output ceiling. Binary files stay local; code logs and extracted text can go to the selected provider. No package installation or native app access. Document checks do not certify visual layout or application import compatibility.')
     if plan['backend']['type'] in ('gemini-browser','openai-browser','qwen-browser'):
-        lines.append('Browser and declared UTF-8 file tools. External transfer: instructions, read files and visible page observations go to the selected browser provider. Dedicated browser sessions; no shell or credential tools. Per worker: at most 8 API requests, 4096 output tokens per request, 512 KB file inputs. Site/action scope is shown below; interpreting permitted actions still uses the model. Cancellation cannot undo website actions; uncertain actions are never replayed.')
+        lines.append('Browser and declared text file tools, plus explicitly granted viewport PNG captures and provenance. PNG reads return metadata only; pixels are not sent to the model and visual review remains separate. External transfer: instructions, read text, page observations and capture metadata go to the selected provider. Up to 10 MB outputs and 10 MB PNG inputs; 512 KB text inputs, 8 API requests, 4096 output tokens per request. Dedicated sessions; no shell or credential tools. Site/action scope is shown below. Cancellation cannot undo website actions; uncertain actions are never replayed.')
     if payload.get('previous_stage'):
         lines.append('Next stage after: '+payload['previous_stage']['run']+'; exact recorded selections and prior instructions are included.')
     if payload.get('execution_recovery'):
@@ -1172,6 +1254,12 @@ def preview(row):
               'Inputs: '+', '.join(s['path'] for s in selected[:12])]
     if len(selected)>12:lines.append(f'{len(selected)-12} more inputs listed in the attached source manifest.')
     for task in plan['tasks']:
+        if task.get('worker'):
+            from orchestrator.worker_capabilities import entry
+            binding=task['worker'];profile=entry(binding['backend'])
+            lines.append('Worker '+task['id']+': '+c.encoded(binding['backend'])+' · requires '+', '.join(binding['requires'])+' · tools '+', '.join(profile['tools']))
+            if binding['backend']['type'] in executors.API_TYPES:
+                lines.append('External transfer: assignment and read text go to this worker provider; browser workers also send page observations, Python workers send code logs and extracted text. At most 8 API requests and 4096 output tokens per request. No shell; unknown costs remain unknown.')
         if task.get('browser'):lines.append('Browser scope for '+task['id']+': '+c.encoded(task['browser']))
         if task.get('execution'):
             e=task['execution']
@@ -1627,7 +1715,9 @@ def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followu
     used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
     from orchestrator.execution import available
     from orchestrator.executors import available as executor_available
-    if any(not t.get('execution') for t in plan['tasks']):executor_available(plan['backend'])
+    from orchestrator.worker_capabilities import backend_for
+    for task in plan['tasks']:
+        if not task.get('execution'):executor_available(backend_for(task,plan['backend']))
     for task in plan['tasks']:
         if task.get('execution'):available(task)
     for source in source_catalog(payload):

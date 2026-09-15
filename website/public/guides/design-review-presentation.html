@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assemble research and model images into an editable deck | Task Relay</title>
+<meta name="description" content="Use your selected evidence and render files to make a new design-review PPTX with editable captions, tables and charts.">
+<link rel="canonical" href="https://task-relay-website-production.up.railway.app/guides/design-review-presentation"><link rel="icon" href="/logo.png" type="image/png">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/guides/guide.css">
+<meta property="og:title" content="Assemble research and model images into an editable deck"><meta property="og:description" content="Use your selected evidence and render files to make a new design-review PPTX with editable captions, tables and charts."><meta property="og:type" content="article">
+</head>
+<body><a class="skip-link" href="#main">Skip to content</a><div class="page">
+<header><a class="wordmark" href="/"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a><nav aria-label="Main navigation"><a href="/guides/">Guides</a><a href="/#tools">Programs</a><a href="/#download">Download</a></nav></header>
+<main id="main" class="guide"><p class="eyebrow">Task Relay guides · Research / Model / Present</p><h1>Assemble research and model images into an editable deck</h1>
+<p class="lede">Use your selected evidence and render files to make a new design-review PPTX with editable captions, tables and charts.</p>
+<h2>The problem people report</h2><p>An architect asks how to <a href="https://www.reddit.com/r/Architects/comments/1flczjl">insert a floor plan clearly into PowerPoint</a>. This is a specific report about drawing readability, not evidence of widespread demand for automatic deck creation. The workflow here addresses assembly and consistent presentation; it cannot recover detail missing from a low-resolution source image.</p>
+<h2>Select the material first</h2><p><strong>You provide:</strong> an approved outline, research notes and citations, numeric chart data with units, selected PNG/JPEG images, and the audience. Include the model revision and view name in each render's caption. For line-heavy drawings, use a readable export supplied from the authoring app.</p><p><strong>You get:</strong> a new PPTX with native text, shapes, tables, column/bar/line charts and embedded images. PPTX generation runs locally; it needs no PowerPoint installation or Google account. A configured worker prepares and reviews the slide specification.</p><aside class="setup"><h2>Before you start</h2><p>These instructions are matched to the capabilities bundled in Relay <strong>0.13.24</strong>, checked on 15 September 2026. The website download is still <strong>0.13.0-beta.1</strong>; it does not establish availability of this whole workflow. Ask your running Relay to check the required tools before starting.</p><p>Use a configured worker to prepare and review the work. Select the exact input files, review the proposed plan, then press Start. For model edits, Relay prepares the code first and asks you to approve that exact code before running it in the local app.</p></aside><h2>Give Relay this request</h2>
+<pre class="prompt"><code>Create a new six-slide design-review PPTX from my selected outline,
+research notes, chart data and model images. Use these sections:
+brief, site evidence, model overview, option comparison, open questions,
+and sources. Flag missing content instead of inventing it.
+Keep titles, captions, tables and charts editable. Fit images without
+stretching; identify the model revision and view in the captions.
+First show me the outline and image choices. After I select them,
+prepare/review the slide specification and create the PPTX.
+Check the actual file against the sources and return it for me to open
+and review. Do not replace the deck with flattened slide images.</code></pre>
+
+<h2>Make the first deck easy to check</h2><ol><li>Choose a small set of evidence and images. Keep source data separate from conclusions.</li><li>Review the outline, image choices and comparison criteria before deck creation.</li><li>Run the presentation stage. Relay checks the generated file's text, table/chart data and embedded images.</li><li>Open the actual PPTX in your presentation app. Check small labels, image resolution, fonts and layout before selecting it.</li></ol>
+<p>PNG/JPEG model views remain raster images; Relay does not convert a .3dm, .blend or PDF directly into editable slide geometry. The current operation creates a new deck. Existing-template editing, native .key files and automatic PDF or slide-image previews need separate tooling. Keynote import fidelity also needs a visual check in Keynote.</p>
+<p>Start upstream with <a href="/guides/architectural-site-analysis">site research</a> or <a href="/guides/rhino-named-view-renders">Rhino named-view renders</a>. The <a href="/guides/assets/barcelona-pre-schematic-v1.pptx">Barcelona sample</a> demonstrates editable charts and source notes, but was authored with separate local tools.</p><p class="verification"><strong>Capability check:</strong> <code>pptx.create</code> are present in the audited app bundle. See the <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/presentations.md">operation documentation</a> for implementation scope and recorded checks. This article is a workflow recipe; its exact prompt has not been qualified through a complete live Relay run. Forum reports establish a problem, not measured time savings.</p>
+</main><footer><a href="/guides/">All guides</a><a href="https://github.com/StepanKukharskiy/task-relay">Source on GitHub</a></footer></div></body></html>

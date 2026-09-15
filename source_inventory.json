@@ -15,7 +15,20 @@
         "website/public/*.html",
         "website/public/*.css",
         "website/public/*.png",
-        "website/public/llms.txt"
+        "website/public/llms.txt",
+        "website/public/robots.txt",
+        "website/public/sitemap.xml",
+        "website/public/guides/*.html",
+        "website/public/guides/*.css",
+        "website/public/guides/assets/file-recipes.py",
+        "website/public/guides/assets/invoice-sample.zip",
+        "website/public/guides/assets/csv-sample.zip",
+        "website/public/guides/assets/barcelona-pre-schematic-v1.pptx",
+        "website/public/guides/assets/architecture-preview.png",
+        "website/public/guides/assets/architecture-sources.json",
+        "website/public/guides/assets/architecture-request.txt",
+        "website/public/guides/assets/architecture-request-v2.txt",
+        "website/public/guides/assets/complaint-research-request.txt"
       ]
     },
     {
@@ -153,6 +166,10 @@
         "docs/media-workflows.md",
         "docs/project-tasks-and-starters.md",
         "docs/request-derived-pipelines.md",
+        "docs/reusable-procedures.md",
+        "docs/automation-opportunities.md",
+        "docs/capability-workers.md",
+        "docs/shared-code-workers.md",
         "docs/onboarding.md",
         "docs/updates.md",
         "docs/app-updates.md",

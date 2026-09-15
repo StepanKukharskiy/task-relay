@@ -27,4 +27,9 @@ jobs:
           tests.test_managed_research tests.test_perplexity_native
           tests.test_context_handoff tests.test_media_pipeline
           tests.test_presentations tests.test_task_creation tests.test_workflow_library
+          tests.test_procedures
+          tests.test_opportunities
+          tests.test_worker_capabilities tests.test_executor_planning
+          tests.test_shared_code_workers
+          tests.test_browser_screenshots
           tests.test_mixed_planning tests.test_channel_policy

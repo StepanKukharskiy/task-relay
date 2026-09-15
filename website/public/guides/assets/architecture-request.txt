@@ -1,0 +1,7 @@
+Prepare a pre-schematic research deck for [location] and [project type].
+Use the attached project brief and site boundary where available.
+Research the location, climate and regional vegetation. Gather attributed images with documented reuse licenses. Prepare charts and explanatory diagrams with their data and assumptions.
+First return a source register, missing inputs and a proposed slide outline. Separate regional references from observed site conditions and calculations from interpretation.
+After I select the evidence, assemble a new editable PPTX and inspect a render of that actual deck. Keep the source data, image credits and diagram assumptions.
+Do not invent missing site observations, perform a regulatory certification, or publish the result.
+

@@ -19,6 +19,7 @@ def prepare(runtime,ident,request,backend,policy):
     validate(policy);c.label(ident);executors.validate(backend)
     if backend['type'] not in executors.BROWSER_TYPES:raise ValueError('Select the browser executor')
     if policy['uploads'] or policy['downloads']:raise ValueError('Use an authored graph with registered artifacts for file transfers')
+    if len(policy.get('screenshots',[]))>3:raise ValueError('Prepare at most three screenshots per stage')
     raw=Path(request).read_bytes()
     if len(raw)>24000:raise ValueError('Request exceeds 24000 bytes')
     c.nonempty(raw.decode('utf-8'),'exact user request')
@@ -37,6 +38,18 @@ def prepare(runtime,ident,request,backend,policy):
         outputs=[{'path':'review.md','purpose':'Independent findings'}],dependencies=['produce'],criteria=criteria,
         tools=['files','browser'],limits=executors.GEMINI_LIMITS.copy(),max_attempts=1,
         browser={**policy,'interaction_scope':'','uploads':[],'downloads':[]})
+    if policy.get('screenshots'):
+        producer['limits']=executors.limits_for(backend)
+        producer['user_gate']='User visually reviews the captured viewports'
+        producer['selection_outputs']=[name for path in policy['screenshots'] for name in (path,path+'.json')]
+        producer['instruction']+=' Capture the granted PNG viewports and their provenance using browser_screenshot before writing the report. Keep attribution visible; do not claim visual inspection.'
+        reviewer['browser']['screenshots']=[]
+        reviewer['instruction']+=' PNG file_read gives metadata only. Check provenance and file identity; visual acceptance remains with the user.'
+        for path in policy['screenshots']:
+            for name,mime in ((path,'image/png'),(path+'.json','application/json')):
+                producer['outputs'].append(dict(path=name,media_type=mime,purpose='Requested screenshot and provenance'))
+                reviewer['inputs'].append(dict(from_task='produce',output=name,path='candidate/'+name,media_type=mime,
+                    purpose='Inspect exact capture metadata',authority='Unaccepted screenshot evidence'))
     return c.plan(dict(id=ident,brief='General browser work: '+ident,backend=backend,concurrency=1,tasks=[producer,reviewer]))
 
 
@@ -53,6 +66,7 @@ def main(argv=None):
     p.add_argument('--interaction-scope',default='');p.add_argument('--request-file',type=Path,required=True)
     p.add_argument('--id',required=True);p.add_argument('--model',required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--provider',choices=['gemini','openai','qwen'],default='gemini')
+    p.add_argument('--screenshot',action='append',default=[],help='Exact relative .png output path; repeat for multiple requested views. Adds .png.json provenance outputs.')
     p.add_argument('--root',type=Path,default=PATHS.runtime)
     args=parser.parse_args(argv);os.umask(0o077)
     try:
@@ -61,6 +75,7 @@ def main(argv=None):
             if args.out.exists():raise ValueError('Plan output already exists; preserve the reviewed version')
             policy=dict(profile=args.profile,origins=args.origin,interaction_scope=args.interaction_scope,
                         max_tabs=3,max_actions=20,uploads=[],downloads=[])
+            if args.screenshot:policy['screenshots']=args.screenshot
             runtime=Runtime(args.root)
             try:plan=prepare(runtime,args.id,args.request_file,{'type':args.provider+'-browser','model':args.model},policy)
             finally:runtime.db.close()

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turn site research into a pre-schematic deck | Task Relay</title>
+<meta name="description" content="Stop rebuilding the location, climate and vegetation research pack for every project. Collect the evidence once, review it, then make an editable presentation.">
+<link rel="canonical" href="https://task-relay-website-production.up.railway.app/guides/architectural-site-analysis"><link rel="icon" href="/logo.png" type="image/png">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/guides/guide.css">
+<meta property="og:title" content="Turn site research into a pre-schematic deck"><meta property="og:description" content="Stop rebuilding the location, climate and vegetation research pack for every project. Collect the evidence once, review it, then make an editable presentation."><meta property="og:type" content="article">
+</head>
+<body><a class="skip-link" href="#main">Skip to content</a><div class="page">
+<header><a class="wordmark" href="/"><img class="mark" src="/logo.png" alt="" width="44" height="44"> Task Relay</a><nav aria-label="Main navigation"><a href="/guides/">Guides</a><a href="/#tools">Programs</a><a href="/#download">Download</a></nav></header>
+<main id="main" class="guide"><p class="eyebrow">Task Relay guides · Research / Model / Present</p><h1>Turn site research into a pre-schematic deck</h1>
+<p class="lede">Stop rebuilding the location, climate and vegetation research pack for every project. Collect the evidence once, review it, then make an editable presentation.</p>
+<h2>The problem people report</h2><p>An architecture student asks how to make several <a href="https://www.reddit.com/r/architecture/comments/1vh6g0v/how_do_i_go_about_creating_this_type_of_site/">site-analysis maps for a diploma project</a>, describing the difficulty of choosing tools and presenting the analysis. This supports a need for help assembling site-analysis graphics. It does not establish that Relay can reproduce those GIS examples or how much professional time it saves.</p>
+<h2>What you can make</h2><p>A source register, a reviewed outline and a new PPTX covering location, historical climate, regional vegetation and early design questions. Text, tables and charts stay editable; photographs and map captures remain images.</p>
+<p><strong>You provide:</strong> the location, project brief, boundary if known, intended audience and any selected images. Browser research needs a configured research route. PPTX creation needs the presentation operation to report available.</p><aside class="setup"><h2>Before you start</h2><p>These instructions are matched to the capabilities bundled in Relay <strong>0.13.24</strong>, checked on 15 September 2026. The website download is still <strong>0.13.0-beta.1</strong>; it does not establish availability of this whole workflow. Ask your running Relay to check the required tools before starting.</p><p>Use a configured worker to prepare and review the work. Select the exact input files, review the proposed plan, then press Start. For model edits, Relay prepares the code first and asks you to approve that exact code before running it in the local app.</p></aside><h2>Give Relay this request</h2><p><a href="/guides/assets/architecture-request-v2.txt">Download the reusable request</a></p>
+<pre class="prompt"><code>Prepare a pre-schematic research pack for [location] and [project type].
+Use my attached brief and boundary. Research location, climate and regional
+vegetation through the available browser research tools. Return a source
+register with URLs, dates, units, image credits and gaps, plus a slide outline.
+Separate observed site facts from regional references and design assumptions.
+For a location image, check whether browser screenshot capture is available.
+If available, propose one PNG capture from [exact map URL], with its source
+record, for my visual review. Otherwise ask me to supply the image.
+Stop for my selection of the evidence and image files. Then propose a new
+editable PPTX using those files, native text, tables and climate charts.
+Keep citations and assumptions in the deck. I will open it to review layout.</code></pre>
+
+<h2>Work through three small stages</h2><ol><li><strong>Research:</strong> ask for source URLs and dates, climate station and measurement period, units, plant references and missing inputs. Check the sources before choosing evidence.</li><li><strong>Select visuals:</strong> supply PNG/JPEG files or review a permitted browser capture. Keep credits and source records. A map screenshot locates the study area; it does not supply editable GIS geometry, a surveyed boundary or verified scale.</li><li><strong>Assemble:</strong> select the evidence and images, approve the presentation plan and open the returned PPTX to check captions, chart labels and layout.</li></ol>
+<p>Browser screenshot capture is bundled in the audited 0.13.24 app. It requires a supported browser worker and a plan granting the exact site and output file. The worker receives image metadata, so you must check that the location and map tiles actually appear. Google Maps capture has not been qualified in this guide. A user-supplied location image works for the same deck stage.</p>
+<h2>A worked Barcelona example</h2><p>The seven-slide example covers Parc de la Ciutadella, a climate-station locator diagram, historical climate charts and regional plant references. The locator is a diagram, not an imported map. The deck was authored and visually checked with local authoring tools; it is an example of the intended output, not proof of Relay completing the whole workflow.</p>
+<p><a href="/guides/assets/barcelona-pre-schematic-v1.pptx">Download the example PPTX</a> · <a href="/guides/assets/architecture-sources.json">Source and image register</a></p>
+<figure><img src="/guides/assets/architecture-preview.png" alt="Example climate slide with temperature and precipitation charts"><figcaption>Keep the station, units and reference period attached to each climate chart.</figcaption></figure>
+<p>The sample uses <a href="https://www.aemet.es/es/serviciosclimaticos/datosclimatologicos/valoresclimatologicos?k=cat&amp;l=0076">AEMET airport normals for 1981–2010</a>, a historical regional baseline. Its <a href="https://parcnaturalcollserola.cat/habitats/alzinars/">Collserola plant references</a> do not establish which species occur on the site. Research diagrams do not replace sun/shadow calculations, wind analysis or a site survey.</p>
+<p>For the final assembly stage, use the <a href="/guides/design-review-presentation">design presentation guide</a>.</p><p class="verification"><strong>Capability check:</strong> Browser research, scoped screenshot capture and <code>pptx.create</code> are present in the audited app bundle. See the <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/presentations.md">operation documentation</a> for implementation scope and recorded checks. This article is a workflow recipe; its exact prompt has not been qualified through a complete live Relay run. Forum reports establish a problem, not measured time savings.</p>
+</main><footer><a href="/guides/">All guides</a><a href="https://github.com/StepanKukharskiy/task-relay">Source on GitHub</a></footer></div></body></html>

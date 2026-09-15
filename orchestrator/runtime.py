@@ -316,8 +316,10 @@ class Runtime:
                         self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
                         self.event(run,task['id'],None,'host_code_approval_blocked',{'reason':str(exc)})
                         continue
+                from .worker_capabilities import backend_for
+                backend=backend_for(spec,plan['backend'])
                 if not spec.get('execution') and hasattr(self.factory,'available'):
-                    try:self.factory.available(plan['backend'])
+                    try:self.factory.available(backend)
                     except ValueError as exc:
                         self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
                         self.event(run,task['id'],None,'capability_unavailable',{'reason':str(exc)})
@@ -331,7 +333,7 @@ class Runtime:
                     frozen['host_code_authorization']=authorization
                     frozen['authorized_assignment_digest']=c.digest(spec)
                 frozen.update(assignment_id=attempt, assignment_version=task['assignment'],
-                              run=run, workspace=str(workspace), brief=plan['brief'], backend=plan['backend'])
+                              run=run, workspace=str(workspace), brief=plan['brief'], backend=backend)
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
@@ -356,7 +358,7 @@ class Runtime:
                     frozen['review_target'] = self.task(run, spec['review_of'])['latest']
                 relay = workspace / '.relay'; relay.mkdir()
                 (relay / 'ASSIGNMENT.json').write_text(c.encoded(frozen) + '\n')
-                session = self.factory.create(self.root / 'workers' / attempt, workspace, frozen, plan['backend'])
+                session = self.factory.create(self.root / 'workers' / attempt, workspace, frozen, backend)
                 self.db.execute('INSERT INTO production_attempts(id,run,task,assignment,state,resource,frozen,session) VALUES (?,?,?,?,?,?,?,?)',
                     (attempt, run, task['id'], task['assignment'], 'launching', spec.get('resource'), c.encoded(frozen), c.encoded(session)))
                 self.db.execute("UPDATE production_tasks SET status='launching',attempts=attempts+1,latest=? WHERE run=? AND id=?",
@@ -459,6 +461,8 @@ class Runtime:
                 failures.append(str(exc))
         self.event(attempt['run'], attempt['task'], attempt['id'], 'output_delivered', {'artifacts': artifacts})
         try:
+            from .browser_contract import validate_captures
+            validate_captures(frozen,workspace)
             from .host_script import validate_prepared
             validate_prepared(frozen, workspace)
         except (ValueError, OSError) as exc:
