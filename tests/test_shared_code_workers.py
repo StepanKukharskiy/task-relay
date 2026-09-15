@@ -1,5 +1,7 @@
 """Provider-neutral file/code contracts. Scripted transports, no paid requests."""
 import copy
+from contextlib import closing
+import sys
 import hashlib
 import json
 from pathlib import Path
@@ -51,6 +53,7 @@ class Tests(unittest.TestCase):
         out=folder/'outputs';out.mkdir();(out/'output.txt').write_bytes(b'\x00\xffbinary fixture')
         return {'returncode':0,'log':'created fixture','outputs':str(out)}
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_every_provider_preserves_native_calls_and_uses_same_file_contract(self):
         for provider in executors.PROVIDERS:
             with self.subTest(provider=provider),tempfile.TemporaryDirectory(dir=self.root) as temporary:
@@ -69,6 +72,7 @@ class Tests(unittest.TestCase):
                     self.assertEqual(payload['messages'][3]['tool_call_id'],'1')
                     if provider=='openrouter':self.assertEqual(payload['provider'],{'allow_fallbacks':False})
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_every_provider_can_export_binary_via_qualified_python(self):
         for provider in executors.PROVIDERS:
             with self.subTest(provider=provider),tempfile.TemporaryDirectory(dir=self.root) as temporary:
@@ -85,6 +89,7 @@ class Tests(unittest.TestCase):
         self.frozen['backend']=self.backend('qwen',True)
         return CodeFiles(self.frozen,self.control)
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_code_input_hash_and_binary_metadata_grants(self):
         (self.ws/'source.bin').write_bytes(b'\xff\x00fixture')
         self.frozen['inputs']=[{'path':'source.bin','sha256':hashlib.sha256(b'\xff\x00fixture').hexdigest()}]
@@ -94,6 +99,7 @@ class Tests(unittest.TestCase):
         (self.ws/'source.bin').write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError,'changed'):self.files()
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_ascii_binary_formats_are_not_sent_as_text(self):
         raw=b'%PDF-fixture';(self.ws/'source.pdf').write_bytes(raw)
         self.frozen['inputs']=[{'path':'source.pdf','sha256':hashlib.sha256(raw).hexdigest()}]
@@ -107,6 +113,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(host.call_count,1)
         self.assertFalse(files.written);self.assertFalse((self.ws/'output.txt').exists())
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_known_failure_can_be_corrected_within_same_attempt(self):
         files=self.files()
         with patch.object(code_runtime,'available',return_value=RECEIPT),patch.object(native_code_host,'run',return_value={'returncode':1,'log':'SyntaxError','outputs':'unused'}):
@@ -115,6 +122,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(files.run({'code':'corrected','seconds':5})['returncode'],0)
         self.assertEqual(len(list(self.control.glob('code-*/outcome.json'))),2)
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_export_rejects_symlinks_and_over_budget_before_writing(self):
         for mode in ('linked','large'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory(dir=self.root) as temporary:
@@ -141,6 +149,29 @@ class Tests(unittest.TestCase):
                     self.assertEqual(json.loads(receipt.read_text()),{'verified_at':0})
         with self.assertRaisesRegex(ValueError,'exact OpenRouter'):executors.validate({'type':'openrouter-code','model':'openrouter/auto','runtime':RECEIPT['id']})
 
+    def test_provider_protocols_without_native_file_access(self):
+        # Also runs on Windows: isolate only the unqualified file adapter, not
+        # provider request parsing, tool IDs, response continuation or receipts.
+        class FixtureFiles:
+            def __init__(self,frozen):self.outputs={'output.txt'};self.written={}
+            def call(self,name,args):
+                if name!='file_write' or args!={'path':'output.txt','text':'exact fixture'}:raise AssertionError('Unexpected provider call')
+                self.written['output.txt']=13
+                return {'path':'output.txt','bytes':13}
+        for provider in executors.PROVIDERS:
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                control=Path(temporary);backend=self.backend(provider);self.frozen['backend']=backend
+                config={'api_key':'fixture-only'};atomic(control/'launch.json',{'credential_fingerprint':executors.fingerprint(config,backend)})
+                transport=Transport(provider,self.frozen)
+                with patch('orchestrator.gemini_worker.Files',FixtureFiles):
+                    result=execute(self.frozen,control,transport,lambda:(config,backend))
+                self.assertEqual(result['decision'],'delivered')
+                _,payload=transport.requests[1]
+                if provider=='gemini':self.assertEqual(payload['contents'][2]['parts'][0]['functionResponse']['id'],'1')
+                elif provider=='openai':self.assertEqual(payload['input'][3]['call_id'],'1')
+                else:self.assertEqual(payload['messages'][3]['tool_call_id'],'1')
+                self.assertFalse((self.ws/'output.txt').exists())
+
     def test_failed_runtime_recheck_disables_previous_success(self):
         receipt=self.root/'runtime.json';atomic(receipt,RECEIPT)
         with patch.object(code_runtime,'path',return_value=receipt),patch.object(native_code_host,'identity',return_value=RUNTIME),patch.object(native_code_host,'run',return_value={'returncode':1}):
@@ -152,7 +183,7 @@ class Tests(unittest.TestCase):
     def test_runtime_change_and_unsupported_host_never_enable_unrestricted_code(self):
         receipt=self.root/'runtime.json';atomic(receipt,RECEIPT)
         with patch.object(code_runtime,'path',return_value=receipt),patch.object(native_code_host,'identity',return_value={**RUNTIME,'version':'changed'}):
-            self.assertFalse(code_runtime.status()['enabled'])
+            self.assertFalse(code_runtime.status()['ready'])
             with self.assertRaisesRegex(ValueError,'changed'):code_runtime.available()
         from task_relay.host import HOST
         with patch.object(HOST,'platform','win32'):
@@ -173,7 +204,7 @@ class Tests(unittest.TestCase):
         from task_relay import usage_tracker
         from orchestrator import templates
         source=self.root/'usage-source.sqlite'
-        with sqlite3.connect(source) as db:
+        with closing(sqlite3.connect(source)) as db, db:
             db.execute('CREATE TABLE production_attempts(id TEXT,frozen TEXT,receipt TEXT)')
             for provider in executors.PROVIDERS:
                 for code in (False,True):
@@ -189,6 +220,16 @@ class Tests(unittest.TestCase):
             for provider in executors.PROVIDERS:self.assertEqual(sum(r['provider']==provider for r in rows),2)
             self.assertTrue(all(json.loads(r['counts'])['total_tokens']==11 for r in rows))
         finally:ledger.close()
+
+    def test_windows_file_grants_reject_before_access(self):
+        from task_relay.host import Host, UnsupportedHost
+        from task_relay.filesystem import Filesystem, Grant
+        files = Filesystem(Host('win32'))
+        grant = Grant(self.ws, 'windows boundary', frozenset({'input.txt'}), frozenset({'output.txt'}))
+        (self.ws/'input.txt').write_text('preserved')
+        with self.assertRaises(UnsupportedHost): files.read(grant, 'input.txt', 100)
+        with self.assertRaises(UnsupportedHost): files.write(grant, 'output.txt', b'not written')
+        self.assertFalse((self.ws/'output.txt').exists())
 
 
 if __name__=='__main__':unittest.main()

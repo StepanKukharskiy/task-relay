@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.25 — app access settings and Windows CI
+
+- Add Apps and tools settings with detected installations, versions, paths and
+  per-app/per-installation switches for Rhino, Blender, Codex, Claude and encoding
+  tools. Keep Browser use and Code and document tools together with matching switches.
+  Unsupported desktop-only detections remain informational.
+- Enforce app choices during discovery, planning and new dispatch. Preserve explicit
+  versions, existing approvals and running work; these controls do not change an
+  external agent’s OS permissions.
+- Enable bundled code/document tools by default and qualify locally before first
+  use. Remember Off even before qualification; failed checks stay off and frozen
+  runtime receipts cannot be silently regenerated.
+- Fix both Windows CI jobs: separate POSIX file-grant tests from portable provider
+  and Windows denial checks; close the usage fixture’s SQLite connection before
+  temporary-directory cleanup. Windows code/file execution remains unqualified.
+- Validate the settings and affected dispatch integrations, default-on native
+  qualification, packaged dependencies and all 253 runtime source files. Install
+  the locally signed macOS app with verified app/database backups and fresh
+  Telegram and Messages service health. No public release or paid trial was run;
+  Windows runner validation remains pending.
+
 ## 0.13.24 — local app update and source PR
 
 - Include the shared provider/code workers, bundled document libraries, browser

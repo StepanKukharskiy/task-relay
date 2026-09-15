@@ -70,17 +70,24 @@ def status():
     try:
         value=read();runtime=native_code_host.identity()
         current=bool(value and value['runtime']==runtime)
-        return {'available':True,'enabled':bool(current and value.get('enabled')),
+        return {'available':True,'enabled':value.get('enabled',False) if value else True,'ready':bool(current and value.get('enabled')),
                 'tools':value.get('tools',{}) if value else {},'checked_at':value.get('checked_at') if value else None,
-                'detail':('Runtime changed; check tools again. ' if value and not current else '')+'Native Python uses the bundled runtime; no extra installation. Code has no network or subprocess access. Native apps and media rendering use registered operations.'}
+                'detail':('Runtime changed; verification is required before use. ' if value and not current else 'Local verification runs before first use. ' if not value else '')+'Bundled Python and document libraries; no extra installation. Code works on assigned files without network or subprocess access.'}
     except (ValueError,OSError,KeyError) as exc:return {'available':False,'enabled':False,'error':str(exc)}
 
 
 def configure(enabled):
+    from .app_access import settings_lock
+    with settings_lock(path().parent):return _configure(enabled)
+
+
+def _configure(enabled):
     if type(enabled) is not bool:raise ValueError('Choose whether to enable native code workers.')
     if not enabled:
         value=read()
-        if value:atomic(path(),{**value,'enabled':False})
+        # Remember an explicit Off even before this runtime has been checked.
+        path().parent.mkdir(parents=True,exist_ok=True)
+        atomic(path(),{**value,'enabled':False} if value else {'version':1,'id':digest(None),'enabled':False,'runtime':None,'tools':{},'checked_at':None})
         return status()
     try:old=read()
     except (ValueError,OSError):old=None
@@ -102,6 +109,13 @@ def configure(enabled):
 def available(ident=None):
     try:
         value=read()
+        if value is None:
+            if ident is not None:raise ValueError('Native runtime receipt is missing; prepare a fresh plan before execution.')
+            native_code_host.identity()  # Unsupported hosts do not create setup state.
+            from .app_access import settings_lock
+            with settings_lock(path().parent):
+                if read() is None:_configure(True)
+                value=read()
         if not value or not value.get('enabled'):raise ValueError('Enable Code and document tools in Relay Settings first.')
         if (ident is not None and value['id']!=ident) or value['runtime']!=native_code_host.identity():raise ValueError('Native runtime changed; check Code and document tools again.')
         return value

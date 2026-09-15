@@ -83,16 +83,21 @@
         </details>
         <p id="model-defaults-detail" class="hint" role="status"></p>
         <div id="model-defaults-list"></div>
+        <p class="hint">Explicit choices in your request and existing task models take precedence. Saved defaults apply to future work. Queued jobs and approved plans keep their models.</p>
+      </details>
+      <details id="app-tools-settings"><summary>Apps and tools</summary>
+        <p>Choose which installed apps Relay can use. Refresh to detect new installations.</p>
+        <p id="app-access-detail" class="hint" role="status"></p>
+        <div id="app-access-list"></div>
         <div class="channel-card"><strong>Modeling &amp; rendering</strong><p class="hint">Editable models and renders use Relay’s Blender or Rhino workflows.</p>
           <form id="rhino-preference-form"><label for="rhino-preference">Preferred Rhino version for new plans</label><select id="rhino-preference"><option value="auto">Auto</option></select><p id="rhino-preference-detail" class="hint"></p><button id="rhino-preference-save" type="submit">Save Rhino preference</button></form>
         </div>
-        <p class="hint">Explicit choices in your request and existing task models take precedence. Saved defaults apply to future work. Queued jobs and approved plans keep their models.</p>
-      </details>
+
       <details id="code-settings"><summary>Code and document tools</summary>
         <p>Use Relay’s bundled Python with your connected model. No additional installation.</p>
         <p id="code-runtime-detail" class="hint" role="status"></p>
-        <button id="code-runtime-check" type="button">Check tools and enable</button>
-        <button id="code-runtime-disable" type="button" class="quiet">Turn off</button>
+        <button id="code-runtime-toggle" type="button" role="switch" aria-checked="true" aria-label="Code and document tools">On</button>
+        <button id="code-runtime-check" type="button" class="quiet">Check tools</button>
         <label for="worker-provider">Worker provider</label>
         <select id="worker-provider"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option></select>
         <button id="worker-verify" type="button">Check worker connection</button>
@@ -100,12 +105,14 @@
       </details>
       <details id="browser-settings"><summary><span>Browser use</span><span id="browser-summary" class="muted">Off</span></summary>
         <p>Let Relay use webpages in its own Chrome window. Requires Google Chrome.</p>
+        <p id="browser-installation" class="path"></p>
         <button id="browser-toggle" type="button" role="switch" aria-checked="false" aria-label="Browser use">Off</button>
         <p id="browser-detail" class="hint" role="status"></p>
         <button id="browser-open" type="button" disabled>Open browser / sign in</button>
         <button id="browser-sign-in-done" type="button" hidden>Done signing in</button>
         <a id="browser-install" href="https://www.google.com/chrome/" hidden>Get Google Chrome ↗</a>
         <p class="hint">Open the websites you want Relay to use and sign in there. Chrome Sync is unnecessary. Sign-in opens ordinary Chrome with Relay access paused. Done signing in closes that window and lets Relay reuse its saved sessions. Website verification may still need your attention.</p>
+      </details>
       </details>
       <details id="access-settings"><summary>Folders & permissions</summary>
         <p class="hint">Folders configured for this Relay installation:</p><div id="folder-list"></div>

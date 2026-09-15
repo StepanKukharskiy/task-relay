@@ -47,19 +47,14 @@ class Host:
         raise UnsupportedHost('The optional browser component is unavailable on this host')
 
     def codex(self, explicit=None):
-        configured = explicit or os.environ.get('TASK_RELAY_CODEX')
-        if configured:
-            path=Path(configured).expanduser()
-            if not path.is_absolute() or not path.is_file() or not os.access(path,os.X_OK):
-                raise UnsupportedHost('Configured Codex worker is not an executable absolute file')
-            return str(path)
-        found=shutil.which('codex')
-        if found:return found
-        if self.platform=='darwin':
-            for app in ('ChatGPT','Codex'):
-                path=Path('/Applications')/(app+'.app')/'Contents/Resources/codex'
-                if path.is_file() and os.access(path,os.X_OK):return str(path)
-        raise UnsupportedHost('Codex worker unavailable; configure TASK_RELAY_CODEX or install it on PATH')
+        from .app_access import enabled
+        from .host_apps import codex_candidates
+        if not enabled('codex'):raise UnsupportedHost('Codex is off in Settings → Apps and tools.')
+        env={**os.environ,**({'TASK_RELAY_CODEX':explicit} if explicit else {})}
+        candidates=codex_candidates(env,self.platform)
+        for path in candidates:
+            if path.is_absolute() and path.is_file() and os.access(path,os.X_OK) and enabled('codex',path):return str(path)
+        raise UnsupportedHost('Codex worker unavailable or switched off; check Settings → Apps and tools or TASK_RELAY_CODEX.')
 
     def codex_projects(self, codex_dir=None):
         """Read saved local project roots; never edit Codex's private UI state."""

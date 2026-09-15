@@ -443,6 +443,8 @@ class Desktop:
                     raise
 
     def start(self, thread_id, text, owner, images=None):
+        from .app_access import require
+        require('codex')
         response = self.request('thread-follower-start-turn', {
             'conversationId': thread_id,
             'turnStart': {'request': {'threadId': thread_id,

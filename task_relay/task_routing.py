@@ -50,6 +50,7 @@ def task_conflict(state, task_id, excluding=None):
 
 
 def catalog(state, task_source=None):
+    from .app_access import enabled
     from task_relay.bridge import local_tasks, recent_status
     result = []
     for t in (task_source or local_tasks)():
@@ -69,7 +70,7 @@ def catalog(state, task_source=None):
             'project': Path(cwd).name, 'cwd': cwd,
             'description_excerpt': (t.get('title') or '')[:800],
             'status': status,
-            'routing_blocker': task_conflict(state, t['id']),
+            'routing_blocker': task_conflict(state, t['id']) or (None if enabled('codex') else 'Codex is off in Settings → Apps and tools.'),
             'fingerprint': hashlib.sha256(json.dumps(identity).encode()).hexdigest()})
     if len(result) > 300:
         raise ValueError('Task catalog exceeds 300 tasks; narrow the catalog before routing.')
@@ -77,6 +78,8 @@ def catalog(state, task_source=None):
 
 
 def validate_selection(state, candidate, task_source=None, excluding=None):
+    from .app_access import require
+    require('codex')
     current = catalog(state, task_source)
     target = next((t for t in current if t['id'] == candidate['id']), None)
     if target is None or target['fingerprint'] != candidate['fingerprint']:

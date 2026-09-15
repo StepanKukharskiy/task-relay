@@ -63,6 +63,9 @@ class Client:
             data = data[count:]
 
     def request(self, method, params):
+        if method in ('thread/start', 'turn/start'):
+            from .app_access import require
+            require('codex')
         self.number += 1
         ident = self.number
         self.write({'id': ident, 'method': method, 'params': params})

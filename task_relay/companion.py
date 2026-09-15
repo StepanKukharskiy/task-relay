@@ -83,6 +83,8 @@ def status():
     result['browser'] = browser_status()
     from .code_runtime import status as code_status
     result['code_runtime'] = code_status()
+    from .app_access import snapshot as app_snapshot
+    result['app_access'] = app_snapshot()
     from .cloud_providers import connections
     result['media_connections'] = connections()
     from .rhino_preferences import snapshot as rhino_settings

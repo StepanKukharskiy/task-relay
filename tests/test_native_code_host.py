@@ -24,7 +24,10 @@ class NativeTests(unittest.TestCase):
 
     def test_qualification_checks_formats_and_boundaries_without_live_settings(self):
         with patch.object(code_runtime,'path',return_value=self.folder/'settings.json'):
-            status=code_runtime.configure(True)
+            self.assertTrue(code_runtime.status()['enabled'])
+            self.assertFalse((self.folder/'settings.json').exists())
+            code_runtime.available()  # First use qualifies the default-on runtime.
+            status=code_runtime.status()
             self.assertTrue(status['enabled']);self.assertEqual(code_runtime.available()['runtime'],self.runtime)
             if os.environ.get('TASK_RELAY_REQUIRE_DOCUMENTS')=='1':
                 for name in ('docx','pptx','pypdf','reportlab','openpyxl','PIL'):

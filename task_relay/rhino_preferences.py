@@ -16,7 +16,7 @@ def preference(paths=PATHS):
 
 def snapshot(paths=PATHS):
     from .host_apps import rhino
-    versions=[r for major in ('7','8') if (r:=rhino({'TASK_RELAY_RHINO_VERSION':major}))['available']]
+    versions=[r for major in ('7','8') if (r:=rhino({'TASK_RELAY_RHINO_VERSION':major},respect_access=False))['available']]
     return {'preference':preference(paths),'versions':versions,'selected':rhino(),
             'managed':bool(os.environ.get('TASK_RELAY_RHINO') or os.environ.get('TASK_RELAY_RHINO_VERSION'))}
 

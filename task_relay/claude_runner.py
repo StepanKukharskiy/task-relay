@@ -24,6 +24,10 @@ async def run_job(state, job_id, parent_pid):
     if not config:
         finish(state, job_id, 'failed', 'Claude account setup is missing. Open Setup Claude.command. Your instruction was not sent.')
         return
+    from task_relay.host_apps import claude_cli
+    try: cli_path=claude_cli()
+    except ValueError as exc:
+        finish(state,job_id,'failed',str(exc));return
     # Account mode must not accidentally use an inherited, separately billed key.
     for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN',
                 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'):
@@ -70,6 +74,7 @@ async def run_job(state, job_id, parent_pid):
                 state.db.execute("UPDATE watched SET status='running' WHERE id=? AND status='waiting'", (job['thread_id'],))
 
     options = ClaudeAgentOptions(
+        cli_path=cli_path,
         cwd=info['cwd'], model=info['model'],
         resume=info['session_id'] if info['initialized'] else None,
         session_id=None if info['initialized'] else info['session_id'],

@@ -25,7 +25,11 @@ def status(paths=PATHS):
         saved = preference(paths.data)
         result['enabled'] = bool(saved and saved['enabled'])
         result['manual_sign_in'] = bool(saved and saved.get('manual_sign_in'))
-        result['available'] = chrome.chrome_path() is not None
+        executable = chrome.chrome_path()
+        result['available'] = executable is not None
+        if executable is not None:
+            from .host_apps import bundle_version
+            result.update(executable=str(executable),version=bundle_version(executable))
         if not result['available']:
             result['error'] = 'Google Chrome is required.'
         elif result['enabled']:
