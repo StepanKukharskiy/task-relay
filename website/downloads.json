@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Task-Relay-0.12.1-beta.1-arm64.dmg",
+    "url": "https://task-relay-website-production.up.railway.app/downloads/Task-Relay-0.12.1-beta.1-arm64.dmg",
+    "bytes": 70649163,
+    "sha256": "1192d7995098e44da110e2dcdc148f9e05c2d6254546a993a4ae1d22ddfbcd4d"
+  },
+  {
+    "name": "Task-Relay-0.12.1-beta.1-arm64.dmg.sha256",
+    "url": "https://task-relay-website-production.up.railway.app/downloads/Task-Relay-0.12.1-beta.1-arm64.dmg.sha256",
+    "bytes": 101,
+    "sha256": "9f547fd224ed2a52115ee7e39c72fd7e143db5b7ddacb3019add67ea60dae5a2"
+  },
+  {
+    "name": "Task-Relay-0.12.1-beta.1-source.tar.gz",
+    "url": "https://task-relay-website-production.up.railway.app/downloads/Task-Relay-0.12.1-beta.1-source.tar.gz",
+    "bytes": 5420942,
+    "sha256": "7ff9ab53095dd8b44bc1f5b9686bca827d6631d58a1a594a6eec631d0ec46a1d"
+  },
+  {
+    "name": "Task-Relay-0.12.1-beta.1-source.tar.gz.sha256",
+    "url": "https://task-relay-website-production.up.railway.app/downloads/Task-Relay-0.12.1-beta.1-source.tar.gz.sha256",
+    "bytes": 105,
+    "sha256": "8f48796d28db0c19d633149720cd9c91ad0bcc3f58c0298cfcf5c502aa9c2899"
+  },
+  {
+    "name": "Task-Relay-0.13.0-beta.1-arm64.dmg",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.0/Task-Relay-0.13.0-beta.1-arm64.dmg",
+    "bytes": 146355468,
+    "sha256": "61b73cf37dd2b32fb877f731960462f342d6b705127123458f9d87d9b5a00f75"
+  },
+  {
+    "name": "Task-Relay-0.13.0-beta.1-arm64.dmg.sha256",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.0/Task-Relay-0.13.0-beta.1-arm64.dmg.sha256",
+    "bytes": 101,
+    "sha256": "48b66b18daf5ff248b51a15010004e48c3d87ffe5ed88e130348aef77892a4c7"
+  },
+  {
+    "name": "Task-Relay-0.13.0-beta.1-source.tar.gz",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.0/Task-Relay-0.13.0-beta.1-source.tar.gz",
+    "bytes": 5599241,
+    "sha256": "546917885854b47413902727d3b3391fd7bf86ecf4e860adf59c6c58f6d0b0d7"
+  },
+  {
+    "name": "Task-Relay-0.13.0-beta.1-source.tar.gz.sha256",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.0/Task-Relay-0.13.0-beta.1-source.tar.gz.sha256",
+    "bytes": 105,
+    "sha256": "6f03dd0da1e9418b2ef7650359eaf155c7215c7e0020dd63375beb517f592669"
+  },
+  {
+    "name": "Task-Relay-0.13.26-arm64.dmg",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-arm64.dmg",
+    "bytes": 155582439,
+    "sha256": "78d0c057856f6681c1e69a49d7a4bd95fffde3630b686a011205b12ab6a63e89"
+  },
+  {
+    "name": "Task-Relay-0.13.26-arm64.dmg.sha256",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-arm64.dmg.sha256",
+    "bytes": 95,
+    "sha256": "dd56cffd11655422d5e65be034db0c1266d63778d7ea0bd474e36dc4cfa3bd96"
+  },
+  {
+    "name": "Task-Relay-0.13.26-source.tar.gz",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-source.tar.gz",
+    "bytes": 8731604,
+    "sha256": "dd5154a7b27cbd651cefaffcc9346bde837a803ed64c05c947cade163fbd4dcc"
+  },
+  {
+    "name": "Task-Relay-0.13.26-source.tar.gz.sha256",
+    "url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-source.tar.gz.sha256",
+    "bytes": 99,
+    "sha256": "ea0a6b7ccb0a843786e062c344aabdbff7a7f2d08b824b403c78d88117244545"
+  }
+]

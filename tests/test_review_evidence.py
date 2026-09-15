@@ -113,7 +113,7 @@ class RecoveryTests(unittest.TestCase):
         self.available.stop();Tests.tearDown(self)
 
     def stalled(self):
-        import production_control as pc
+        from task_relay import production_control as pc
         value=graph();value['id']='stalled';self.rt.create(value)
         self.rt.tick('stalled')
         self.factory.finish(self.rt.task('stalled','produce')['latest'])

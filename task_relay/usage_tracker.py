@@ -1,6 +1,6 @@
 """Local, metadata-only usage ledger. No provider requests or billing estimates.
 
-Run: python3 usage_tracker.py --refresh --days 7 [--json]
+Run: python3 -m task_relay.usage_tracker --refresh --days 7 [--json]
 Imports recorded Relay usage and bounded chunks of local session logs. Repeat
 --refresh to finish a large initial backfill. Unknown usage remains unknown.
 """

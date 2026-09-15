@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import file_tools as files
+from task_relay import file_tools as files
 
 
 class Tests(unittest.TestCase):
@@ -86,7 +86,7 @@ class Tests(unittest.TestCase):
                 (self.root / 'src').rename(self.root / 'original')
                 (self.root / 'src').symlink_to(outside, target_is_directory=True)
             return real_open(path, flags, **kwargs)
-        with patch('file_tools.os.open', side_effect=swapping_open):
+        with patch('task_relay.file_tools.os.open', side_effect=swapping_open):
             self.assertFalse(self.call('file_read', path='src/main.py')['ok'])
 
     def test_hidden_private_and_credentials_excluded_everywhere(self):
@@ -126,11 +126,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.call('file_read', path='empty.txt')['text'], '')
 
     def test_scan_limits_report_incomplete(self):
-        with patch('file_tools.MAX_ENTRIES', 1):
+        with patch('task_relay.file_tools.MAX_ENTRIES', 1):
             self.assertTrue(self.call('file_list')['scan_incomplete'])
-        with patch('file_tools.MAX_SCAN_BYTES', 1):
+        with patch('task_relay.file_tools.MAX_SCAN_BYTES', 1):
             self.assertTrue(self.call('file_search')['scan_incomplete'])
-        with patch('file_tools.MAX_DEPTH', 0):
+        with patch('task_relay.file_tools.MAX_DEPTH', 0):
             self.assertTrue(self.call('file_search')['scan_incomplete'])
 
     def test_invalid_arguments_fail_as_tool_results(self):
@@ -141,7 +141,7 @@ class Tests(unittest.TestCase):
 
     def test_binary_files_count_towards_search_byte_budget(self):
         (self.root / '000.bin').write_bytes(b'\x00' * 100)
-        with patch('file_tools.MAX_SCAN_BYTES', 100):
+        with patch('task_relay.file_tools.MAX_SCAN_BYTES', 100):
             result = self.call('file_search')
         self.assertEqual(result['matches'], [])
         self.assertTrue(result['scan_incomplete'])

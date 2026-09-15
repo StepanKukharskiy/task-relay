@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import relay_paths
+from task_relay import relay_paths
 from scripts.source_inventory import inventory
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -28,8 +28,8 @@ class Tests(unittest.TestCase):
 
     def test_default_bindings_are_identical_outside_install_and_do_not_create_data(self):
         code='''import json
-import bridge,gemini,backends,claude_setup,messages_pilot,messages_service
-from relay_paths import PATHS
+from task_relay import bridge, gemini, backends, claude_setup, messages_pilot, messages_service
+from task_relay.relay_paths import PATHS
 print(json.dumps({'paths':PATHS.describe(),'modules':[str(x.DATA) for x in (bridge,gemini,backends,claude_setup)],'messages':str(messages_service.DATA)}))'''
         outside=json.loads(self.run_python(code).stdout);inside=json.loads(self.run_python(code,cwd=ROOT).stdout)
         self.assertEqual(outside,inside);self.assertEqual(outside['modules'],[str(ROOT/'private')]*4)
@@ -42,8 +42,8 @@ print(json.dumps({'paths':PATHS.describe(),'modules':[str(x.DATA) for x in (brid
     def test_override_redirects_all_roots_without_creating_them_on_import(self):
         data=self.root/'fresh data';env={'TASK_RELAY_DATA_DIR':str(data)}
         code='''import json
-from relay_paths import PATHS
-import bridge,gemini,backends,messages_service
+from task_relay.relay_paths import PATHS
+from task_relay import bridge, gemini, backends, messages_service
 print(json.dumps({'paths':PATHS.describe(),'modules':[str(x.DATA) for x in (bridge,gemini,backends)],'native':messages_service.runtime_configuration(),'service_env':messages_service.definition()['EnvironmentVariables']}))'''
         result=json.loads(self.run_python(code,env).stdout)
         self.assertEqual(result['modules'],[str(data)]*3)
@@ -55,10 +55,10 @@ print(json.dumps({'paths':PATHS.describe(),'modules':[str(x.DATA) for x in (brid
 
     def test_invalid_or_overbroad_overrides_fail_without_default_fallback(self):
         for value in ('','relative folder',str(ROOT),str(ROOT.parent)):
-            result=self.run_python('import bridge',{'TASK_RELAY_DATA_DIR':value},check=False)
+            result=self.run_python('from task_relay import bridge',{'TASK_RELAY_DATA_DIR':value},check=False)
             self.assertNotEqual(result.returncode,0)
         for value in (str(ROOT),str(self.root)):
-            result=self.run_python('import bridge',{'TASK_RELAY_DATA_DIR':str(self.root/'data'),'TASK_RELAY_WORKSPACE_DIR':value},check=False)
+            result=self.run_python('from task_relay import bridge',{'TASK_RELAY_DATA_DIR':str(self.root/'data'),'TASK_RELAY_WORKSPACE_DIR':value},check=False)
             self.assertNotEqual(result.returncode,0)
 
     def test_fresh_cli_and_bridge_share_state_and_worker_reopen_preserves_artifact(self):
@@ -66,10 +66,10 @@ print(json.dumps({'paths':PATHS.describe(),'modules':[str(x.DATA) for x in (brid
         env={'TASK_RELAY_DATA_DIR':str(data),'TASK_RELAY_WORKSPACE_DIR':str(workspace)}
         code='''import json,time
 from pathlib import Path
-from relay_paths import PATHS
+from task_relay.relay_paths import PATHS
 from orchestrator.runtime import Runtime
 from orchestrator import execution
-from bridge import State
+from task_relay.bridge import State
 rt=Runtime(PATHS.runtime)
 source=PATHS.data/'source.txt';source.write_text('Exact isolated input\\n')
 aid=rt.register(source,'Fixture text',path='source.txt')
@@ -102,42 +102,60 @@ state.db.close();rt.close()'''
         self.assertEqual(json.loads(cli.stdout)['status'],'completed')
 
     def test_default_override_workspace_is_readable_without_exposing_credentials(self):
-        code="import json\nfrom relay_paths import PATHS\nimport file_tools\nPATHS.data.mkdir(parents=True);PATHS.workspaces.mkdir(parents=True)\n(PATHS.data/'gemini.json').write_text('private fixture')\n(PATHS.workspaces/'source.txt').write_text('Readable project input')\nresult=file_tools.execute(PATHS.workspaces,'file_read',json.dumps({'path':'source.txt','offset':0,'limit':100}),(PATHS.data,))\nassert 'Readable project input' in str(result),result\ndenied=file_tools.execute(PATHS.workspaces,'file_read',json.dumps({'path':str(PATHS.data/'gemini.json'),'offset':0,'limit':100}),(PATHS.data,))\nassert denied['ok'] is False,denied\nprint('project readable; data protected')"
+        code="import json\nfrom task_relay.relay_paths import PATHS\nfrom task_relay import file_tools\nPATHS.data.mkdir(parents=True);PATHS.workspaces.mkdir(parents=True)\n(PATHS.data/'gemini.json').write_text('private fixture')\n(PATHS.workspaces/'source.txt').write_text('Readable project input')\nresult=file_tools.execute(PATHS.workspaces,'file_read',json.dumps({'path':'source.txt','offset':0,'limit':100}),(PATHS.data,))\nassert 'Readable project input' in str(result),result\ndenied=file_tools.execute(PATHS.workspaces,'file_read',json.dumps({'path':str(PATHS.data/'gemini.json'),'offset':0,'limit':100}),(PATHS.data,))\nassert denied['ok'] is False,denied\nprint('project readable; data protected')"
         self.assertIn('data protected',self.run_python(code,{'TASK_RELAY_DATA_DIR':str(self.root/'private-data')}).stdout)
 
     def test_real_provider_child_reads_override_configuration_and_store(self):
         env={'TASK_RELAY_DATA_DIR':str(self.root/'override')}
         code='''import json,subprocess,sys
-from relay_paths import PATHS
-from bridge import State
-import gemini
+from task_relay.relay_paths import PATHS
+from task_relay.bridge import State
+from task_relay import gemini
 state=State(PATHS.state)
 from task_relay.credentials import save
 save(PATHS.data/'gemini.json',{'api_key':'fixture-only','models':{'text':'fixture'}})
 with state.db:state.put('path-fixture','retained')
-child=subprocess.run([sys.executable,'-c',"import gemini; from relay_paths import PATHS; from bridge import State; s=State(PATHS.state); assert gemini.read_config()['api_key']=='fixture-only'; assert s.get('path-fixture')=='retained'; s.db.close(); print('child-paths-ok')"],capture_output=True,text=True)
+child=subprocess.run([sys.executable,'-c',"from task_relay import gemini; from task_relay.relay_paths import PATHS; from task_relay.bridge import State; s=State(PATHS.state); assert gemini.read_config()['api_key']=='fixture-only'; assert s.get('path-fixture')=='retained'; s.db.close(); print('child-paths-ok')"],capture_output=True,text=True)
 assert child.returncode==0,child.stderr
 print(child.stdout.strip());state.db.close()'''
         self.assertEqual(self.run_python(code,env).stdout.strip(),'child-paths-ok')
 
     def test_installer_persists_paths_and_refuses_switching_existing_data(self):
-        import bridge
+        from task_relay import bridge
         selected=relay_paths.resolve({'TASK_RELAY_DATA_DIR':str(self.root/'data')})
         home=self.root/'home';plist=home/'Library/LaunchAgents/com.personal.codex-telegram.plist'
         with patch.object(bridge,'PATHS',selected),patch.object(bridge,'read_config'),patch.object(Path,'home',return_value=home),patch.object(bridge.subprocess,'run',return_value=subprocess.CompletedProcess([],0)):
             bridge.install();original=plist.read_bytes();spec=plistlib.loads(original)
             self.assertEqual(spec['EnvironmentVariables'],selected.environment())
+            self.assertEqual(spec['ProgramArguments'][1:], ['-m', 'task_relay.bridge', 'run'])
+            spec['ProgramArguments'] = [sys.executable, str(ROOT/'bridge.py'), 'run']
+            plist.write_bytes(plistlib.dumps(spec))
             bridge.install()
+            self.assertEqual(plist.read_bytes(), original)
             with patch.object(bridge,'PATHS',relay_paths.resolve({'TASK_RELAY_DATA_DIR':str(self.root/'different')})):
                 with self.assertRaisesRegex(bridge.BridgeError,'migration'):bridge.install()
             self.assertEqual(plist.read_bytes(),original)
 
-    def test_failed_service_reload_restores_prior_configuration(self):
-        import bridge
+    def test_package_service_migration_preserves_custom_launchers(self):
+        from task_relay import bridge
         selected=relay_paths.resolve({'TASK_RELAY_DATA_DIR':str(self.root/'data')})
         home=self.root/'home';plist=home/'Library/LaunchAgents/com.personal.codex-telegram.plist'
         plist.parent.mkdir(parents=True)
-        old=plistlib.dumps({'WorkingDirectory':str(ROOT),'EnvironmentVariables':{'TASK_RELAY_DATA_DIR':str(selected.data)},'Label':'com.personal.codex-telegram'})
+        old=plistlib.dumps({'ProgramArguments':['/fixture/custom-launcher'], 'WorkingDirectory':str(ROOT),
+                           'EnvironmentVariables':selected.environment(), 'Label':'com.personal.codex-telegram'})
+        plist.write_bytes(old)
+        with patch.object(bridge,'PATHS',selected),patch.object(bridge,'read_config'),patch.object(Path,'home',return_value=home),patch.object(bridge.subprocess,'run') as run:
+            with self.assertRaisesRegex(bridge.BridgeError,'custom launcher'):
+                bridge.install()
+        run.assert_not_called()
+        self.assertEqual(plist.read_bytes(),old)
+
+    def test_failed_service_reload_restores_prior_configuration(self):
+        from task_relay import bridge
+        selected=relay_paths.resolve({'TASK_RELAY_DATA_DIR':str(self.root/'data')})
+        home=self.root/'home';plist=home/'Library/LaunchAgents/com.personal.codex-telegram.plist'
+        plist.parent.mkdir(parents=True)
+        old=plistlib.dumps({'ProgramArguments':[sys.executable,str(ROOT/'bridge.py'),'run'],'WorkingDirectory':str(ROOT),'EnvironmentVariables':{'TASK_RELAY_DATA_DIR':str(selected.data)},'Label':'com.personal.codex-telegram'})
         plist.write_bytes(old)
         responses=[subprocess.CompletedProcess([],0),subprocess.CompletedProcess([],1),subprocess.CompletedProcess([],0)]
         with patch.object(bridge,'PATHS',selected),patch.object(bridge,'read_config'),patch.object(Path,'home',return_value=home),patch.object(bridge.subprocess,'run',side_effect=responses):
@@ -150,8 +168,8 @@ print(child.stdout.strip());state.db.close()'''
 
     def test_inventory_excludes_operational_data_and_retains_active_assets(self):
         value=inventory();files={f['path']:f for f in value['files']}
-        self.assertIn('relay_paths.py',files);self.assertIn('tests/test_paths.py',files)
-        self.assertIn('output/logos/scribble-logo-circular-v3.png',files)
+        self.assertIn('task_relay/relay_paths.py',files);self.assertIn('tests/test_paths.py',files)
+        self.assertIn('task_relay/assets/menu-icon.png',files)
         self.assertFalse(any(p.startswith(('private/','outputs/','generated/','projects/','Messages Relay.app/')) for p in files))
         self.assertFalse(files['tests/test_paths.py']['release'])
 

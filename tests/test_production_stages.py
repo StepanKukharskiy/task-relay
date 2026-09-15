@@ -3,13 +3,13 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from bridge import State,Bridge
+from task_relay.bridge import State,Bridge
 from orchestrator.runtime import Runtime
 from orchestrator.storage import transaction
-import production_control as pc
-import production_planning as planning
-import production_status as status
-import production_selections as selections
+from task_relay import production_control as pc
+from task_relay import production_planning as planning
+from task_relay import production_status as status
+from task_relay import production_selections as selections
 from tests import test_production_planning as fixtures
 
 
@@ -170,7 +170,7 @@ class Tests(unittest.TestCase):
 
     def test_registration_rollback_and_cross_channel_preserve_parent(self):
         self.selected();row=self.next_plan();self.bridge.flush(False)
-        with patch('production_stages.register',side_effect=ValueError('Interrupted lineage registration')):self.click(row['token'])
+        with patch('task_relay.production_stages.register',side_effect=ValueError('Interrupted lineage registration')):self.click(row['token'])
         self.assertEqual(self.row(2)['status'],'ready')
         self.assertIsNone(self.state.db.execute('SELECT child FROM production_stage_links').fetchone()[0])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],1)

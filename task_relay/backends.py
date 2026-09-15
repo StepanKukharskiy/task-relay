@@ -306,8 +306,8 @@ class BackendWorker:
             self.state.db.execute("UPDATE incoming SET status='submitting' WHERE id=?", (row['update_id'],))
         try:
             db_path = self.state.db.execute('PRAGMA database_list').fetchone()[2]
-            runner = 'api_runner.py' if self.backend in api.SPECS else self.backend + '_runner.py'
-            process = HOST.spawn([str(CLAUDE_PYTHON) if self.backend == 'claude' else sys.executable, str(ROOT / runner), db_path, row['id'], str(os.getpid())],
+            runner = 'api_runner' if self.backend in api.SPECS else self.backend + '_runner'
+            process = HOST.spawn([str(CLAUDE_PYTHON) if self.backend == 'claude' else sys.executable, '-m', 'task_relay.' + runner, db_path, row['id'], str(os.getpid())],
                                  cwd=ROOT, popen=self.popen, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
         except (OSError, UnsupportedHost):

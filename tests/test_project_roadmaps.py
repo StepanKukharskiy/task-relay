@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bridge import State
-import orchestrator_chat as chat
-import project_roadmaps as roadmaps
+from task_relay.bridge import State
+from task_relay import orchestrator_chat as chat
+from task_relay import project_roadmaps as roadmaps
 
 
 class Tests(unittest.TestCase):

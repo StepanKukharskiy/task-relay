@@ -53,7 +53,7 @@ be in the current beta download.
 ## Product and downloads
 
 - [Website](https://task-relay-website-production.up.railway.app/): Job overview, examples and supported programs.
-- [Workflow guides](https://task-relay-website-production.up.railway.app/guides/): Site research decks, precise Rhino revisions, named-view renders, Blender asset packing and editable design-review PPTX. Each guide links to reported problems and names inputs, available operations and limits. Audited against bundled 0.13.24 capabilities; the website download remains 0.13.0-beta.1. Exact live workflows remain unqualified. Earlier invoice/CSV/complaint recipes are archived and excluded from the guide index.
+- [Workflow guides](https://task-relay-website-production.up.railway.app/guides/): Site research decks, precise Rhino revisions, named-view renders, Blender asset packing and editable design-review PPTX. Each guide links to reported problems and names inputs, available operations and limits. Audited against bundled 0.13.24 capabilities; the website download is 0.13.26 beta with those registered operations. Exact live workflows remain unqualified. Earlier invoice/CSV/complaint recipes are archived and excluded from the guide index.
 - [Supported programs](https://task-relay-website-production.up.railway.app/#tools): Applications, agents, APIs and their requirements.
 - [Versions and decisions](https://task-relay-website-production.up.railway.app/#changes): Review affected outputs and decide what runs next.
 - [File formats](https://task-relay-website-production.up.railway.app/#formats): Input and saved-output formats, with operation-specific limits.

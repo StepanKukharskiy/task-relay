@@ -4,9 +4,9 @@ import unittest
 import time
 from unittest.mock import patch
 
-import codex_approvals as approvals
-import approval_ui
-from bridge import Bridge, BridgeError, Desktop, State, Telegram, TelegramError
+from task_relay import codex_approvals as approvals
+from task_relay import approval_ui
+from task_relay.bridge import Bridge, BridgeError, Desktop, State, Telegram, TelegramError
 from tests.test_bridge import TelegramFake
 
 
@@ -76,7 +76,7 @@ class ApprovalTests(unittest.TestCase):
 
     def test_bare_allow_has_missing_id_explanation_without_dispatch(self):
         _, telegram, bridge = self.deliver()
-        with patch('backends.decide') as claude:
+        with patch('task_relay.backends.decide') as claude:
             bridge.process({'update_id': 92, 'message': {'from': {'id': 43},
                            'chat': {'id': 42, 'type': 'private'}, 'text': '/allow'}})
         claude.assert_not_called()
@@ -218,7 +218,7 @@ class ApprovalTests(unittest.TestCase):
 
     def test_reload_during_approval_finishes_acknowledgement_and_update_offset(self):
         import signal
-        import bridge as module
+        from task_relay import bridge as module
         from contextlib import ExitStack
         # Use run() with the real poll/approval path, but no service threads/network.
         # The fake desktop sends SIGTERM exactly when the command is accepted.

@@ -224,7 +224,7 @@ class PlanningTests(unittest.TestCase):
     image_response=Fixture.image_response
 
     def test_cloud_media_plan_freezes_prompt_model_and_selection_gate(self):
-        import production_planning as planning
+        from task_relay import production_planning as planning
         from orchestrator import contracts
         response=self.image_response();item,review=response['plan']['tasks']
         item['execution']={'capability':'meshy.mesh','version':1,'parameters':parameters('meshy.mesh')}

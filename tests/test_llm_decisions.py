@@ -1,7 +1,7 @@
 import json
 import unittest
 
-import orchestrator_chat as chat
+from task_relay import orchestrator_chat as chat
 from tests import test_task_routing as fixture
 
 

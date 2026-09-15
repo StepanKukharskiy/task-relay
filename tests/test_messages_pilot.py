@@ -6,8 +6,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from bridge import BridgeError
-from messages_pilot import Pilot, Store, Messages
+from task_relay.bridge import BridgeError
+from task_relay.messages_pilot import Pilot, Store, Messages
 
 
 class Transport:
@@ -144,7 +144,7 @@ class Tests(unittest.TestCase):
         base = {'id': 42, 'guid': 'any;-;self@example.test', 'service': 'iMessage', 'is_group': False}
         for changes, expected in [({}, True), ({'service': 'SMS'}, False), ({'is_group': True}, False),
                                   ({'is_group': None}, False), ({'id': 43}, False), ({'guid': 'any;-;other'}, False)]:
-            with self.subTest(changes=changes), patch('messages_pilot.subprocess.run') as run:
+            with self.subTest(changes=changes), patch('task_relay.messages_pilot.subprocess.run') as run:
                 run.return_value.returncode = 0
                 run.return_value.stdout = json.dumps(dict(base, **changes)) + '\n'
                 self.assertEqual(transport.verify_chat(42, base['guid']), expected)

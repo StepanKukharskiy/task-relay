@@ -4,10 +4,10 @@ from unittest.mock import patch
 import unittest
 
 from tests import test_production_control as fixtures
-import production_control as pc
-import production_continuations as cont
-import production_folders as folders
-import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import production_continuations as cont
+from task_relay import production_folders as folders
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):

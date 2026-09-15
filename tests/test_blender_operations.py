@@ -30,8 +30,8 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve()
         self.fake=FakeFactory();self.rt=Runtime(self.root/'runtime',self.fake)
-        self.app=patch('host_apps.blender',return_value={'available':True,'executable':'/fixture/blender'});self.app.start()
-        self.signature=patch('host_evidence.application_signature',return_value={'path':'/fixture/blender'});self.signature.start()
+        self.app=patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'/fixture/blender'});self.app.start()
+        self.signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/blender'});self.signature.start()
 
     def tearDown(self):self.signature.stop();self.app.stop();self.rt.close();self.tmp.cleanup()
 

@@ -3,10 +3,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from bridge import State,Bridge
+from task_relay.bridge import State,Bridge
 from tests.test_bridge import TelegramFake
-import reference_packs as refs
-import orchestrator_chat as chat
+from task_relay import reference_packs as refs
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):
@@ -121,7 +121,7 @@ class Tests(unittest.TestCase):
         self.assertTrue(self.state.db.execute('SELECT 1 FROM orchestrator_messages WHERE focus=?',(r['id'],)).fetchone())
 
     def test_ready_pack_is_bound_to_real_routing_prompt(self):
-        import task_routing
+        from task_relay import task_routing
         r=self.ready();path=self.root/'task.jsonl'
         path.write_text(json.dumps({'type':'event_msg','payload':{'type':'task_complete','turn_id':'old'}})+'\n')
         tasks=[dict(id='planner',name='Planner',cwd=str(self.project),rollout_path=str(path),updated_at=1)]
@@ -131,7 +131,7 @@ class Tests(unittest.TestCase):
             def __exit__(self,*args):pass
             def ready_owner(self,tid):return 'owner'
             def start(self,tid,prompt,owner):calls.append(prompt)
-        with patch('bridge.local_tasks',return_value=tasks):
+        with patch('task_relay.bridge.local_tasks',return_value=tasks):
             c=task_routing.catalog(self.state)
             with self.state.db:task_routing.register(self.state,{'id':2,'prompt':'Plan the next film; do not render.'},c,False,reference_pack_id=r['id'])
             task_routing.Worker(self.state,Desktop).tick()
@@ -150,7 +150,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(a,b)
 
     def test_pack_can_reach_linked_planner_without_expanding_execution_scope(self):
-        import workflows,workflow_protocol
+        from task_relay import workflows; from task_relay import workflow_protocol
         r=self.ready()
         data=dict(name='demo',cwd=str(self.project),strategy_id='planner',executor_id='executor',
                   strategy_title='Planner',executor_title='Executor',status='paused',phase='done',accepted=0,step_limit=1,attempts=0)

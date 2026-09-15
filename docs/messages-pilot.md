@@ -32,11 +32,11 @@ The app needs its own **Full Disk Access** permission, because Terminal's permis
 Service maintenance:
 
 ```sh
-python3 messages_service.py build
-python3 messages_service.py install
-python3 messages_service.py status
-python3 messages_service.py restart
-python3 messages_service.py stop
+python3 -m task_relay.messages_service build
+python3 -m task_relay.messages_service install
+python3 -m task_relay.messages_service status
+python3 -m task_relay.messages_service restart
+python3 -m task_relay.messages_service stop
 ```
 
 `install` copies the app to `~/Applications/Messages Relay.app`, writes this service's plist to `~/Library/LaunchAgents`, and enables/starts it. The app and its logs must be outside Documents so launchd can start the app before it has permission to access protected folders. `stop` disables and unloads this service while preserving its pairing and history. **Stop Messages Service.command** is the double-click equivalent. Health is recorded in `private/messages-pilot/health.json`; logs in `~/Library/Logs/Messages Relay` omit prompts and API keys. The app is locally ad-hoc signed; the launcher build is reused when unchanged to avoid unnecessary macOS permission identity changes.
@@ -70,13 +70,13 @@ Only the standard CLI watch/send features are used; no injected Messages bridge 
 Message GUIDs deduplicate commands. Submissions are committed before sending to Codex. An ambiguous submission is never retried, and blocks new instructions until a completion arrives or you inspect Codex and run:
 
 ```sh
-python3 messages_pilot.py --clear-pending
+python3 -m task_relay.messages_pilot --clear-pending
 ```
 
 Outgoing parts are committed before sending. A timeout or crash leaves an uncertain delivery and holds the remaining parts of that reply, so an accepted message is never blindly resent. After restart, the watcher accepts fresh messages and independent replies can be delivered. Held replies stay unacknowledged, including their choice cards, and cannot fill the export batch and starve newer responses. The app's Channels status shows the warning while the service is connected; the launcher prints the affected IDs. After checking the conversation, acknowledge/skip that delivery with:
 
 ```sh
-python3 messages_pilot.py --ack-delivery 'THE_PRINTED_ID'
+python3 -m task_relay.messages_pilot --ack-delivery 'THE_PRINTED_ID'
 ```
 
 This skips the uncertain part, whether or not it arrived. It never sends it again. If you need the missing result, read it in Codex or send a new explicit request after recovery. Stop any running pilot before either recovery command. Use the same Python interpreter as the launcher if `python3` is not installed in your Terminal path.

@@ -24,7 +24,6 @@ def main():
         target = app / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, target)
-    shutil.copy2(ROOT / 'desktop/scripts/relay_bridge_entry.py', app / 'desktop_bridge_entry.py')
     print(f'Staged {len(sources)} reviewed runtime files.')
 
 

@@ -50,7 +50,7 @@ jobs:
       - run: python -m pip install build
       - run: python scripts/qualify_native.py
       - name: Check shared provider and unsupported-code boundaries
-        run: python -m unittest tests.test_shared_code_workers
+        run: python -m unittest tests.test_shared_code_workers tests.test_package_entrypoints
       - name: Preserve only qualification reports and logs
         if: always()
         uses: actions/upload-artifact@v4

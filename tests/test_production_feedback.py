@@ -4,10 +4,10 @@ import unittest
 from unittest.mock import patch
 
 from tests import test_production_control as fixture
-import production_control as pc
-import production_continuations as cont
-import production_feedback as feedback
-import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import production_continuations as cont
+from task_relay import production_feedback as feedback
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):

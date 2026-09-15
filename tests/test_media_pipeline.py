@@ -11,9 +11,9 @@ from tests import test_mixed_execution as mixed
 from tests import test_orchestrator_images as images
 from tests.test_gemini import PNG, result
 from tests.test_orchestrator import plan, task
-import orchestrator_chat as chat
-import gemini_runner
-import routing_inputs
+from task_relay import orchestrator_chat as chat
+from task_relay import gemini_runner
+from task_relay import routing_inputs
 
 
 class GraphTests(unittest.TestCase):
@@ -116,7 +116,7 @@ class GraphTests(unittest.TestCase):
             factory.return_value.request.assert_called_once_with('models?output_modalities=image')
 
     def test_ambiguous_image_submission_is_not_retried(self):
-        import gemini
+        from task_relay import gemini
         self.respond();self.client.error=gemini.ProviderError('connection',uncertain=True)
         self.rt.create(plan([self.image_step()]))
         for _ in range(4):self.rt.tick('demo')
@@ -167,7 +167,7 @@ class ReplyTests(unittest.TestCase):
         from unittest.mock import Mock
         client=Mock();client.request.return_value=result([{'inlineData':{'mimeType':'image/png','data':base64.b64encode(PNG).decode()}}])
         root=Path(self.temp.name).resolve()/'generated'
-        with patch('gemini.GENERATED',root):
+        with patch('task_relay.gemini.GENERATED',root):
             with self.state.db:self.state.db.execute("UPDATE backend_jobs SET status='running' WHERE id=?",(job['id'],))
             gemini_runner.run_job(self.state,job['id'],client=client)
         self.bridge.flush()
@@ -189,7 +189,7 @@ class ReplyTests(unittest.TestCase):
         self.assertIn('Use Rhino to make this drawing',json.dumps(captured))
         catalog=routing_inputs.artifact_catalog(self.state)
         media=next(a for a in catalog if a['run']==job['thread_id'])
-        with patch('gemini.GENERATED',root):
+        with patch('task_relay.gemini.GENERATED',root):
             frozen=routing_inputs.freeze_artifacts(self.state,{'id':21},[media['id']])
             self.assertEqual(Path(frozen[0]['path']).read_bytes(),PNG)
             original=self.state.db.execute("SELECT path FROM artifacts WHERE role='output'").fetchone()[0]
@@ -201,7 +201,7 @@ class ReplyTests(unittest.TestCase):
         self.message('Keep everything; change only the weather',20,reply=mid)
         media=next(a for a in routing_inputs.artifact_catalog(self.state) if a['run']==job['thread_id'])
         action={'kind':'generate_image','reference_ids':[],'artifact_ids':[media['id']]}
-        with patch('gemini.GENERATED',root):
+        with patch('task_relay.gemini.GENERATED',root):
             chat.Worker(self.state,lambda *_:json.dumps({'answer':'Edit the selected image','action':action})).tick()
         follow=self.state.db.execute('SELECT * FROM backend_jobs ORDER BY created_at DESC LIMIT 1').fetchone()
         self.assertEqual(follow['thread_id'],job['thread_id'])
@@ -217,7 +217,7 @@ class ReplyTests(unittest.TestCase):
         media=next(a for a in routing_inputs.artifact_catalog(self.state) if a['run']==job['thread_id'])
         action={'kind':'plan_production','template':'custom','project':None,'reference_pack_id':None,
             'research_ids':[],'artifact_ids':[media['id']],'planning_only':False,'step_capabilities':['rhino.run_python']}
-        with patch('gemini.GENERATED',root),patch('orchestrator.executors.available'),patch('task_relay.host_apps.rhino',return_value={'available':True,'evidence':'fixture','version':'8','interpreter':'cpython'}):
+        with patch('task_relay.gemini.GENERATED',root),patch('orchestrator.executors.available'),patch('task_relay.host_apps.rhino',return_value={'available':True,'evidence':'fixture','version':'8','interpreter':'cpython'}):
             chat.Worker(self.state,lambda *_:json.dumps({'answer':'Prepare native Rhino work','action':action})).tick()
         row=self.state.db.execute('SELECT * FROM production_plans WHERE request_id=20').fetchone()
         self.assertIsNotNone(row,self.state.db.execute('SELECT answer FROM orchestrator_chats WHERE id=20').fetchone()[0])

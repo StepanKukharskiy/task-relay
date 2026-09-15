@@ -8,9 +8,9 @@ from tests import test_artifact_replacements as core
 from tests.test_orchestrator import FakeFactory
 from orchestrator.runtime import Runtime
 from orchestrator import artifact_replacements as ar
-import orchestrator_chat as chat
-import production_control as pc
-import production_replacements as replacements
+from task_relay import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import production_replacements as replacements
 
 class Tests(unittest.TestCase):
     message=fixtures.Tests.message
@@ -69,7 +69,7 @@ class Tests(unittest.TestCase):
         self.press(row,mid)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_replacements').fetchone()[0],0)
     def test_next_stage_gets_current_replacement_and_binds_revision(self):
-        import production_stages as stages
+        from task_relay import production_stages as stages
         before=stages.snapshot(self.state,self.rt,'old','telegram')
         self.rt.replace_selection(self.a,self.b,0,'choice','Use new')
         after=stages.snapshot(self.state,self.rt,'old','telegram')

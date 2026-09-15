@@ -27,8 +27,8 @@ def main():
     python = str(args.python.absolute())  # preserve the venv interpreter symlink
     cli = args.python.absolute().with_name('task-relay.exe' if os.name=='nt' else 'task-relay')
     spec = tomllib.loads((ROOT/'pyproject.toml').read_text())
-    modules = spec['tool']['setuptools']['py-modules']
-    expected = {name+'.py' for name in modules}
+    modules = sorted(p.stem for p in (ROOT/'task_relay').glob('*.py') if p.stem != '__main__')
+    expected = set()
     for package in spec['tool']['setuptools']['packages']:
         expected.update(p.relative_to(ROOT).as_posix() for p in (ROOT/package).glob('*.py'))
     for pattern in spec['tool']['setuptools']['package-data']['task_relay']:
@@ -94,9 +94,7 @@ def main():
 from pathlib import Path
 from task_relay.relay_paths import PATHS
 for name in MODULES:
-    legacy=importlib.import_module(name)
     canonical=importlib.import_module('task_relay.'+name)
-    assert legacy is canonical,name
     assert Path(canonical.__file__).is_relative_to(PATHS.install),name
 print(json.dumps({'canonical_modules':len(MODULES)}))
 '''.replace('MODULES', repr(modules))
@@ -135,7 +133,7 @@ state=State(PATHS.state)
 assert state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0]==1
 # Actual provider-check entry point, with no queued job: opens the same fixture
 # database, performs no transport and exits. This is startup coverage only.
-child=subprocess.run([sys.executable,str(PATHS.install/'provider_runner.py'),str(PATHS.state),'absent-fixture'],capture_output=True,text=True,timeout=10)
+child=subprocess.run([sys.executable,'-m','task_relay.provider_runner',str(PATHS.state),'absent-fixture'],capture_output=True,text=True,timeout=10)
 assert child.returncode==0,(child.stdout,child.stderr)
 for child in rt.factory.registered.children:child.wait(timeout=5)
 print(json.dumps({'procedure':'completed','attempts':1,'artifact_sha256':artifact['sha256'],'provider_entry_startup':'passed; no job or network'}))

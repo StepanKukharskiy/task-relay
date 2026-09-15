@@ -72,7 +72,7 @@ class MigrationTests(unittest.TestCase):
 class TransactionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve()
-        from bridge import State
+        from task_relay.bridge import State
         self.state=State(self.root/'state.sqlite');self.factory=FakeFactory()
         self.rt=Runtime(self.root/'orchestrator',self.factory,connection=self.state.db)
 
@@ -89,7 +89,7 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse((self.root/'orchestrator/state.sqlite').exists())
 
     def test_nested_read_snapshot_does_not_commit_callers_write(self):
-        import production_control
+        from task_relay import production_control
         with self.assertRaises(RuntimeError),storage.transaction(self.state.db):
             self.rt.create(plan());self.state.put('pending','yes')
             self.assertEqual(production_control.inspect(self.state)[0]['name'],'demo')

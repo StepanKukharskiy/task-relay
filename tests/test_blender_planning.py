@@ -8,7 +8,7 @@ from unittest.mock import patch
 from tests import test_production_planning as fixture
 from tests.test_blender_operations import operation
 from orchestrator import execution
-import production_planning as planning
+from task_relay import production_planning as planning
 
 
 class Tests(unittest.TestCase):
@@ -28,7 +28,7 @@ class Tests(unittest.TestCase):
         return op
 
     def test_edit_asset_animation_contracts_reach_both_workers(self):
-        import production_control as pc
+        from task_relay import production_control as pc
         from tests.test_blender_assets import inputs as assets
         from tests.test_blender_animation import inputs as animation_inputs
         from orchestrator.blender_edit import validate_checks
@@ -43,7 +43,7 @@ class Tests(unittest.TestCase):
         cases=[('blender.run_python',edit,validate_checks),('blender.import_asset',asset,validate_assets),
                ('blender.animate',animation,validate_animation)]
         for ident,(cap,value,validate) in enumerate(cases,1):
-            with self.subTest(cap=cap),patch('host_apps.blender',return_value=dict(available=True,executable='fixture',evidence='fixture')):
+            with self.subTest(cap=cap),patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='fixture',evidence='fixture')):
                 self.queue(ident=ident,action=self.action(step_capabilities=[cap]))
                 response=self.response();response['deferred_operations']={cap:'Prepare exact inputs for a separately approved host operation.'}
                 producer,review=response['plan']['tasks']
@@ -72,7 +72,7 @@ class Tests(unittest.TestCase):
         from tests.test_blender_operations import scene_data
         from orchestrator.workers import CodexFactory
         for number,cap in enumerate(('blender.scene','blender.mesh_scene'),1):
-            with self.subTest(cap=cap),patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+            with self.subTest(cap=cap),patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
                 self.queue(ident=number,action=self.action(step_capabilities=[cap]))
                 planning.Worker(self.state,lambda *_:(json.dumps(self.untyped_scene_response(cap)),{})).tick()
                 row=self.row(number);self.assertEqual(row['status'],'ready',row['error'])
@@ -121,7 +121,7 @@ class Tests(unittest.TestCase):
 
     def test_untyped_scene_plan_compiles_before_approval_without_workers(self):
         for cap in ('blender.scene','blender.mesh_scene'):
-            with self.subTest(cap=cap),patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+            with self.subTest(cap=cap),patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
                 row=self.queue(ident=1 if cap=='blender.scene' else 2,action=self.action(step_capabilities=[cap]),text='Create a twisting tower.')
                 response=self.untyped_scene_response(cap);original=copy.deepcopy(response)
                 _,plan=planning.validate_result(json.dumps(response),row)
@@ -136,7 +136,7 @@ class Tests(unittest.TestCase):
                 self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
 
     def test_conflicting_types_or_multiple_scene_candidates_are_not_guessed(self):
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             row=self.queue(action=self.action(step_capabilities=['blender.scene']))
         variants=[]
         bad=self.untyped_scene_response();bad['plan']['tasks'][-1]['inputs'][0]['media_type']='image/png';variants.append(bad)
@@ -149,7 +149,7 @@ class Tests(unittest.TestCase):
                 planning.validate_result(json.dumps(value),row)
 
     def test_repaired_plan_reaches_ready_with_no_second_model_call(self):
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             self.queue(action=self.action(step_capabilities=['blender.scene']))
             response=self.untyped_scene_response();response['plan']['tasks'][-1]['limits']['tool_calls']=0
             calls=[]
@@ -159,7 +159,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
 
     def test_scene_plan_retains_host_boundary_types_and_approval_notice(self):
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             row=self.queue(action=self.action(step_capabilities=['blender.scene']),text='Make a twisting tower in Blender.')
             response=self.response();tasks=response['plan']['tasks']
             tasks[0]['outputs'][0]['media_type']='application/json'
@@ -176,7 +176,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.state.db.execute('select count(*) from production_runs').fetchone()[0],0)
 
     def test_unfamiliar_mesh_uses_general_host_operation_with_preserved_sources(self):
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             row=self.queue(action=self.action(step_capabilities=['blender.mesh_scene']),text='Make a gyroid in Blender.')
             response=self.response();tasks=response['plan']['tasks']
             tasks[0]['outputs'][0]['media_type']='application/json'
@@ -198,7 +198,7 @@ class Tests(unittest.TestCase):
         ws=self.factory.sessions[aid]['workspace'];(ws/'output.txt').write_bytes(b'\xffnative fixture')
         self.rt.tick('demo');artifact=self.rt.output('demo','produce','output.txt')
         self.state.db.execute("UPDATE production_artifacts SET path='scene.blend' WHERE id=?",(artifact['id'],))
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             row=self.queue(action=self.action(step_capabilities=['blender.inspect'],artifact_ids=[artifact['id']]),text='Inspect this exact scene; do not edit.')
             context=json.loads(row['context'])
             source=next(i for i in context['sources'] if i['path'].endswith('.blend'))
@@ -216,7 +216,7 @@ class Tests(unittest.TestCase):
             self.assertIn('Linked libraries may resolve',planning.preview(preview_row))
 
     def test_startup_can_be_host_probe_and_independent_report_review(self):
-        with patch('host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
+        with patch('task_relay.host_apps.blender',return_value={'available':True,'executable':'fixture','evidence':'fixture'}):
             row=self.queue(action=self.action(step_capabilities=['blender.startup']),text='Check Blender startup.')
             host=self.bounded(operation('blender.startup',[]))
             reviewer=self.response()['plan']['tasks'][1];reviewer['review_of']='app';reviewer['dependencies']=['app'];reviewer['criteria']=host['criteria']

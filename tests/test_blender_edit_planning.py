@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-import production_planning as planning
+from task_relay import production_planning as planning
 from orchestrator import contracts as c,host_code
 from tests import test_production_planning as fixture
 from tests.test_blender_edit import inputs
@@ -36,7 +36,7 @@ class Tests(unittest.TestCase):
         return row
 
     def test_delivered_exact_script_card_authorizes_only_after_documents_arrive(self):
-        with patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),patch('host_evidence.application_signature',return_value={'path':'/fixture/blender'}):
+        with patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/blender'}):
             row=self.setup_plan();self.assertIn('No OS isolation',planning.preview(row))
             self.assertEqual(self.state.db.execute('select count(*) from production_runs').fetchone()[0],0)
             self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],))
@@ -58,7 +58,7 @@ class Tests(unittest.TestCase):
                     self.state.db.execute('BEGIN IMMEDIATE');planning.apply(self.state,row['token'],'start')
 
     def test_changed_selected_script_stops_approval_and_leaves_no_run(self):
-        with patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),patch('host_evidence.application_signature',return_value={'path':'/fixture/blender'}):
+        with patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/blender'}):
             row=self.setup_plan()
             script=next(i for i in json.loads(row['plan'])['tasks'][0]['inputs'] if i['media_type']=='text/x-python')
             path=Path(self.rt.artifact(script['artifact'])['blob']);path.chmod(0o600);path.write_text('print("changed")')

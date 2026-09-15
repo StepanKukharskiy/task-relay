@@ -79,7 +79,7 @@ class Store:
         columns = {r[1] for r in self.db.execute('PRAGMA table_info(dataset_sources)')}
         if 'selected_at' not in columns:
             self.db.execute('ALTER TABLE dataset_sources ADD COLUMN selected_at REAL NOT NULL DEFAULT 0')
-        from internal_jobs import initialize
+        from task_relay.internal_jobs import initialize
         initialize(self.db)
         self.db.commit()
         self.path.chmod(0o600)

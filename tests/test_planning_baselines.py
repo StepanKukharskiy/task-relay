@@ -4,7 +4,7 @@ import unittest
 
 from tests import test_production_planning as fixture
 from tests import test_artifact_handoff as artifacts
-import production_planning as planning
+from task_relay import production_planning as planning
 from orchestrator.runtime import file_hash
 
 

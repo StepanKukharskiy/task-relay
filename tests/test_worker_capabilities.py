@@ -11,7 +11,7 @@ from orchestrator.runtime import Runtime
 from task_relay import production_activity, pipelines
 from tests.test_orchestrator import FakeFactory, pair, task
 from tests import test_production_planning as fixtures
-import production_planning as planning
+from task_relay import production_planning as planning
 
 CODEX = pair()['backend']
 GEMINI = {'type':'gemini-agent', 'model':'test-gemini'}

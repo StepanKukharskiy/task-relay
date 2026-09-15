@@ -1,34 +1,46 @@
-# Task Relay 0.13.1
+# Task Relay 0.13.26
 
-Beta candidate: this source change does not publish a GitHub release.
+Mac beta refresh with current workflow orchestration, app settings and package cleanup.
 
-## App updates
+## What is included
 
-- Settings → App updates checks for new desktop releases and optionally includes
-  betas. Download update verifies the package; Install and restart becomes
-  available after verification. A visible update notice opens the controls.
-- App packages are separate from source releases. ZIP/manifest assets must match
-  GitHub's published byte length and checksum and the installed app's signing
-  certificate. Stable packages additionally require Gatekeeper assessment.
-- Installation preserves the app root and saved data, checks for active work,
-  stops/restarts only the previously running owned services, and verifies fresh
-  readiness. An independent helper retains previous code and per-attempt receipts.
-  Interrupted updates expose explicit recovery without resubmitting work or
-  restoring an older database.
+- Apps and tools settings show detected installations and versions, with switches
+  for supported apps, Browser use, and bundled code/document tools.
+- Request-derived workflows retain selected outputs, execution reviews, recovery
+  receipts and inspectable workflow folders across research, native models,
+  visualization and editable presentations. Existing approval boundaries remain.
+- Shared Gemini/OpenAI/Qwen workers, browser screenshots, reusable procedures and
+  history-based automation suggestions. Connected accounts and optional native
+  apps are still required for the operations that use them.
+- Bundled document dependencies support PPTX, DOCX, XLSX and PDF operations.
+- Launchers and services now call the task_relay package directly. The 56 root
+  forwarding modules and their packaging entries are removed.
+- Windows CI fixture corrections are included. Windows 10+ support is still in
+  development; this release does not provide a qualified Windows installer.
 
-## Installation
+## Install or upgrade
 
-Published 0.13.0 and earlier apps need one manual installation of this build to
-receive the updater. Subsequent compatible releases can be installed in-app.
-The Mac beta requires Apple Silicon and macOS 14+. It uses local signing;
-Developer ID signing and Apple notarization remain unavailable with a free
-Apple developer account. macOS may require Open Anyway and refreshed permissions.
+Download Task-Relay-0.13.26-arm64.dmg for Apple Silicon and macOS 14 or later.
+Quit Task Relay, open the DMG, replace Task Relay in Applications, and reopen it.
+Keep your existing data folder. If Settings shows an existing service, choose
+Review service handoff and complete it; do the Messages handoff too if offered.
+These steps migrate old launcher paths without deleting requests or outputs.
 
-Controlled checks cover metadata, archive validation, data compatibility, real
-schema idle checks, exact approval, interruption and recovery. They do not replace
-clean-host installation/update qualification or actual messenger delivery.
-Schema-changing updates, signing-certificate changes, unsupported owners and
-administrator-only app locations require a separate reviewed/manual update.
+Apps through 0.13.25 require this one-time manual installation. The new protocol 2
+update manifest blocks older updaters from silently installing incompatible service
+commands. Later compatible releases support Settings → App updates → Download
+update → Install and restart; enable Include beta releases for beta packages.
 
-See [app updates](app-updates.md) for the user flow, release contract, packaging
-and recovery limits. Existing source update isolation remains unchanged.
+This beta is locally signed, without Apple Developer ID or notarization. macOS may
+require Privacy & Security → Open Anyway after the first opening attempt, and
+permissions may need refreshing. It is therefore marked as a prerelease.
+
+The matching CLI source archive includes install.sh. Python wheels/source packages
+are separate from the desktop app and do not update Task Relay.app.
+
+## Validation scope
+
+Controlled checks cover package entry points, installed wheel imports, service
+migration/recovery, updater compatibility, and website downloads. Existing native
+CAD/media workflows were not rerun for this packaging change. Clean-host install
+qualification, Apple notarization and native Windows execution remain pending.

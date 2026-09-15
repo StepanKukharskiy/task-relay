@@ -20,10 +20,10 @@ cached ledger and show source freshness and incomplete coverage. Up to 20 groups
 are shown in chat. The CLI provides the full report:
 
 ```sh
-python3 usage_tracker.py --days 30 --group model --json
-python3 usage_tracker.py --refresh --days 7
-python3 usage_tracker.py --enable
-python3 usage_tracker.py --disable
+python3 -m task_relay.usage_tracker --days 30 --group model --json
+python3 -m task_relay.usage_tracker --refresh --days 7
+python3 -m task_relay.usage_tracker --enable
+python3 -m task_relay.usage_tracker --disable
 ```
 
 The native desktop Tasks tab shows recorded usage through Task Relay separately

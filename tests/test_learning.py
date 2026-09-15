@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import internal_jobs
+from task_relay import internal_jobs
 from learning.store import Store, digest, encoded
 from learning.importer import import_file, parse
 from learning.analyzer import analyze, batches

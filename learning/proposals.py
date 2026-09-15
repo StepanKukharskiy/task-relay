@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
-import gemini
+from task_relay import gemini
 from .store import digest, encoded, identifier
 
 

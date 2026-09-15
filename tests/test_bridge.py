@@ -10,9 +10,9 @@ import time
 import unittest
 from unittest.mock import patch
 
-from bridge import Bridge, BridgeError, Desktop, OwnerUnavailable, State, Watcher, complete_offset
-from bridge import Telegram, TelegramError, BackgroundWorkers, SendPacer, receive_updates, split_text
-from media import image_links, queue_images, attachment_links
+from task_relay.bridge import Bridge, BridgeError, Desktop, OwnerUnavailable, State, Watcher, complete_offset
+from task_relay.bridge import Telegram, TelegramError, BackgroundWorkers, SendPacer, receive_updates, split_text
+from task_relay.media import image_links, queue_images, attachment_links
 
 
 class TelegramFake:
@@ -153,7 +153,7 @@ class Tests(unittest.TestCase):
     def test_rewritten_larger_history_does_not_replay_old_results(self):
         old = self.dated_event('old', '2026-06-17T09:40:41Z', 'Old result')
         self.append(old)
-        with patch('bridge.time.time', return_value=1788879000):
+        with patch('task_relay.bridge.time.time', return_value=1788879000):
             self.watcher.scan()
         # Same path, larger file; the old byte offset is now inside a JSON line.
         self.log.write_text(json.dumps({'type': 'session_meta', 'padding': 'x' * 500}) + '\n' + old)
@@ -180,7 +180,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT offset FROM watched').fetchone()[0], self.log.stat().st_size)
 
     def test_late_discovered_task_skips_history_but_keeps_fresh_result(self):
-        with patch('bridge.time.time', return_value=1788879000):
+        with patch('task_relay.bridge.time.time', return_value=1788879000):
             self.watcher.scan()
         path = self.root / 'late.jsonl'
         path.write_text(self.dated_event('old', '2026-06-17T09:40:41Z') +
@@ -202,7 +202,7 @@ class Tests(unittest.TestCase):
             self.state.db.execute('INSERT INTO watched VALUES (?,?,?,?,?,?)',
                                   ('task-one', str(self.log), 0, 'Task One', 'running', 100))
         self.append(self.dated_event('offline', '2026-09-08T15:00:00Z'))
-        with patch('bridge.time.time', return_value=1788900000):
+        with patch('task_relay.bridge.time.time', return_value=1788900000):
             self.watcher.scan()
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM outbox').fetchone()[0], 1)
         Watcher(self.state, self.codex).scan()
@@ -312,7 +312,7 @@ class Tests(unittest.TestCase):
         opener.open.return_value = response
         path = self.root / 'download.txt'
         with patch.object(telegram, 'call', return_value={'file_path': 'documents/file_1.txt', 'file_size': 9}), \
-                patch('bridge.urllib.request.build_opener', return_value=opener):
+                patch('task_relay.bridge.urllib.request.build_opener', return_value=opener):
             telegram.download_file('file-one', path, 100_000)
         self.assertEqual(path.read_bytes(), b'full text')
 
@@ -329,7 +329,7 @@ class Tests(unittest.TestCase):
         reply = self.ready()
         update = self.message('Next step', reply=reply)
         with patch.object(DesktopFake, 'owner', side_effect=[OwnerUnavailable(), 'owner']), \
-                patch.object(DesktopFake, 'open_task') as opened, patch('bridge.time.sleep'):
+                patch.object(DesktopFake, 'open_task') as opened, patch('task_relay.bridge.time.sleep'):
             self.bridge.process(update)
             self.bridge.process(update)
         opened.assert_called_once_with('task-one')
@@ -339,7 +339,7 @@ class Tests(unittest.TestCase):
     def test_task_loading_failure_is_bounded_and_never_submits(self):
         reply = self.ready()
         with patch.object(DesktopFake, 'owner', side_effect=OwnerUnavailable()) as owner, \
-                patch.object(DesktopFake, 'open_task') as opened, patch('bridge.time.sleep'):
+                patch.object(DesktopFake, 'open_task') as opened, patch('task_relay.bridge.time.sleep'):
             self.bridge.process(self.message('Next step', reply=reply))
         self.assertEqual(owner.call_count, 3)
         opened.assert_called_once()
@@ -367,7 +367,7 @@ class Tests(unittest.TestCase):
         reply = self.ready()
         with patch.object(DesktopFake, 'owner', side_effect=[OwnerUnavailable(), 'owner']), \
                 patch.object(DesktopFake, 'open_task', side_effect=lambda _: self.append(self.event('task_started'))), \
-                patch('bridge.time.sleep'):
+                patch('task_relay.bridge.time.sleep'):
             self.bridge.process(self.message('Next step', reply=reply))
         self.assertEqual(DesktopFake.starts, [])
         self.assertIn('started running', self.telegram.sent[-1][1])
@@ -377,7 +377,7 @@ class Tests(unittest.TestCase):
         DesktopFake.fail = True
         update = self.message('Next step', reply=reply)
         with patch.object(DesktopFake, 'owner', side_effect=[OwnerUnavailable(), 'owner']), \
-                patch.object(DesktopFake, 'open_task') as opened, patch('bridge.time.sleep'):
+                patch.object(DesktopFake, 'open_task') as opened, patch('task_relay.bridge.time.sleep'):
             self.bridge.process(update)
             self.bridge.process(update)
         opened.assert_called_once()
@@ -387,7 +387,7 @@ class Tests(unittest.TestCase):
     def test_task_link_has_only_a_valid_uuid_and_no_shell(self):
         desktop = Desktop()
         task = '11111111-1111-4111-8111-111111111111'
-        with patch('bridge.Path.is_dir', return_value=True), patch('bridge.subprocess.run') as run:
+        with patch('task_relay.bridge.Path.is_dir', return_value=True), patch('task_relay.bridge.subprocess.run') as run:
             run.return_value.returncode = 0
             desktop.open_task(task)
             run.assert_called_once_with(['/usr/bin/open', '-g', '-a', '/Applications/ChatGPT.app',
@@ -434,7 +434,7 @@ class Tests(unittest.TestCase):
 
     def test_desktop_start_rejects_wrong_response_method(self):
         desktop = Desktop()
-        from bridge import BridgeError
+        from task_relay.bridge import BridgeError
         with patch.object(desktop, 'request', return_value={'method': 'unexpected', 'result': {}}):
             with self.assertRaises(BridgeError):
                 desktop.start('task-one', 'Next step', 'owner')
@@ -463,7 +463,7 @@ class Tests(unittest.TestCase):
         tid = '22222222-2222-4222-8222-222222222222'
         path = home / '.codex/visualizations/2026/09/07' / tid / 'floor/nine options.png'
         text = f'![Nine options](<{path}>)'
-        with patch('media.Path.home', return_value=home):
+        with patch('task_relay.media.Path.home', return_value=home):
             self.assertEqual(list(attachment_links(text, thread_id=tid)), [path])
             self.assertEqual(list(image_links(text, thread_id=tid)), [path])
             self.assertEqual(list(attachment_links(text)), [])
@@ -475,7 +475,7 @@ class Tests(unittest.TestCase):
 
     def test_attachment_queue_supplies_source_task_for_visualization_discovery(self):
         path = self.make_image()
-        with patch('media.attachment_links', wraps=attachment_links) as discover:
+        with patch('task_relay.media.attachment_links', wraps=attachment_links) as discover:
             with self.state.db:
                 queue_images(self.state, 'visualization-event', 'source-task', 'Floor', f'![floor]({path})', self.root)
         self.assertEqual(discover.call_args.args[2], 'source-task')
@@ -690,7 +690,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.emoji('task-one'), before)
 
     def test_custom_choice_displaces_default_but_not_custom_choice(self):
-        from bridge import BridgeError
+        from task_relay.bridge import BridgeError
         with self.state.db:
             default = self.state.emoji('other-task')
             self.state.set_emoji('task-one', default)
@@ -759,7 +759,7 @@ class Tests(unittest.TestCase):
         path = self.root / 'clip.mp4'
         path.write_bytes(b'\x00\x00\x00\x18ftypisomfixture')
         telegram = Telegram('test-token')
-        with patch('bridge.video_metadata', return_value={'width': 1080, 'height': 1920, 'duration': 65}), patch.object(telegram, 'request', return_value={'message_id': 1}) as request:
+        with patch('task_relay.bridge.video_metadata', return_value={'width': 1080, 'height': 1920, 'duration': 65}), patch.object(telegram, 'request', return_value={'message_id': 1}) as request:
             telegram.send_media(123, path, path.name, 'video', 'Clip')
         args = request.call_args.args
         self.assertEqual(args[0], 'sendVideo')
@@ -784,7 +784,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM media_outbox').fetchone()[0], 0)
 
     def test_oversized_file_does_not_block_small_file(self):
-        with patch('media.MAX_FILE', 20):
+        with patch('task_relay.media.MAX_FILE', 20):
             self.ready_files({'large.bin': b'x' * 21, 'small.txt': b'small'})
         self.bridge.flush()
         self.assertEqual(self.telegram.media, [('original', b'small')])
@@ -867,7 +867,7 @@ class Tests(unittest.TestCase):
 
     def test_send_pacer_waits_without_holding_lock_during_http(self):
         pacer = SendPacer()
-        with patch('bridge.time.monotonic', side_effect=[100, 100, 102, 102]):
+        with patch('task_relay.bridge.time.monotonic', side_effect=[100, 100, 102, 102]):
             pacer.wait()
             self.assertTrue(pacer.lock.acquire(blocking=False))
             pacer.lock.release()

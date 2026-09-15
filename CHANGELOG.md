@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.26 — direct package entry points and refreshed beta
+
+- Migrate provider children, source launchers, macOS service definitions, native
+  Messages launchers, research imports and tests to qualified `task_relay` calls.
+  Remove 56 root compatibility wrappers and their wheel/source-archive entries,
+  plus the generated desktop bridge forwarding entry.
+- Preserve recognition of legacy service definitions for explicit updates and
+  handoff. Local app installation records and applies the Telegram command change
+  with the app replacement, retaining previous service definitions for recovery.
+- Qualify canonical installed imports and module entry points from outside the
+  checkout. App update protocol 2 prevents legacy installers from replacing the
+  app without migrating removed service paths; older apps need one manual upgrade.
+- Fetch immutable, checksum-verified release downloads during the website build
+  to avoid upload limits; failed downloads leave the deployed site unchanged.
+- Refresh the versioned Mac beta and matching source download links, preserving
+  earlier immutable URLs. Developer ID/notarization and native Windows execution
+  qualification remain pending.
+
 ## 0.13.25 — app access settings and Windows CI
 
 - Add Apps and tools settings with detected installations, versions, paths and

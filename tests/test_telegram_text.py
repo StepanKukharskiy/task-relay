@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from bridge import Bridge, State, Telegram, TelegramError, split_text
+from task_relay.bridge import Bridge, State, Telegram, TelegramError, split_text
 from tests.test_bridge import TelegramFake, DesktopFake
-import telegram_text as fmt
+from task_relay import telegram_text as fmt
 
 
 class Tests(unittest.TestCase):

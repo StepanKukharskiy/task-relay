@@ -5,8 +5,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from bridge import State
-from host_evidence import application_signature,record_check,environments
+from task_relay.bridge import State
+from task_relay.host_evidence import application_signature,record_check,environments
 from orchestrator.runtime import file_hash
 
 

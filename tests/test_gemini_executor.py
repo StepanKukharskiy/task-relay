@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 if __package__ in (None,''):sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
-import gemini
+from task_relay import gemini
 from orchestrator import contracts as c, executors
 from orchestrator.adapters import ExecutionFactory, GeminiFactory
 from orchestrator.gemini_worker import Files, execute

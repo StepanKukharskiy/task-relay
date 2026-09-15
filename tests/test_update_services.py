@@ -34,8 +34,13 @@ class ServiceTests(unittest.TestCase):
             new = plistlib.loads(candidate)
             self.assertEqual(new['EnvironmentVariables'], spec['EnvironmentVariables'])
             self.assertEqual(new['ProgramArguments'][0], self.target['python'])
+            self.assertEqual(new['ProgramArguments'][1:], ['-m', 'task_relay.bridge', 'run'])
+            self.assertEqual(plistlib.loads(base64.b64decode(prior['raw'])), spec)
             service.write(candidate)
             service.verify(prior, candidate)
+            # A subsequent update recognizes the canonical definition too.
+            next_service = host_updates.Service(self.paths, self.target['install'])
+            self.assertEqual(base64.b64decode(next_service.capture()['raw']), candidate)
             new['WorkingDirectory'] = '/fixture/edited'
             host_linux.write(service.path, plistlib.dumps(new))
             with self.assertRaisesRegex(ValueError, 'changed'):

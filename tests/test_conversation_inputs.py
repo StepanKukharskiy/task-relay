@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 import unittest
 
-import conversation_inputs as ci
-import orchestrator_chat as chat
+from task_relay import conversation_inputs as ci
+from task_relay import orchestrator_chat as chat
 from tests import test_task_routing as fixture
 
 

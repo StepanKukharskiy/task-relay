@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bridge import Bridge, State
+from task_relay.bridge import Bridge, State
 from tests.test_bridge import TelegramFake
-import orchestrator_chat as chat
-import workflows
+from task_relay import orchestrator_chat as chat
+from task_relay import workflows
 
 
 class Tests(unittest.TestCase):
@@ -85,7 +85,7 @@ class Tests(unittest.TestCase):
 
     def test_pending_approval_has_priority(self):
         self.message('/orchestrator')
-        with patch('approval_ui.reply_input',return_value=True): self.message('yes',2)
+        with patch('task_relay.approval_ui.reply_input',return_value=True): self.message('yes',2)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
 
     def test_direct_workflow_status_reply_routes_to_orchestrator(self):
@@ -104,7 +104,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_proposals').fetchone()[0],0)
 
     def test_original_comments_survive_lossy_model_summary_and_newlines(self):
-        import workflow_protocol
+        from task_relay import workflow_protocol
         original = 'Why narrow strips?\nStart with rooms along the façade.\n' + 'Keep this constraint. ' * 230
         self.message('/orchestrator ' + original)
         chat.Worker(self.state, lambda *_: self.result(self.action())).tick()

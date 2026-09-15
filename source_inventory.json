@@ -28,7 +28,9 @@
         "website/public/guides/assets/architecture-sources.json",
         "website/public/guides/assets/architecture-request.txt",
         "website/public/guides/assets/architecture-request-v2.txt",
-        "website/public/guides/assets/complaint-research-request.txt"
+        "website/public/guides/assets/complaint-research-request.txt",
+        "website/fetch-downloads.mjs",
+        "website/downloads.json"
       ]
     },
     {
@@ -42,7 +44,6 @@
       "kind": "application",
       "release": true,
       "patterns": [
-        "*.py",
         "task_relay/*.py",
         "orchestrator/*.py"
       ],
@@ -207,8 +208,9 @@
     ".venv",
     "node_modules",
     "dist",
-    "build"
+    "build",
+    ".DS_Store"
   ],
   "maintained_exceptions": [],
-  "release_note": "Wheel and source archive contain only the explicit runtime packages, compatibility modules and bundled assets defined in pyproject.toml and MANIFEST.in. Tests, research, operational data and build evidence remain outside distributions."
+  "release_note": "Wheel and source archive contain only the explicit runtime packages and bundled assets defined in pyproject.toml and MANIFEST.in. Tests, research, operational data and build evidence remain outside distributions."
 }

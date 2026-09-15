@@ -5,11 +5,11 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-import backends
-import gemini
-import providers
-import provider_runner
-from bridge import Bridge, State, TelegramError
+from task_relay import backends
+from task_relay import gemini
+from task_relay import providers
+from task_relay import provider_runner
+from task_relay.bridge import Bridge, State, TelegramError
 from tests.test_bridge import TelegramFake, DesktopFake
 
 KEY = 'AIza' + 'X' * 35
@@ -36,7 +36,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
-        self.patches = [patch('gemini.DATA', self.root/'private'), patch('gemini.ROOT', self.root), patch('gemini.WORKSPACES',self.root/'projects')]
+        self.patches = [patch('task_relay.gemini.DATA', self.root/'private'), patch('task_relay.gemini.ROOT', self.root), patch('task_relay.gemini.WORKSPACES',self.root/'projects')]
         for p in self.patches:
             p.start()
         self.state = State(self.root/'private/state.sqlite')
@@ -76,12 +76,12 @@ class Tests(unittest.TestCase):
         self.assertTrue(self.bot.markup['force_reply'])
 
     def configure(self):
-        with patch('providers.catalog', return_value=list(gemini.DEFAULT_MODELS.values())):
+        with patch('task_relay.providers.catalog', return_value=list(gemini.DEFAULT_MODELS.values())):
             providers.configure_gemini(KEY)
 
     def test_openai_image_default_is_selected_in_chat_without_changing_text_model(self):
         config={'api_key':'fixture','model':'text-model','catalog':['text-model','gpt-image-2'],'enabled':True}
-        with patch('providers.stored',return_value=config),patch('providers.api.read_config',return_value=config),patch('providers.credentials.save') as save:
+        with patch('task_relay.providers.stored',return_value=config),patch('task_relay.providers.api.read_config',return_value=config),patch('task_relay.providers.credentials.save') as save:
             self.send('/providers');self.click('OpenAI');self.click('Default models');self.click('Image');self.click('gpt-image-2')
         saved=save.call_args.args[1]
         self.assertEqual(saved['model'],'text-model')
@@ -91,7 +91,7 @@ class Tests(unittest.TestCase):
     def test_openrouter_image_default_uses_discovered_image_catalog(self):
         config={'api_key':'fixture','model':'vendor/text','catalog':['vendor/text'],
                 'image_catalog':['vendor/image'],'enabled':True}
-        with patch('providers.stored',return_value=config),patch('providers.api.read_config',return_value=config),patch('providers.credentials.save') as save:
+        with patch('task_relay.providers.stored',return_value=config),patch('task_relay.providers.api.read_config',return_value=config),patch('task_relay.providers.credentials.save') as save:
             self.send('/providers');self.click('OpenRouter');self.click('Default models');self.click('Image');self.click('vendor/image')
         saved=save.call_args.args[1]
         self.assertEqual(saved['model'],'vendor/text');self.assertEqual(saved['models']['image'],'vendor/image')
@@ -110,7 +110,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         with self.state.db:
             self.state.db.execute("UPDATE provider_jobs SET status='running' WHERE id=?", (job['id'],))
-        with patch('providers.catalog', return_value=list(gemini.DEFAULT_MODELS.values())) as check:
+        with patch('task_relay.providers.catalog', return_value=list(gemini.DEFAULT_MODELS.values())) as check:
             provider_runner.run_job(self.state, job['id'])
         check.assert_called_once_with(KEY)
         self.assertEqual(gemini.read_config()['api_key'], KEY)
@@ -163,7 +163,11 @@ class Tests(unittest.TestCase):
         self.send('/models')
         self.click('Text')
         button = self.bot.markup['inline_keyboard'][0][0]['callback_data']
-        self.send('Start working')
+        # Fresh text belongs to the orchestrator; explicitly reply to this task
+        # so the stale-button fixture actually exercises its busy state.
+        reply = self.state.db.execute('SELECT message_id FROM messages WHERE thread_id=? ORDER BY message_id DESC LIMIT 1', (second,)).fetchone()[0]
+        self.send('Start working', reply=reply)
+        self.assertEqual(self.state.db.execute('SELECT thread_id FROM backend_jobs').fetchone()[0], second)
         self.click('', data=button)
         self.assertIn('busy', self.bot.sent[-1][1])
 
@@ -201,7 +205,7 @@ class Tests(unittest.TestCase):
         job = self.state.db.execute('SELECT * FROM provider_jobs').fetchone()
         with self.state.db:
             self.state.db.execute("UPDATE provider_jobs SET status='running'")
-        with patch('providers.catalog', side_effect=gemini.ProviderError(403)):
+        with patch('task_relay.providers.catalog', side_effect=gemini.ProviderError(403)):
             provider_runner.run_job(self.state, job['id'])
         self.assertEqual(gemini.read_config()['api_key'], KEY)
         self.assertFalse((gemini.DATA/'setup-input'/(job['id']+'.json')).exists())
@@ -227,7 +231,7 @@ class Tests(unittest.TestCase):
         popen = Mock(return_value=process)
         worker = providers.Worker(self.state, popen=popen)
         worker.tick()
-        self.assertIn('provider_runner.py', popen.call_args.args[0][1])
+        self.assertEqual(popen.call_args.args[0][1:3], ['-m', 'task_relay.provider_runner'])
         self.send('/providers')
         self.assertIn('Providers', self.bot.sent[-1][1])
         job = self.state.db.execute('SELECT id FROM provider_jobs').fetchone()[0]

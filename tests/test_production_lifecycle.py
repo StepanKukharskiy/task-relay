@@ -1,12 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-from bridge import State,Bridge
+from task_relay.bridge import State,Bridge
 from orchestrator.runtime import Runtime
 from orchestrator.storage import transaction
-import production_control as pc
-import production_lifecycle as lifecycle
-import production_status as status
+from task_relay import production_control as pc
+from task_relay import production_lifecycle as lifecycle
+from task_relay import production_status as status
 from tests import test_production_status as fixtures
 
 

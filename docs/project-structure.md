@@ -4,7 +4,6 @@
 | --- | --- |
 | `task_relay/` | Application, provider and channel implementations |
 | `orchestrator/` | Contracts, storage, execution workers and recovery |
-| Root Python modules | Compatibility imports and CLI entry points |
 | `tests/` | Focused tests and synthetic fixtures |
 | `task_relay/assets/` | Maintained icons and macOS Swift build sources |
 | `messages_service/` | Compatible native source entry points |
@@ -13,6 +12,10 @@
 | `experiments/o08/`, `experiments/proposal_review/` | Reusable procedure/reviewer experiments |
 | `docs/` | Maintained product and technical guides |
 | `.github/workflows/` | Publication and selected native checks |
+
+Use `python -m task_relay` or a qualified module such as
+`python -m task_relay.messages_service`. Application imports use `task_relay`;
+there are no duplicate root-level forwarding modules.
 
 `pyproject.toml` and `MANIFEST.in` define the runtime distributions. Research and tests
 may be public source without being shipped in a wheel. `source_inventory.json`

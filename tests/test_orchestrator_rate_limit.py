@@ -1,6 +1,6 @@
 import unittest
-import gemini
-import orchestrator_chat as chat
+from task_relay import gemini
+from task_relay import orchestrator_chat as chat
 from tests import test_orchestrator_chat as fixture
 
 

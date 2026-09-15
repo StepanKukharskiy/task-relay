@@ -7,14 +7,14 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import api_providers as api
-import api_runner
-import file_tools
-import backends
-import gemini
-import providers
-import provider_runner
-from bridge import Bridge, State
+from task_relay import api_providers as api
+from task_relay import api_runner
+from task_relay import file_tools
+from task_relay import backends
+from task_relay import gemini
+from task_relay import providers
+from task_relay import provider_runner
+from task_relay.bridge import Bridge, State
 from tests.test_bridge import DesktopFake
 from tests.test_providers import Bot
 
@@ -43,7 +43,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
-        self.patches = [patch('gemini.DATA', self.root / 'private'), patch('gemini.WORKSPACES', self.root/'projects')]
+        self.patches = [patch('task_relay.gemini.DATA', self.root / 'private'), patch('task_relay.gemini.WORKSPACES', self.root/'projects')]
         for p in self.patches:
             p.start()
         self.state = State(self.root / 'private/state.sqlite')
@@ -119,7 +119,7 @@ class Tests(unittest.TestCase):
                 job = self.state.db.execute('SELECT * FROM provider_jobs WHERE provider=?', (provider,)).fetchone()
                 with self.state.db:
                     self.state.db.execute("UPDATE provider_jobs SET status='running' WHERE id=?", (job['id'],))
-                with patch('api_providers.catalog', return_value=[spec['model']]):
+                with patch('task_relay.api_providers.catalog', return_value=[spec['model']]):
                     provider_runner.run_job(self.state, job['id'])
                 self.assertEqual(api.read_config(provider)['api_key'], KEY)
                 self.assertEqual((gemini.DATA / (provider + '.json')).stat().st_mode & 0o777, 0o600)
@@ -157,7 +157,7 @@ class Tests(unittest.TestCase):
     def test_openrouter_catalog_checks_private_key_endpoint_first(self):
         client = Mock()
         client.request.side_effect = [{'data': {'label': 'test'}}, {'data': [{'id': 'org/model:free'}]}]
-        with patch('api_providers.Client', return_value=client):
+        with patch('task_relay.api_providers.Client', return_value=client):
             self.assertEqual(api.catalog('openrouter', KEY), ['org/model:free'])
         self.assertEqual([c.args[0] for c in client.request.call_args_list], ['key', 'models'])
 
@@ -188,7 +188,7 @@ class Tests(unittest.TestCase):
 
     def test_disabled_provider_and_request_size_fail_before_queue(self):
         tid = self.create('qwen')
-        with patch('api_providers.MAX_CONTEXT', 10):
+        with patch('task_relay.api_providers.MAX_CONTEXT', 10):
             self.send('Too large')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0], 0)
         config = api.stored('qwen')
@@ -226,7 +226,7 @@ class Tests(unittest.TestCase):
         popen = Mock(return_value=process)
         worker = backends.BackendWorker(self.state, popen, backend='openai')
         worker.tick()
-        self.assertTrue(popen.call_args.args[0][1].endswith('api_runner.py'))
+        self.assertEqual(popen.call_args.args[0][1:3], ['-m', 'task_relay.api_runner'])
         jid = self.state.db.execute('SELECT id FROM backend_jobs').fetchone()[0]
         self.send('/stop')
         client = Mock()
@@ -258,7 +258,7 @@ class Tests(unittest.TestCase):
             {'output': {'total': 101, 'models': [{'model': 'qwen-plus', 'inference_metadata': {'response_modality': ['Text']}}]}},
             {'output': {'total': 101, 'models': [{'model': 'qwen-max'}]}},
         ]
-        with patch('api_providers.Client', return_value=client):
+        with patch('task_relay.api_providers.Client', return_value=client):
             self.assertEqual(api.catalog('qwen', KEY), ['qwen-max', 'qwen-plus'])
         self.assertIn('page_no=2', client.request.call_args.args[0])
 
@@ -312,7 +312,7 @@ class Tests(unittest.TestCase):
             self.state.db.execute("UPDATE backend_jobs SET status='running' WHERE id=?", (job['id'],))
         client = Mock()
         client.request.return_value = response('openai', 'Recovered')
-        with patch('file_tools.execute') as execute:
+        with patch('task_relay.file_tools.execute') as execute:
             api_runner.run_job(self.state, job['id'], client=client)
         execute.assert_not_called()
         self.assertEqual(client.request.call_count, 1)
@@ -334,7 +334,7 @@ class Tests(unittest.TestCase):
         client = Mock()
         client.request.return_value = tool_response('openrouter')
         config = api.read_config('openrouter')
-        with patch('api_providers.read_config', side_effect=[config, KeyboardInterrupt]):
+        with patch('task_relay.api_providers.read_config', side_effect=[config, KeyboardInterrupt]):
             with self.assertRaises(KeyboardInterrupt):
                 api_runner.run_job(self.state, job['id'], client=client)
         run = self.state.db.execute('SELECT * FROM api_runs WHERE job_id=?', (job['id'],)).fetchone()
@@ -384,7 +384,7 @@ class Tests(unittest.TestCase):
             return tool_response('openai')
         client = Mock()
         client.request.side_effect = request
-        with patch('file_tools.execute') as execute:
+        with patch('task_relay.file_tools.execute') as execute:
             api_runner.run_job(self.state, job['id'], client=client)
         execute.assert_not_called()
         self.assertEqual(client.request.call_count, 1)
@@ -394,7 +394,7 @@ class Tests(unittest.TestCase):
         tid, job = self.queue('deepseek')
         client = Mock()
         client.request.side_effect = [tool_response('deepseek'), tool_response('deepseek', call_id='call_2'), response('deepseek', 'Partial findings')]
-        with patch('api_providers.MAX_TOOL_ROUNDS', 2):
+        with patch('task_relay.api_providers.MAX_TOOL_ROUNDS', 2):
             api_runner.run_job(self.state, job['id'], client=client)
         self.assertEqual(client.request.call_count, 3)
         self.assertEqual(client.request.call_args.args[1]['tool_choice'], 'none')
@@ -416,7 +416,7 @@ class Tests(unittest.TestCase):
             self.state.db.execute('UPDATE api_runs SET workspace=NULL WHERE job_id=?', (job['id'],))
         client = Mock()
         client.request.return_value = tool_response('openai')
-        with patch('file_tools.execute') as execute:
+        with patch('task_relay.file_tools.execute') as execute:
             api_runner.run_job(self.state, job['id'], client=client)
         execute.assert_not_called()
         self.assertEqual(self.state.db.execute('SELECT status FROM backend_jobs WHERE id=?', (job['id'],)).fetchone()[0], 'failed')
@@ -449,7 +449,7 @@ class Tests(unittest.TestCase):
     def test_shortcut_failure_does_not_leave_orphan_task_or_change_selection(self):
         source = self.create('openai')
         api.configure('qwen', KEY, [api.SPECS['qwen']['model']])
-        with patch('api_providers.MAX_CONTEXT', 1):
+        with patch('task_relay.api_providers.MAX_CONTEXT', 1):
             self.send('/qwen Too large')
         self.assertEqual(self.state.get('selected'), source)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0], 1)
@@ -470,7 +470,7 @@ class Tests(unittest.TestCase):
         api.configure('openai', KEY, [api.SPECS['openai']['model']])
         self.send('/openai')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0], 0)
-        with patch('bridge.WORKSPACES', self.root/'projects'):
+        with patch('task_relay.bridge.WORKSPACES', self.root/'projects'):
             self.send('/openai Hello')
         tid = self.state.get('selected')
         self.assertEqual(backends.task(self.state, tid)['cwd'], str((self.root / 'projects').resolve()))
@@ -480,6 +480,6 @@ class Tests(unittest.TestCase):
         api.configure('openai', KEY, [api.SPECS['openai']['model']])
         with self.state.db:
             self.state.put('selected', 'codex-source')
-        with patch('bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
+        with patch('task_relay.bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
             self.send('/openai Summarise this project')
         self.assertEqual(backends.task(self.state, self.state.get('selected'))['cwd'], str(self.root.resolve()))

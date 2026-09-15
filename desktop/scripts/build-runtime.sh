@@ -19,5 +19,5 @@ mkdir -p "$runtime"
 tar -xzf "$archive" -C "$runtime"
 "$runtime/python/bin/python3" -m pip install --only-binary=:all: --require-hashes -r "$desktop_dir/scripts/requirements-runtime.txt"
 python3 "$desktop_dir/scripts/stage-runtime.py"
-"$runtime/python/bin/python3" "$runtime/app/bridge.py" --help >/dev/null
+(cd "$runtime/app" && "$runtime/python/bin/python3" -B -m task_relay.bridge --help >/dev/null)
 echo 'Bundled Python and Task Relay runtime are ready.'

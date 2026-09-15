@@ -45,7 +45,7 @@ class DesktopService:
         return {
             'Label': LABEL,
             'TaskRelayDesktopOwner': OWNER,
-            'ProgramArguments': [str(self.python), str(self.app / 'bridge.py'), 'run'],
+            'ProgramArguments': [str(self.python), '-m', 'task_relay.bridge', 'run'],
             'WorkingDirectory': str(self.app),
             'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 15,
             'EnvironmentVariables': {**self.paths.environment(), 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'},
@@ -120,7 +120,7 @@ class DesktopService:
             raise
 
     def _ensure_runtime(self):
-        if not self.python.is_file() or not os.access(self.python, os.X_OK) or not (self.app / 'bridge.py').is_file():
+        if not self.python.is_file() or not os.access(self.python, os.X_OK) or not (self.app / 'task_relay/bridge.py').is_file():
             raise DesktopServiceError('The packaged Relay runtime is incomplete. Reinstall the desktop app.')
 
     def _write_new(self):

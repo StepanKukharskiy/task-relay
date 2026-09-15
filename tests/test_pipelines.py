@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from bridge import State
+from task_relay.bridge import State
 from task_relay import pipelines as pipe
 from task_relay import orchestrator_chat as chat, production_planning as planning
 from task_relay import production_control as pc, production_selections as selections

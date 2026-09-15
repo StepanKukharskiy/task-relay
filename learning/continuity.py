@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 import time
-import internal_jobs
+from task_relay import internal_jobs
 from .store import digest, encoded, identifier
 
 MODEL = 'gemini-3.7-flash'

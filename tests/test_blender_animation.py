@@ -32,9 +32,9 @@ def inputs(rt,root):
 class Tests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve();self.fake=FakeFactory();self.rt=Runtime(self.root/'runtime',self.fake)
-        self.patches=[patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),
-          patch('host_apps.video_tools',return_value=dict(available=True,ffmpeg='/fixture/ffmpeg',ffprobe='/fixture/ffprobe')),
-          patch('host_evidence.application_signature',side_effect=lambda p:{'path':p})]
+        self.patches=[patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')),
+          patch('task_relay.host_apps.video_tools',return_value=dict(available=True,ffmpeg='/fixture/ffmpeg',ffprobe='/fixture/ffprobe')),
+          patch('task_relay.host_evidence.application_signature',side_effect=lambda p:{'path':p})]
         for p in self.patches:p.start()
         self.op,self.manifest=inputs(self.rt,self.root)
     def tearDown(self):

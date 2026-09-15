@@ -15,11 +15,17 @@ def install(ROOT, DATA, PATHS, read_config, BridgeError):
         spec = plistlib.loads(prior_bytes)
         if spec.get('WorkingDirectory') != str(ROOT):
             raise BridgeError('A LaunchAgent with this name already exists; it was preserved.')
+        argv=spec.get('ProgramArguments', [])
+        if (spec.get('Label') != 'com.personal.codex-telegram' or not argv
+                or argv[1:] not in (['-m', 'task_relay.bridge', 'run'], [str(ROOT / 'bridge.py'), 'run'])
+                or not Path(argv[0]).is_absolute() or spec.get('TaskRelayDesktopOwner')):
+            raise BridgeError('The existing service has a custom launcher or desktop owner; it was preserved.')
         from task_relay.relay_paths import resolve
         prior=resolve(spec.get('EnvironmentVariables',{}),ROOT)
         if prior.data!=PATHS.data:
             raise BridgeError('The installed service uses another data root. An explicit migration is required; it was preserved.')
         spec['EnvironmentVariables']={**spec.get('EnvironmentVariables',{}),**PATHS.environment()}
+        spec['ProgramArguments']=[sys.executable, '-m', 'task_relay.bridge', 'run']
         temporary=path.with_suffix('.plist.tmp')
         temporary.write_bytes(plistlib.dumps(spec));temporary.replace(path)
         # Reload the same installed service with explicit, stable path bindings.
@@ -33,7 +39,7 @@ def install(ROOT, DATA, PATHS, read_config, BridgeError):
         return
     specification = {
         'Label': 'com.personal.codex-telegram',
-        'ProgramArguments': [sys.executable, str(ROOT / 'bridge.py'), 'run'],
+        'ProgramArguments': [sys.executable, '-m', 'task_relay.bridge', 'run'],
         'WorkingDirectory': str(ROOT), 'RunAtLoad': True, 'KeepAlive': True,
         'EnvironmentVariables': PATHS.environment(),
         'ThrottleInterval': 15,

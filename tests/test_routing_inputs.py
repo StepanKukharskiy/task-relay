@@ -3,9 +3,9 @@ from pathlib import Path
 import unittest
 
 from tests import test_task_routing as fixture
-import routing_inputs as inputs
-import production_control as pc
-import orchestrator_chat as chat
+from task_relay import routing_inputs as inputs
+from task_relay import production_control as pc
+from task_relay import orchestrator_chat as chat
 from orchestrator.runtime import file_hash
 
 

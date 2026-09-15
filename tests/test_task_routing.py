@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bridge import State,Bridge,BridgeError
+from task_relay.bridge import State,Bridge,BridgeError
 from tests.test_bridge import TelegramFake
-import task_routing as routing
-import orchestrator_chat as chat
+from task_relay import task_routing as routing
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):
@@ -33,7 +33,7 @@ class Tests(unittest.TestCase):
                 if test.fail:raise TimeoutError('uncertain')
         self.bridge=Bridge(self.state,self.telegram,{},Desktop)
         self.worker=routing.Worker(self.state,Desktop,lambda:self.tasks)
-        self.catalog_patch=patch('bridge.local_tasks',side_effect=lambda:self.tasks);self.catalog_patch.start()
+        self.catalog_patch=patch('task_relay.bridge.local_tasks',side_effect=lambda:self.tasks);self.catalog_patch.start()
         self.provider_patch=patch.object(chat,'provider',return_value=('gemini','fixture'));self.provider_patch.start()
 
     def tearDown(self):

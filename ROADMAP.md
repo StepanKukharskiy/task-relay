@@ -21,6 +21,19 @@ outputs and next decision. Distinguish waiting for a human from missing input,
 missing capability, failure and uncertain submission. Never infer acceptance from
 an ambiguous response or replay an uncertain external operation.
 
+### Package entry points and beta refresh — locally installed 0.13.26
+
+Source launchers, child workers, installed services and tests use canonical package
+calls. Root forwarding modules and their packaging entries are removed. The local
+installer migrates legacy service commands with rollback records. App update
+protocol 2 requires a one-time manual upgrade from older installers; subsequent
+compatible updates retain Install and restart. Website downloads are versioned
+alongside prior immutable assets and are fetched with pinned checksums during
+the website build. The signed app is installed with 197 matching runtime files,
+verified backups and fresh Telegram/Messages health. GitHub release checks passed;
+publication and website deployment remain separately verified steps. Windows
+native execution remains O12.
+
 ### App access settings and Windows CI correction — locally installed 0.13.25
 
 Settings groups installed apps and tools, shows detected versions and paths, and
@@ -47,7 +60,7 @@ runner validation and a public release remain separate.
 | O07 | Shared-runtime evaluation | Bounded preparation/recovery coverage across three workflow types; no general efficiency or quality advantage established. |
 | O04 | Second execution provider | Gemini declared UTF-8 file workers with fixed provider choice and bounded requests; shell/media execution is outside this worker profile. |
 | O09 | Source boundaries and paths | Central resolver, explicit overrides and preserved data bindings; changing a path is not migration. |
-| O10 | Python packaging | Runtime packages, CLI, tests and maintained assets have explicit distribution boundaries. Apache-2.0 license text and package metadata are included. |
+| O10 | Python packaging | Runtime packages, CLI, tests and maintained assets have explicit distribution boundaries. Source launchers, services, workers and tests call the package directly; root forwarding modules are removed in development source. Legacy service definitions remain readable for explicit migration and recovery. Apache-2.0 license text and package metadata are included. |
 | O11 | Host and access adapters | macOS lifecycle, POSIX process groups/locks, credential sources and file grants; shell workers retain their separately declared boundaries. |
 
 O03–O07 have controlled planning, handoff, decision and recovery coverage. Live

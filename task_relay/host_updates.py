@@ -64,7 +64,8 @@ class Service:
                 raise ValueError('The companion owns this service; the source updater cannot replace it.')
             argv = spec.get('ProgramArguments', [])
             if (spec.get('Label') != LABEL or spec.get('WorkingDirectory') != self.install
-                    or len(argv) != 3 or argv[1:] != [str(Path(self.install) / 'bridge.py'), 'run']
+                    or argv[1:] not in (['-m', 'task_relay.bridge', 'run'], [str(Path(self.install) / 'bridge.py'), 'run'])
+                    or not argv
                     or not Path(argv[0]).is_absolute()
                     or any(spec.get('EnvironmentVariables', {}).get(k) != v for k, v in self.paths.environment().items())):
                 raise ValueError('Existing service has different bindings or a custom launcher; it was preserved.')
@@ -79,7 +80,7 @@ class Service:
             return None
         if HOST.platform == 'darwin':
             spec = plistlib.loads(base64.b64decode(previous['raw']))
-            spec.update(ProgramArguments=[target['python'], str(Path(target['install']) / 'bridge.py'), 'run'],
+            spec.update(ProgramArguments=[target['python'], '-m', 'task_relay.bridge', 'run'],
                         WorkingDirectory=target['install'])
             return plistlib.dumps(spec)
         return host_linux.definition(target['install'], self.paths, target['python'])

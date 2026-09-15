@@ -6,18 +6,18 @@ import unittest
 
 from tests import test_orchestrator_chat as fixtures
 from tests.test_gemini import PNG
-import orchestrator_chat as chat
-import orchestrator_images as images
-import production_control as pc
-import gemini_runner
+from task_relay import orchestrator_chat as chat
+from task_relay import orchestrator_images as images
+from task_relay import production_control as pc
+from task_relay import gemini_runner
 
 
 class Tests(unittest.TestCase):
     message=fixtures.Tests.message
     def setUp(self):
         fixtures.Tests.setUp(self)
-        self.gemini_patch=patch('gemini.read_config',return_value={'api_key':'fixture','models':{'text':'test','image':'test-image'}});self.gemini_patch.start()
-        self.root_patch=patch('backends.WORKSPACES',Path(self.temp.name).resolve()/'projects');self.root_patch.start()
+        self.gemini_patch=patch('task_relay.gemini.read_config',return_value={'api_key':'fixture','models':{'text':'test','image':'test-image'}});self.gemini_patch.start()
+        self.root_patch=patch('task_relay.backends.WORKSPACES',Path(self.temp.name).resolve()/'projects');self.root_patch.start()
         with self.state.db:
             self.state.put('orchestrator_mode',True)
             self.state.put('orchestrator_production_focus','an-old-video')
@@ -65,7 +65,7 @@ class Tests(unittest.TestCase):
 
     def test_failed_enqueue_rolls_back_task_reference_consumption_and_receipt(self):
         self.upload()
-        with patch('backends.enqueue',side_effect=ValueError('quota fixture')):
+        with patch('task_relay.backends.enqueue',side_effect=ValueError('quota fixture')):
             job=self.generate()
         self.assertEqual(job['status'],'failed')
         for table in ('backend_jobs','backend_tasks','orchestrator_image_requests','artifacts'):
@@ -73,7 +73,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT status FROM production_uploads WHERE id=9').fetchone()[0],'ready')
 
     def test_selected_guide_text_reaches_image_worker(self):
-        import routing_inputs
+        from task_relay import routing_inputs
         self.upload()
         root=Path(self.temp.name).resolve();source=root/'image-guide.md'
         source.write_text('Use clean blue lines on white. No mockup or paper texture.')

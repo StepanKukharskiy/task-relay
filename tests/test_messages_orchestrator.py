@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge import Bridge, BridgeError
-import orchestrator_chat as chat
-import production_control as pc
-import relay_channels as channels
-from messages_orchestrator import OrchestratorRouter
-from messages_pilot import Pilot, Store
+from task_relay.bridge import Bridge, BridgeError
+from task_relay import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import relay_channels as channels
+from task_relay.messages_orchestrator import OrchestratorRouter
+from task_relay.messages_pilot import Pilot, Store
 from tests.test_bridge import TelegramFake
 from tests import test_messages_pilot as pilot_fixtures
 from tests import test_production_control as production_fixtures

@@ -9,10 +9,10 @@ import urllib.error
 import wave
 from unittest.mock import Mock, patch
 
-import backends
-import gemini
-import gemini_runner
-from bridge import State, Bridge, Telegram, TelegramError
+from task_relay import backends
+from task_relay import gemini
+from task_relay import gemini_runner
+from task_relay.bridge import State, Bridge, Telegram, TelegramError
 from tests.test_bridge import TelegramFake, DesktopFake
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
@@ -36,7 +36,7 @@ class Tests(unittest.TestCase):
             self.state.put('chat_id', 123)
         self.telegram = TelegramFake()
         self.bridge = Bridge(self.state, self.telegram, {}, DesktopFake)
-        self.patches = [patch('gemini.read_config', return_value={'api_key': 'test-secret', 'models': gemini.DEFAULT_MODELS}), patch('gemini.ROOT', self.root), patch('gemini.WORKSPACES',self.root/'projects'), patch('gemini.GENERATED',self.root/'generated')]
+        self.patches = [patch('task_relay.gemini.read_config', return_value={'api_key': 'test-secret', 'models': gemini.DEFAULT_MODELS}), patch('task_relay.gemini.ROOT', self.root), patch('task_relay.gemini.WORKSPACES',self.root/'projects'), patch('task_relay.gemini.GENERATED',self.root/'generated')]
         for p in self.patches:
             p.start()
         self.uid = 10
@@ -121,7 +121,7 @@ class Tests(unittest.TestCase):
     def test_shortcut_from_codex_creates_gemini_task_in_same_project(self):
         with self.state.db:
             self.state.put('selected', 'codex-source')
-        with patch('bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
+        with patch('task_relay.bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
             self.send('/gemini@my_bot Read README.md')
         tid = self.state.get('selected')
         self.assertNotEqual(tid, self.tid)
@@ -133,7 +133,7 @@ class Tests(unittest.TestCase):
             with self.subTest(capability=capability):
                 with self.state.db:
                     self.state.put('selected', None)
-                with patch('bridge.WORKSPACES', self.root/'projects'):
+                with patch('task_relay.bridge.WORKSPACES', self.root/'projects'):
                     self.send(f'/{capability}@my_bot A courtyard\nwith trees')
                     self.uid -= 1
                     self.send(f'/{capability}@my_bot A courtyard\nwith trees')
@@ -165,8 +165,8 @@ class Tests(unittest.TestCase):
     def test_media_from_codex_creates_gemini_task_and_failure_rolls_back(self):
         with self.state.db:
             self.state.put('selected', 'codex-source')
-        with patch('bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
-            with patch('gemini.prepare_run', side_effect=ValueError('Media unavailable')):
+        with patch('task_relay.bridge.local_tasks', return_value=[{'id': 'codex-source', 'cwd': str(self.root)}]):
+            with patch('task_relay.gemini.prepare_run', side_effect=ValueError('Media unavailable')):
                 self.send('/image Courtyard')
             self.assertEqual(self.state.get('selected'), 'codex-source')
             self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0], 1)
@@ -178,7 +178,7 @@ class Tests(unittest.TestCase):
     def test_standalone_media_without_gemini_connection_gives_setup_guidance(self):
         with self.state.db:
             self.state.put('selected', None)
-        with patch('bridge.WORKSPACES', self.root/'projects'), patch('gemini.read_config', return_value=None):
+        with patch('task_relay.bridge.WORKSPACES', self.root/'projects'), patch('task_relay.gemini.read_config', return_value=None):
             self.send('/image Courtyard')
         self.assertIn('Connect Gemini', self.telegram.sent[-1][1])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0], 0)
@@ -223,7 +223,7 @@ class Tests(unittest.TestCase):
             self.state.db.execute("UPDATE backend_jobs SET status='running' WHERE id=?", (jid,))
         client.reset_mock()
         client.request.return_value = result([{'text': 'Recovered summary'}])
-        with patch('file_tools.execute') as execute:
+        with patch('task_relay.file_tools.execute') as execute:
             gemini_runner.run_job(self.state, jid, client=client)
         execute.assert_not_called()
         self.assertEqual(client.request.call_count, 1)
@@ -235,7 +235,7 @@ class Tests(unittest.TestCase):
         jid = self.queued()
         client = Mock()
         client.request.return_value = file_call()
-        with patch('file_tools.execute', side_effect=KeyboardInterrupt):
+        with patch('task_relay.file_tools.execute', side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 gemini_runner.run_job(self.state, jid, client=client)
         self.assertTrue(gemini.resume_job(self.state, jid))
@@ -251,7 +251,7 @@ class Tests(unittest.TestCase):
         jid = self.queued()
         client = Mock()
         client.request.side_effect = [file_call(), result([{'text': 'Available findings'}])]
-        with patch('api_providers.MAX_TOOL_ROUNDS', 1):
+        with patch('task_relay.api_providers.MAX_TOOL_ROUNDS', 1):
             gemini_runner.run_job(self.state, jid, client=client)
         self.assertEqual(client.request.call_count, 2)
         self.assertEqual(client.request.call_args.args[1]['toolConfig']['functionCallingConfig']['mode'], 'NONE')
@@ -264,7 +264,7 @@ class Tests(unittest.TestCase):
             with self.state.db:
                 self.state.db.execute('UPDATE backend_jobs SET cancel=1 WHERE id=?', (jid,))
             return {'ok': True, 'text': 'fixture'}
-        with patch('file_tools.execute', side_effect=execute):
+        with patch('task_relay.file_tools.execute', side_effect=execute):
             gemini_runner.run_job(self.state, jid, client=client)
         self.assertEqual(client.request.call_count, 1)
         self.assertEqual(self.status(jid), 'stopped')
@@ -273,7 +273,7 @@ class Tests(unittest.TestCase):
         jid = self.queued()
         data = file_call()
         data['candidates'][0]['content']['parts'] *= 2
-        with patch('file_tools.execute') as execute:
+        with patch('task_relay.file_tools.execute') as execute:
             self.execute(jid, data)
         execute.assert_not_called()
         self.assertEqual(self.status(jid), 'failed')
@@ -391,7 +391,7 @@ class Tests(unittest.TestCase):
         backends.BackendWorker(self.state, popen, backend='claude').tick()
         popen.assert_not_called()
         backends.BackendWorker(self.state, popen, backend='gemini').tick()
-        self.assertIn('gemini_runner.py', popen.call_args.args[0][1])
+        self.assertEqual(popen.call_args.args[0][1:3], ['-m', 'task_relay.gemini_runner'])
 
     def test_speech_without_task_and_duplicate_delivery(self):
         with self.state.db:
@@ -415,7 +415,7 @@ class Tests(unittest.TestCase):
         source = self.speech_source()
         self.send('/speak', reply=500)
         self.assertIn('followed by text', self.telegram.sent[-1][1])
-        with patch('gemini.read_config', return_value=None):
+        with patch('task_relay.gemini.read_config', return_value=None):
             self.send('/speak Hello', reply=500)
         self.assertIn('/providers', self.telegram.sent[-1][1])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM speech_tasks').fetchone()[0], 0)
@@ -441,7 +441,7 @@ class Tests(unittest.TestCase):
 
     def test_speech_failure_rolls_back_task_creation(self):
         self.speech_source()
-        with patch('gemini.prepare_run', side_effect=ValueError('Invalid speech model')):
+        with patch('task_relay.gemini.prepare_run', side_effect=ValueError('Invalid speech model')):
             self.send('/speak Hello', reply=500)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM speech_tasks').fetchone()[0], 0)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0], 1)
@@ -498,7 +498,7 @@ class Tests(unittest.TestCase):
     def test_request_cap_rejects_without_submitting(self):
         jid = self.queued('a' * 100)
         client = Mock()
-        with patch('gemini.MAX_CONTEXT', 20):
+        with patch('task_relay.gemini.MAX_CONTEXT', 20):
             gemini_runner.run_job(self.state, jid, client=client)
         client.request.assert_not_called()
         self.assertEqual(self.status(jid), 'failed')
@@ -556,7 +556,7 @@ class Tests(unittest.TestCase):
         popen = Mock(return_value=process)
         worker = backends.BackendWorker(self.state, popen, backend='gemini')
         worker.tick()
-        self.assertTrue(popen.call_args.args[0][1].endswith('gemini_runner.py'))
+        self.assertEqual(popen.call_args.args[0][1:3], ['-m', 'task_relay.gemini_runner'])
         with patch.object(DesktopFake, '__enter__', side_effect=AssertionError()):
             self.send('/status')
             self.send('/tasks')
@@ -575,7 +575,7 @@ class Tests(unittest.TestCase):
                 state.db.execute("UPDATE gemini_runs SET stage='sending' WHERE job_id=?", (jid,))
             return payload
         client = Mock()
-        with patch('gemini_runner.make_request', side_effect=concurrent_claim):
+        with patch('task_relay.gemini_runner.make_request', side_effect=concurrent_claim):
             gemini_runner.run_job(self.state, jid, client=client)
         client.request.assert_not_called()
         self.assertEqual(self.status(jid), 'uncertain')

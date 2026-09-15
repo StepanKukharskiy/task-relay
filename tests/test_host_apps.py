@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import host_apps
+from task_relay import host_apps
 
 
 class Tests(unittest.TestCase):
@@ -64,8 +64,8 @@ class Tests(unittest.TestCase):
             self.assertIn('presence only',result['evidence'])
 
     def test_production_image_preview_and_original_delivery_are_distinct(self):
-        from bridge import State
-        from production_control import queue_artifact_preview
+        from task_relay.bridge import State
+        from task_relay.production_control import queue_artifact_preview
         with tempfile.TemporaryDirectory() as tmp:
             state=State(Path(tmp)/'state.sqlite');p=Path(tmp)/'blob';p.write_bytes(b'\x89PNG\r\n\x1a\n'+b'fixture')
             artifact={'id':'art','blob':str(p)}

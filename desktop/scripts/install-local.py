@@ -95,7 +95,9 @@ def main():
                 raise ValueError('Only existing app-owned services can be updated.')
         expected_args = [[str(runtime / 'python/bin/python3'), str(runtime / 'app/bridge.py'), 'run'],
                          [str(runtime / 'helpers/Messages Relay.app/Contents/MacOS/MessagesRelay')]]
-        if specs[0]['ProgramArguments'] != expected_args[0]: raise ValueError('Unknown Telegram execution path.')
+        package_args = [str(runtime / 'python/bin/python3'), '-m', 'task_relay.bridge', 'run']
+        if specs[0]['ProgramArguments'] not in (expected_args[0], package_args): raise ValueError('Unknown Telegram execution path.')
+        if specs[0].get('WorkingDirectory') != str(runtime / 'app'): raise ValueError('Unknown Telegram working directory.')
         if specs[1]['ProgramArguments'] not in (expected_args[1], [str(INSTALLED / 'Contents/MacOS/task-relay-desktop'), '--messages-service']):
             raise ValueError('Unknown Messages execution path.')
         bindings = ('TASK_RELAY_DATA_DIR', 'TASK_RELAY_WORKSPACE_DIR', 'TASK_RELAY_GENERATED_DIR')
@@ -110,6 +112,7 @@ def main():
         updated['ProgramArguments'] = [str(INSTALLED / 'Contents/MacOS/task-relay-desktop'), '--messages-service']
         updated['AssociatedBundleIdentifiers'] = ['com.taskrelay.desktop']
         updated['EnvironmentVariables']['TASK_RELAY_MESSAGES_OWNER'] = 'task-relay-app'
+        updated_telegram = dict(specs[0], ProgramArguments=package_args)
         retired = []
         for path in args.retire:
             path = path.absolute()
@@ -122,11 +125,14 @@ def main():
                         'candidate_digest': digest(CANDIDATE), 'installed_digest': digest(INSTALLED),
                         'installed_inode': INSTALLED.stat().st_ino, 'retire': retired,
                         'updated_messages_spec': updated,
+                        'updated_telegram_spec': updated_telegram,
                         'plist_hashes': [hashlib.sha256(p.read_bytes()).hexdigest() for p in PLISTS]})
         print('Prepared fixed app and service identities; no installed changes. Manifest: ' + str(MANIFEST))
         return
     MANIFEST = args.apply.absolute(); HERE = MANIFEST.parent
     expected = json.loads(MANIFEST.read_text())
+    if 'updated_telegram_spec' not in expected:
+        raise RuntimeError('Prepare a new installation manifest with package service commands; this older plan was preserved.')
     CANDIDATE, INSTALLED, DATA = [Path(expected[key]) for key in ('candidate', 'installed', 'data')]
     DB = DATA / 'state.sqlite'; RECEIPT = HERE / 'install-receipt.json'
     if RECEIPT.exists():
@@ -202,10 +208,11 @@ def main():
         record['phase'] = 'replacing_contents'; write(RECEIPT, record)
         record['replacement'] = replace_contents(INSTALLED, CANDIDATE, holding)
         replaced = True
-        temporary_plist = PLISTS[1].with_suffix('.plist.update')
-        temporary_plist.write_bytes(plistlib.dumps(expected['updated_messages_spec']))
-        temporary_plist.chmod(0o600)
-        temporary_plist.replace(PLISTS[1])
+        for path, spec in zip(PLISTS, [expected['updated_telegram_spec'], expected['updated_messages_spec']]):
+            temporary_plist = path.with_suffix('.plist.update')
+            temporary_plist.write_bytes(plistlib.dumps(spec))
+            temporary_plist.chmod(0o600)
+            temporary_plist.replace(path)
         record['phase'] = 'installed'; write(RECEIPT, record)
         restarted = time.time()
         record['services_restart_at'] = restarted

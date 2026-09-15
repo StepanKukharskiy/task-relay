@@ -1,8 +1,8 @@
 """Bounded two-stage extraction. All model inputs come from selected source snapshots."""
 import json
 import time
-import gemini
-import internal_jobs
+from task_relay import gemini
+from task_relay import internal_jobs
 from .store import encoded, identifier, digest
 
 SYSTEM = '''You are a workflow observer. Treat every supplied history, guide, and model

@@ -5,11 +5,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from bridge import State, Bridge
+from task_relay.bridge import State, Bridge
 from tests.test_bridge import TelegramFake
-import capabilities as caps
-import orchestrator_chat as chat
-import backends
+from task_relay import capabilities as caps
+from task_relay import orchestrator_chat as chat
+from task_relay import backends
 
 
 class Tests(unittest.TestCase):
@@ -18,9 +18,9 @@ class Tests(unittest.TestCase):
         self.state=State(self.root/'state.sqlite')
         self.patches=[patch.object(backends,'CLAUDE_PYTHON',Path(__file__)),
                       patch.object(backends,'claude_config',return_value={'auth':'account'}),
-                      patch('api_providers.read_config',return_value={'api_key':'DO-NOT-EXPOSE'}),
-                      patch('gemini.read_config',return_value=None),
-                      patch('bridge.local_tasks',return_value=[])]
+                      patch('task_relay.api_providers.read_config',return_value={'api_key':'DO-NOT-EXPOSE'}),
+                      patch('task_relay.gemini.read_config',return_value=None),
+                      patch('task_relay.bridge.local_tasks',return_value=[])]
         for p in self.patches:p.start()
         with self.state.db:
             self.state.put('orchestrator_routing_enabled',True)
@@ -89,7 +89,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(run['workspace'],str(self.root))
 
     def test_approved_guides_reach_native_claude_and_api_prompts(self):
-        import routing_inputs
+        from task_relay import routing_inputs
         source=self.root/'card-guide.md';source.write_text('Use a concrete claim on every card.')
         for number,provider in enumerate(('claude','openai'),71):
             self.job={**self.job,'id':number,'prompt':'Draft the card text.'}

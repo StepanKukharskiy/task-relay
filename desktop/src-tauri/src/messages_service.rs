@@ -19,7 +19,7 @@ pub fn run() -> Result<i32, String> {
     let root = runtime(&std::env::current_exe().map_err(|e| e.to_string())?)?;
     let python = root.join("python/bin/python3");
     let source = root.join("app");
-    if !python.is_file() || !source.join("messages_pilot.py").is_file() {
+    if !python.is_file() || !source.join("task_relay/messages_pilot.py").is_file() {
         return Err("Task Relay's Messages runtime is missing".into());
     }
     let data = std::env::var("TASK_RELAY_DATA_DIR").map_err(|_| "Messages needs its saved Relay data binding")?;
@@ -28,7 +28,7 @@ pub fn run() -> Result<i32, String> {
     unsafe { libc::signal(libc::SIGTERM, stop as *const () as usize); libc::signal(libc::SIGINT, stop as *const () as usize); }
     while paused.exists() && !STOP.load(Ordering::SeqCst) { std::thread::sleep(Duration::from_millis(250)); }
     if STOP.load(Ordering::SeqCst) { return Ok(0); }
-    let mut child = Command::new(python).arg(source.join("messages_pilot.py")).arg("--background")
+    let mut child = Command::new(python).args(["-m", "task_relay.messages_pilot", "--background"])
         .current_dir(source).stdin(Stdio::null())
         .env("TASK_RELAY_MESSAGES_OWNER", "task-relay-app")
         .env("TASK_RELAY_COMPANION", "1")
