@@ -3,9 +3,9 @@ from pathlib import Path
 from unittest.mock import patch
 import unittest
 
-import production_folders as pf
-import production_control as pc
-import orchestrator_chat as chat
+from task_relay import production_folders as pf
+from task_relay import production_control as pc
+from task_relay import orchestrator_chat as chat
 from tests import test_production_control as fixtures
 
 

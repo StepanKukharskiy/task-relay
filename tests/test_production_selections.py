@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import production_control as pc
-import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import orchestrator_chat as chat
 from tests import test_production_status as status_fixtures
 
 
@@ -48,7 +48,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(events[0]['data'])['sha256'],card['sha256'])
 
     def test_foreign_message_user_and_pending_reply_cannot_select(self):
-        import production_selections as selections
+        from task_relay import production_selections as selections
         card,mid=self.ready();self.bridge.flush_media()
         other=self.state.db.execute('''SELECT message_id FROM orchestrator_messages WHERE focus='demo'
             AND message_id NOT IN (SELECT message_id FROM production_selection_messages WHERE token=?)''',(card['token'],)).fetchone()[0]
@@ -100,7 +100,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_decisions').fetchone()[0],0)
 
     def test_restart_preserves_card_and_transaction_rolls_back_decision(self):
-        from bridge import State,Bridge
+        from task_relay.bridge import State,Bridge
         from orchestrator.runtime import Runtime
         card,mid=self.ready();self.bridge.flush_media()
         dbpath=Path(self.state.db.execute('PRAGMA database_list').fetchone()[2])

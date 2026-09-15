@@ -20,18 +20,18 @@ class Tests(unittest.TestCase):
             app = runtime / 'app'
             app.mkdir(parents=True)
             (app / 'retired.py').write_text('retired')
+            (app / 'desktop_bridge_entry.py').write_text('retired forwarding entry')
             (runtime / 'python').mkdir()
             (runtime / 'python/keeper').write_text('runtime')
-            (root / 'current.py').write_text('current')
-            entry = root / 'desktop/scripts/relay_bridge_entry.py'
-            entry.parent.mkdir(parents=True)
+            entry = root / 'task_relay/desktop_bridge.py'
+            entry.parent.mkdir()
             entry.write_text('entry')
-            inventory = {'files': [{'path': 'current.py', 'release': True},
+            inventory = {'files': [{'path': 'task_relay/desktop_bridge.py', 'release': True},
                                    {'path': 'private.txt', 'release': False}]}
             with patch.object(staging, 'ROOT', root), patch.object(staging, 'inventory', return_value=inventory):
                 staging.main()
-            self.assertEqual({p.name for p in app.iterdir()}, {'current.py', 'desktop_bridge_entry.py'})
-            self.assertEqual((app / 'current.py').read_text(), 'current')
+            self.assertEqual({p.name for p in app.iterdir()}, {'task_relay'})
+            self.assertEqual((app / 'task_relay/desktop_bridge.py').read_text(), 'entry')
             self.assertEqual((runtime / 'python/keeper').read_text(), 'runtime')
 
     def test_refuses_symlinked_output_without_deleting_target(self):

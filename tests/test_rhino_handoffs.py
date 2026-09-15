@@ -5,9 +5,9 @@ import struct
 import unittest
 from unittest.mock import patch
 
-import production_control as pc
-import production_planning as planning
-import production_selections as selections
+from task_relay import production_control as pc
+from task_relay import production_planning as planning
+from task_relay import production_selections as selections
 from orchestrator.runtime import file_hash
 from orchestrator.step_runner import execute
 from orchestrator.storage import transaction
@@ -26,9 +26,9 @@ class Tests(unittest.TestCase):
 
     def setUp(self):
         fixture.Tests.setUp(self)
-        self.app=patch('host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
+        self.app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
         self.app.start()
-        self.signature=patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'})
+        self.signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'})
         self.signature.start()
         self.production=pc.Worker(self.state,lambda _:self.rt)
 
@@ -180,7 +180,7 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'changed'),transaction(self.state.db):selections.apply(self.state,card['token'],7,mid)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_decisions').fetchone()[0],0)
         blob.write_bytes(original)
-        from bridge import State,Bridge
+        from task_relay.bridge import State,Bridge
         from orchestrator.runtime import Runtime
         dbpath=Path(self.state.db.execute('PRAGMA database_list').fetchone()[2])
         self.production.close();self.state.db.close()

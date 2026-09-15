@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch,Mock
 
-import orchestrator_web as web
-import orchestrator_files as loop
-import gemini
+from task_relay import orchestrator_web as web
+from task_relay import orchestrator_files as loop
+from task_relay import gemini
 
 
 class Tests(unittest.TestCase):
@@ -91,7 +91,7 @@ class Tests(unittest.TestCase):
         self.assertEqual([d['name'] for d in loop.definitions([],session)],['web_fetch'])
 
     def test_one_search_evidence_document_is_queued_on_the_answer(self):
-        from bridge import State
+        from task_relay.bridge import State
         state=State(Path(self.temp.name)/'state.sqlite');job={'id':73}
         with patch.object(gemini,'DATA',Path(self.temp.name)):
             receipt=gemini.DATA/'orchestrator-reads'/(hashlib.sha256(b'73').hexdigest()+'.json')

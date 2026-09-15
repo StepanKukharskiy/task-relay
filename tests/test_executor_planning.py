@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from orchestrator import executors
-import production_planning as planning
+from task_relay import production_planning as planning
 from tests import test_production_planning as fixtures
 from tests.test_gemini_executor import CONFIG,BACKEND
 

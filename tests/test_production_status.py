@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 from tests import test_production_control as fixtures
-import production_status as status
-import production_control as pc
-import orchestrator_chat as chat
-import production_continuations as cont
+from task_relay import production_status as status
+from task_relay import production_control as pc
+from task_relay import orchestrator_chat as chat
+from task_relay import production_continuations as cont
 
 
 class Tests(unittest.TestCase):

@@ -36,7 +36,7 @@ class LocalInstallTests(unittest.TestCase):
         owners = ['task-relay-desktop-v1', 'task-relay-companion-messages-v1']
         commands = [[str(runtime / 'python/bin/python3'), str(runtime / 'app/bridge.py'), 'run'], [str(runtime / 'helpers/Messages Relay.app/Contents/MacOS/MessagesRelay')]]
         for i, path in enumerate(self.plists):
-            path.write_bytes(plistlib.dumps({'Label': local.LABELS[i], 'TaskRelayDesktopOwner': owners[i], 'EnvironmentVariables': env, 'ProgramArguments': commands[i]}))
+            path.write_bytes(plistlib.dumps({'Label': local.LABELS[i], 'TaskRelayDesktopOwner': owners[i], 'EnvironmentVariables': env, 'ProgramArguments': commands[i], 'WorkingDirectory': str(runtime / 'app')}))
         self.before = [p.read_bytes() for p in self.plists]
         self.recovery = self.root / 'recovery'
         self.addCleanup(patch.stopall)
@@ -52,6 +52,30 @@ class LocalInstallTests(unittest.TestCase):
         spec = manifest['updated_messages_spec']
         self.assertEqual([str(self.installed / 'Contents/MacOS/task-relay-desktop'), '--messages-service'], spec['ProgramArguments'])
         self.assertEqual(str(self.data), spec['EnvironmentVariables']['TASK_RELAY_DATA_DIR'])
+        telegram = manifest['updated_telegram_spec']
+        self.assertEqual(telegram['ProgramArguments'][1:], ['-m', 'task_relay.bridge', 'run'])
+        self.assertEqual(telegram['EnvironmentVariables'], plistlib.loads(self.before[0])['EnvironmentVariables'])
+        self.assertEqual(self.before, [p.read_bytes() for p in self.plists])
+
+    def test_already_migrated_telegram_prepares_without_rewriting_services(self):
+        spec = plistlib.loads(self.plists[0].read_bytes())
+        spec['ProgramArguments'] = [spec['ProgramArguments'][0], '-m', 'task_relay.bridge', 'run']
+        self.plists[0].write_bytes(plistlib.dumps(spec))
+        before = self.plists[0].read_bytes()
+        self.prepare()
+        manifest = json.loads((self.recovery / 'install-manifest.json').read_text())
+        self.assertEqual(manifest['updated_telegram_spec'], spec)
+        self.assertEqual(self.plists[0].read_bytes(), before)
+
+    def test_older_manifest_is_refused_before_service_or_bundle_changes(self):
+        self.prepare()
+        path = self.recovery / 'install-manifest.json'
+        value = json.loads(path.read_text()); del value['updated_telegram_spec']
+        path.write_text(json.dumps(value))
+        with patch('sys.argv', ['install', '--apply', str(path)]), patch.object(local, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'new installation manifest'):
+                local.main()
+        run.assert_not_called()
         self.assertEqual(self.before, [p.read_bytes() for p in self.plists])
 
     def test_active_attempt_prevents_update_preparation(self):

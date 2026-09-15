@@ -3,9 +3,9 @@ import copy
 import unittest
 from unittest.mock import patch
 
-import gemini
-import production_planning as planning
-import capabilities
+from task_relay import gemini
+from task_relay import production_planning as planning
+from task_relay import capabilities
 from tests import test_production_planning as fixtures
 from tests.test_mixed_execution import operation,upstream
 

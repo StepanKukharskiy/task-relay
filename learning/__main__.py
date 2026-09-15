@@ -126,7 +126,7 @@ def main(argv=None):
             if 'raw' in result:
                 result['raw'] = result['raw'].decode('utf-8')
         elif args.command == 'cancel':
-            import internal_jobs
+            from task_relay import internal_jobs
             internal_jobs.cancel(store.db, args.run_id)
             result = {'run_id': args.run_id, 'cancel_requested': True}
         elif args.command == 'state-update':
@@ -143,7 +143,7 @@ def main(argv=None):
             result = correct_state(store, args.state_id, json.loads(args.correction.read_text()), args.note,
                                    json.loads(args.metrics.read_text()) if args.metrics else None)
         else:
-            import internal_jobs
+            from task_relay import internal_jobs
             internal_jobs.recover(store.db, args.job_id)
             result = {'job_id': args.job_id, 'replayed': False}
         print(json.dumps(result, ensure_ascii=False, indent=2))

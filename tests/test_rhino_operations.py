@@ -86,8 +86,8 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve()
         self.fake=FakeFactory();self.rt=Runtime(self.root/'runtime',self.fake)
-        self.app=patch('host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.app.start()
-        self.signature=patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'});self.signature.start()
+        self.app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.app.start()
+        self.signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'});self.signature.start()
         self.op=inputs(self.rt,self.root)
 
     def tearDown(self):self.signature.stop();self.app.stop();self.rt.close();self.tmp.cleanup()
@@ -190,14 +190,14 @@ class Tests(unittest.TestCase):
 
     def test_runtime_version_drift_blocks_even_with_same_executable(self):
         frozen,control=self.frozen()
-        with patch('host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture',major=7,version='7.32')),patch('task_relay.rhino_host.run') as run:
+        with patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture',major=7,version='7.32')),patch('task_relay.rhino_host.run') as run:
             with self.assertRaisesRegex(ValueError,'version changed'):execute(frozen,control)
             run.assert_not_called()
 
     def test_python2_script_approval_uses_selected_legacy_runtime(self):
         p=self.root/'legacy';p.mkdir()
         op=inputs(self.rt,p,script='print "legacy fixture"\n')
-        with patch('host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture',major=7,version='7.32')):
+        with patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture',major=7,version='7.32')):
             self.assertEqual(host_code.binding(self.rt,op)['rhino_runtime']['major'],7)
         with self.assertRaises(SyntaxError):host_code.binding(self.rt,op)
 

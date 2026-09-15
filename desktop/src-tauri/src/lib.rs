@@ -34,12 +34,12 @@ fn bridge_command(app: &tauri::AppHandle) -> Result<Command, String> {
     let root = app.path().resource_dir().map_err(|_| "Bundled runtime is unavailable.")?
         .join("resources").join("runtime");
     let python = root.join("python").join("bin").join("python3");
-    let entry = root.join("app").join("desktop_bridge_entry.py");
+    let entry = root.join("app").join("task_relay").join("desktop_bridge.py");
     if !python.is_file() || !entry.is_file() {
         return Err("Bundled Task Relay runtime is missing. Reinstall the desktop app.".into());
     }
     let mut command = Command::new(python);
-    command.arg(entry).current_dir(root.join("app"));
+    command.args(["-m", "task_relay.desktop_bridge"]).current_dir(root.join("app"));
     command.env("TASK_RELAY_DESKTOP_RUNTIME_ROOT", root);
     command.env("PYTHONNOUSERSITE", "1");
     command.env("PYTHONDONTWRITEBYTECODE", "1");

@@ -5,8 +5,8 @@ import sqlite3
 import tempfile
 import unittest
 
-import usage_tracker as usage
-from usage_sources import collect_local
+from task_relay import usage_tracker as usage
+from task_relay.usage_sources import collect_local
 
 
 class Tests(unittest.TestCase):
@@ -106,7 +106,7 @@ class Tests(unittest.TestCase):
             refresh.assert_not_called()
 
     def test_relay_steps_precede_aggregate_and_import_is_idempotent(self):
-        from bridge import State
+        from task_relay.bridge import State
         source=self.root/'state.sqlite';s=State(source)
         with s.db:
             s.db.execute('INSERT INTO backend_tasks VALUES (?,?,?,?,?,?)',('t','openai','s','project','m',1))
@@ -120,7 +120,7 @@ class Tests(unittest.TestCase):
         self.assertNotIn('PRIVATE PROMPT',str([tuple(r) for r in self.db.execute('select * from usage_events')]))
 
     def test_command_auth_and_no_provider_invocation(self):
-        from bridge import State,Bridge
+        from task_relay.bridge import State,Bridge
         from tests.test_bridge import TelegramFake
         s=State(self.root/'state.sqlite');tg=TelegramFake();bridge=Bridge(s,tg,{})
         with s.db:s.put('user_id',7);s.put('chat_id',7)

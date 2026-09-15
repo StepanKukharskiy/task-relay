@@ -4,14 +4,14 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-import backends
-import gemini
-import gemini_runner
-from messages_pilot import Pilot, Store
-from messages_providers import ProviderRouter
-from messages_service import definition
-from messages_orchestrator import OrchestratorRouter
-from bridge import State
+from task_relay import backends
+from task_relay import gemini
+from task_relay import gemini_runner
+from task_relay.messages_pilot import Pilot, Store
+from task_relay.messages_providers import ProviderRouter
+from task_relay.messages_service import definition
+from task_relay.messages_orchestrator import OrchestratorRouter
+from task_relay.bridge import State
 from tests.test_messages_pilot import Desktop, Transport
 
 
@@ -19,7 +19,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.config = patch('gemini.read_config', return_value={'api_key': 'test-only', 'models': gemini.DEFAULT_MODELS})
+        self.config = patch('task_relay.gemini.read_config', return_value={'api_key': 'test-only', 'models': gemini.DEFAULT_MODELS})
         self.config.start()
         self.shared = State(self.root / 'state.sqlite')
         self.store = Store(state=self.shared)
@@ -99,7 +99,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.desktop.starts, [])
 
     def test_missing_connection_has_no_jobs_and_no_codex_fallback(self):
-        with patch('gemini.read_config', return_value=None):
+        with patch('task_relay.gemini.read_config', return_value=None):
             self.send('/gemini Hello')
         self.assertIsNone(self.job())
         self.assertEqual(self.desktop.starts, [])

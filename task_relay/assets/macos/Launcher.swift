@@ -91,7 +91,7 @@ final class RelayApp: NSObject, NSApplicationDelegate {
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: python)
-        process.arguments = [root.appendingPathComponent("messages_pilot.py").path, "--background"]
+        process.arguments = ["-m", "task_relay.messages_pilot", "--background"]
         process.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"

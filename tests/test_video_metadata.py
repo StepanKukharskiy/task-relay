@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from bridge import Telegram
-from media import video_metadata
+from task_relay.bridge import Telegram
+from task_relay.media import video_metadata
 
 
 class Tests(unittest.TestCase):
@@ -43,7 +43,7 @@ class Tests(unittest.TestCase):
             original = b'0000ftypisomUNCHANGED'
             path.write_bytes(original)
             telegram = Telegram('test')
-            with patch('bridge.video_metadata', return_value={'width': 1080, 'height': 1920, 'duration': 65}), patch.object(telegram, 'request', return_value={}) as request:
+            with patch('task_relay.bridge.video_metadata', return_value={'width': 1080, 'height': 1920, 'duration': 65}), patch.object(telegram, 'request', return_value={}) as request:
                 telegram.send_media(1, path, path.name, 'video', 'Portrait')
             method, body, _ = request.call_args.args
             self.assertEqual(method, 'sendVideo')
@@ -58,7 +58,7 @@ class Tests(unittest.TestCase):
             path = Path(folder)/'unknown.mp4'
             path.write_bytes(b'unknown')
             telegram = Telegram('test')
-            with patch('bridge.video_metadata', return_value={}), patch.object(telegram, 'request', return_value={}) as request:
+            with patch('task_relay.bridge.video_metadata', return_value={}), patch.object(telegram, 'request', return_value={}) as request:
                 telegram.send_media(1, path, path.name, 'video', 'Unknown')
             self.assertEqual(request.call_args.args[0], 'sendDocument')
             self.assertIn(b'name="document"', request.call_args.args[1])

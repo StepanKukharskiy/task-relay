@@ -3,9 +3,9 @@ from pathlib import Path
 from unittest.mock import patch
 import unittest
 
-import guide_discovery
-import task_routing
-import orchestrator_chat
+from task_relay import guide_discovery
+from task_relay import task_routing
+from task_relay import orchestrator_chat
 from tests import test_task_routing as fixture
 
 
@@ -139,7 +139,7 @@ class Tests(unittest.TestCase):
         self.assertTrue(result['warnings'])
 
     def test_incomplete_search_is_disclosed_and_does_not_silently_dispatch(self):
-        with patch('guide_discovery.os.walk',return_value=[(str(self.root),[],['file']*5001)]):
+        with patch('task_relay.guide_discovery.os.walk',return_value=[(str(self.root),[],['file']*5001)]):
             self.request({'kind':'route_task','task_id':'t0'},'Inspect solver room coverage.')
         self.assertEqual(self.row()['status'],'guides_pending')
         self.worker.tick();self.assertEqual(self.calls,[])

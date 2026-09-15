@@ -12,9 +12,14 @@ running app-owned services, installs the candidate, checks fresh service readine
 and reopens the app. Stopped services remain stopped. Release notes open the
 repository's releases page. No terminal command is part of this user flow.
 
-**Bootstrap:** published 0.13.0 and earlier apps do not contain this updater. The
-first build containing it must be installed manually once. This source change
-does not modify an existing installation or publish a new release.
+**Bootstrap to 0.13.26:** apps through 0.13.25 need one manual installation.
+Quit Relay, replace Task Relay in Applications with the new DMG, and reopen it.
+If Settings shows an existing service, use Review service handoff to migrate it;
+complete the Messages handoff too if shown. Keep the same saved data folder.
+The 0.13.26 app uses package module commands instead of removed wrapper files.
+Its protocol 2 manifest prevents older installers from replacing the app without
+migrating those commands. Subsequent compatible protocol 2 releases can use
+Install and restart.
 
 ## Release contract
 
@@ -23,7 +28,7 @@ additional assets on the same GitHub release, using tag `vMAJOR.MINOR.PATCH`:
 
 - `Task-Relay-VERSION-macos-ARCH.zip`: the signed app bundle, with plain files and
   directories, exact modes, and no symlinks.
-- `app-update-macos-ARCH.json`: protocol 1, app version, platform, architecture,
+- `app-update-macos-ARCH.json`: protocol 2, app version, platform, architecture,
   stable/beta channel, asset filename, byte length, SHA-256 digest, SHA-256 of the
   signing certificate, and `data_policy: unchanged`.
 

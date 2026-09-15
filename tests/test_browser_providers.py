@@ -176,7 +176,7 @@ class PlanningTests(unittest.TestCase):
     row=planning_fixtures.Tests.row;response=planning_fixtures.Tests.response;click=planning_fixtures.Tests.click;start=planning_fixtures.Tests.start
 
     def check_provider(self,provider):
-        import production_planning as planning
+        from task_relay import production_planning as planning
         from tests.test_general_browser import policy
         backend={'type':provider+'-browser','model':'fixture-model'}
         def configured(selected='gemini'):

@@ -470,9 +470,9 @@ class Worker:
         try:
             dbpath = self.state.db.execute('PRAGMA database_list').fetchone()[2]
             command=([HOST.browser_python(gemini.ROOT,Path(dbpath).parent),'-m','task_relay.browser_setup',dbpath,row['id']]
-                     if row['provider'] in ('perplexity','browser-sites') else [sys.executable,str(gemini.ROOT/'provider_runner.py'),dbpath,row['id']])
+                     if row['provider'] in ('perplexity','browser-sites') else [sys.executable,'-m','task_relay.provider_runner',dbpath,row['id']])
             process = HOST.spawn(command,
-                                 popen=self.popen, stdin=subprocess.PIPE if row['operation']=='browser_chat_login' else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 cwd=gemini.ROOT, popen=self.popen, stdin=subprocess.PIPE if row['operation']=='browser_chat_login' else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.active = (row['id'], process, time.monotonic())
             if row['operation']=='browser_chat_login':
                 from . import host_login

@@ -3,10 +3,10 @@ import unittest
 
 from tests import test_production_selections as fixture
 from tests.test_orchestrator import pair
-import production_control as pc
-import production_selections as selections
-import production_lifecycle as lifecycle
-import capabilities
+from task_relay import production_control as pc
+from task_relay import production_selections as selections
+from task_relay import production_lifecycle as lifecycle
+from task_relay import capabilities
 
 
 class Tests(unittest.TestCase):

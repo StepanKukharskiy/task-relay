@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-import gemini
+from task_relay import gemini
 from orchestrator import contracts as c, execution
 from orchestrator.adapters import ExecutionFactory,RegisteredFactory
 from orchestrator.runtime import Runtime,file_hash

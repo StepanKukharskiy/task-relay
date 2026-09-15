@@ -9,9 +9,9 @@ import types
 import unittest
 from unittest.mock import patch, Mock
 
-from bridge import Bridge, State
-import backends
-import claude_runner
+from task_relay.bridge import Bridge, State
+from task_relay import backends
+from task_relay import claude_runner
 from tests.test_bridge import TelegramFake, DesktopFake
 
 
@@ -25,9 +25,9 @@ class Tests(unittest.TestCase):
             self.state.put('chat_id', 123)
         self.telegram = TelegramFake()
         self.bridge = Bridge(self.state, self.telegram, {}, DesktopFake)
-        self.config = patch('backends.claude_config', return_value={'auth': 'account', 'model': 'sonnet'})
+        self.config = patch('task_relay.backends.claude_config', return_value={'auth': 'account', 'model': 'sonnet'})
         self.config.start()
-        self.python = patch('backends.CLAUDE_PYTHON', Path(__file__))
+        self.python = patch('task_relay.backends.CLAUDE_PYTHON', Path(__file__))
         self.python.start()
         self.uid = 1
 
@@ -70,7 +70,7 @@ class Tests(unittest.TestCase):
 
     def test_provider_creation_does_not_capture_new_orchestrator_requests(self):
         self.create()
-        with patch('orchestrator_chat.provider',return_value=('gemini','fixture')):
+        with patch('task_relay.orchestrator_chat.provider',return_value=('gemini','fixture')):
             self.send('Start a separate Codex research task',reply=None)
         self.assertEqual(self.state.db.execute('SELECT prompt FROM orchestrator_chats').fetchone()[0],
                          'Start a separate Codex research task')
@@ -234,7 +234,7 @@ class Tests(unittest.TestCase):
                 self.state.db.execute("UPDATE backend_jobs SET status='running' WHERE id=?", (jid,))
             await claude_runner.run_job(self.state, jid, os.getppid())
         with patch.dict('sys.modules', {'claude_agent_sdk': sdk}), \
-                patch('claude_runner.claude_config', return_value={'auth': 'account'}):
+                patch('task_relay.claude_runner.claude_config', return_value={'auth': 'account'}):
             asyncio.run(run(job['id']))
             self.assertEqual(captured[0]['session_id'], tid.split(':', 1)[1])
             self.assertIsNone(captured[0]['resume'])
@@ -288,7 +288,7 @@ class Tests(unittest.TestCase):
         with self.state.db:
             self.state.db.execute("UPDATE backend_jobs SET status='running'")
         with patch.dict('sys.modules', {'claude_agent_sdk': sdk}), \
-                patch('claude_runner.claude_config', return_value={'auth': 'account'}):
+                patch('task_relay.claude_runner.claude_config', return_value={'auth': 'account'}):
             asyncio.run(claude_runner.run_job(self.state, job['id'], os.getppid()))
         self.assertEqual(self.state.db.execute('SELECT status FROM backend_jobs').fetchone()[0], 'completed')
 

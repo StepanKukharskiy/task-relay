@@ -217,7 +217,7 @@ class PlanningTests(unittest.TestCase):
     row=planning_fixtures.Tests.row;response=planning_fixtures.Tests.response;click=planning_fixtures.Tests.click;start=planning_fixtures.Tests.start
 
     def test_capture_plan_freezes_png_outputs_scope_and_review_inputs(self):
-        import production_planning as planning
+        from task_relay import production_planning as planning
         backend={'type':'gemini-agent','model':'fixture-model'}
         with patch.object(executors,'configured',return_value=(CONFIG,backend)),patch.object(executors,'available'):
             self.queue(action=self.action(executor='gemini-browser'),text='Capture one viewport of https://example.test/map as map.png. I will review the image.')

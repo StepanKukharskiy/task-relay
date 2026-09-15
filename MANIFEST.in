@@ -2,7 +2,6 @@
 # operational data and development evidence stay in the checkout.
 global-exclude *
 include pyproject.toml MANIFEST.in README.md LICENSE
-include *.py
 recursive-include task_relay *.py
 include task_relay/assets/*.png
 include task_relay/assets/*.html

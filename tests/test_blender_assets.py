@@ -29,7 +29,7 @@ def inputs(rt,root):
 class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve();self.fake=FakeFactory();self.rt=Runtime(self.root/'runtime',self.fake)
-        self.app=patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture'));self.app.start()
+        self.app=patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture'));self.app.start()
         self.op,self.manifest=inputs(self.rt,self.root)
     def tearDown(self):self.app.stop();self.rt.close();self.tmp.cleanup()
     def frozen(self):

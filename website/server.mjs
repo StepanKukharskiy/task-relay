@@ -34,7 +34,8 @@ assets.set('/health', { body: Buffer.from('ok\n'), type: 'text/plain; charset=ut
 const downloads = new Map();
 const directory = process.env.TASK_RELAY_DOWNLOAD_DIR || fileURLToPath(new URL('./downloads/', import.meta.url));
 for (const name of ['Task-Relay-0.12.1-beta.1-arm64.dmg', 'Task-Relay-0.12.1-beta.1-source.tar.gz',
-  'Task-Relay-0.13.0-beta.1-arm64.dmg', 'Task-Relay-0.13.0-beta.1-source.tar.gz']) {
+  'Task-Relay-0.13.0-beta.1-arm64.dmg', 'Task-Relay-0.13.0-beta.1-source.tar.gz',
+  'Task-Relay-0.13.26-arm64.dmg', 'Task-Relay-0.13.26-source.tar.gz']) {
   for (const suffix of ['', '.sha256']) {
     const filename = name + suffix, path = join(directory, filename);
     const info = await stat(path); // Fail deployment health if an advertised asset is missing.

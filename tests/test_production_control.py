@@ -6,8 +6,8 @@ from unittest.mock import patch
 from tests import test_orchestrator_chat as fixtures
 from tests.test_orchestrator import FakeFactory, pair
 from orchestrator.runtime import Runtime
-import orchestrator_chat as chat
-import production_control as pc
+from task_relay import orchestrator_chat as chat
+from task_relay import production_control as pc
 
 
 class Tests(unittest.TestCase):
@@ -168,7 +168,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(output['text']),20000)
 
     def test_callback_transport_failure_does_not_undo_authorization(self):
-        from bridge import BridgeError
+        from task_relay.bridge import BridgeError
         row = self.stage_card()
         with patch.object(self.telegram, 'call', side_effect=BridgeError('offline')):
             self.click(row['token'])

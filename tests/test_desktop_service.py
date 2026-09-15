@@ -47,7 +47,7 @@ class DesktopServiceTests(unittest.TestCase):
         python.parent.mkdir(parents=True)
         python.write_text('fixture')
         python.chmod(0o700)
-        bridge = self.runtime / 'app/bridge.py'
+        bridge = self.runtime / 'app/task_relay/bridge.py'
         bridge.parent.mkdir(parents=True)
         bridge.write_text('fixture')
         self.paths = Paths(self.runtime / 'app', self.root / 'data',

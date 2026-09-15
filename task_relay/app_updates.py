@@ -17,7 +17,9 @@ import uuid
 REPOSITORY = 'StepanKukharskiy/task-relay'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases?per_page=30'
 DOWNLOADS = 'https://github.com/' + REPOSITORY + '/releases/download/'
-PROTOCOL = 1
+# Protocol 2 requires canonical package service commands; older installers
+# cannot migrate legacy wrapper paths while replacing the app.
+PROTOCOL = 2
 MAX_PACKAGE = 2_000_000_000
 TERMINAL = {'complete', 'rolled_back', 'failed'}
 

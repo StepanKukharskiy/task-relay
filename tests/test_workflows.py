@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from bridge import Bridge, State
+from task_relay.bridge import Bridge, State
 from tests.test_bridge import TelegramFake
-import workflows as wf
-import workflow_protocol as protocol
+from task_relay import workflows as wf
+from task_relay import workflow_protocol as protocol
 
 PLAN = {'step_id': 'one', 'objective': 'Bounded fix', 'scope': ['one file'],
         'exclusions': ['no solver'], 'deliverables': ['test evidence'], 'criteria': ['test passes'],

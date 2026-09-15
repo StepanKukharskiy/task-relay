@@ -296,7 +296,7 @@ class Tests(unittest.TestCase):
     def test_missing_outputs_keep_worker_cause_and_old_status_is_read_only(self):
         from orchestrator.runtime import failure_detail
         from types import SimpleNamespace
-        import host_apps
+        from task_relay import host_apps
         self.rt.create(pair());self.rt.tick('demo');aid=self.latest()
         self.factory.finish(aid,decision='blocked',missing='output.txt')
         path=self.factory.sessions[aid]['workspace']/'.relay/result.json'

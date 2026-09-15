@@ -6,7 +6,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import production_planning as planning
+from task_relay import production_planning as planning
 from orchestrator import contracts as c,host_code
 from tests import test_production_planning as fixture
 from tests.test_rhino_operations import inputs
@@ -17,7 +17,7 @@ from tests import test_blender_edit_planning as blender_planning
 class Tests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
-        self.rhino=patch('host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.rhino.start()
+        self.rhino=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.rhino.start()
 
     def tearDown(self):self.rhino.stop();fixture.Tests.tearDown(self)
     request=fixture.Tests.request
@@ -29,7 +29,7 @@ class Tests(unittest.TestCase):
     click=fixture.Tests.click
 
     def test_preparation_contract_reaches_both_workers_and_rejects_provisional_checks(self):
-        import production_control as pc
+        from task_relay import production_control as pc
         from orchestrator.rhino_contract import validate_checks, validate_render
         cases=[('rhino.run_python',dict(mode='create',units='Meters',changed_objects=[],allow_additions=True,
                     expected_object_count=1,expected_dimensions={'Core':[8,8,160]},preview={'resolution':[320,240]}),
@@ -107,7 +107,7 @@ class Tests(unittest.TestCase):
     test_changed_selected_script_leaves_no_run=blender_planning.Tests.test_changed_selected_script_stops_approval_and_leaves_no_run
 
     def test_render_requires_delivered_manifest_then_atomic_start(self):
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             row=self.setup_plan('rhino.render')
             spec=json.loads(row['plan'])['tasks'][0]
             self.assertEqual({i['media_type'] for i in spec['inputs'] if i['path'].endswith(('.3dm','.json'))},{'application/vnd.rhino','application/json'})
@@ -125,13 +125,13 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.rt.task(self.row()['run'],'app')['attempts'],0)
 
     def test_rhino_modeling_requires_independent_review_and_selection(self):
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             row=self.setup_plan();response=copy.deepcopy(self.prepared_response)
             response['plan']['tasks'][0].pop('user_gate')
             with self.assertRaisesRegex(ValueError,'selection gate'):planning.validate_result(json.dumps(response),row)
 
     def failed_host(self):
-        import production_control as pc
+        from task_relay import production_control as pc
         from orchestrator.step_runner import execute
         row=self.setup_plan()
         with self.state.db:
@@ -150,7 +150,7 @@ class Tests(unittest.TestCase):
 
     def test_failed_host_script_repair_preserves_attempt_and_requires_new_exact_start(self):
         from orchestrator.storage import transaction
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             run,script=self.failed_host()
             before=[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))]
             with transaction(self.state.db):ident=planning.prepare_host_repair(self.state,run,script,'Fix the script failure and continue.')
@@ -173,7 +173,7 @@ class Tests(unittest.TestCase):
             self.assertTrue(self.state.db.execute("SELECT 1 FROM production_events WHERE run=? AND kind='execution_repair_started'",(fresh,)).fetchone())
             # Another confirmed failure keeps every request without colliding
             # with the current recovery/REQUEST.txt workspace path.
-            import production_control as pc
+            from task_relay import production_control as pc
             from orchestrator.step_runner import execute
             worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
             attempt=self.rt.task(fresh,'app')['latest'];session=self.factory.sessions[attempt]
@@ -195,7 +195,7 @@ class Tests(unittest.TestCase):
     def test_host_repair_refuses_uncertain_or_changed_parent_and_rolls_back(self):
         from orchestrator.storage import transaction
         from task_relay import production_stages
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             run,script=self.failed_host()
             with self.assertRaisesRegex(RuntimeError,'rollback'):
                 with transaction(self.state.db):planning.prepare_host_repair(self.state,run,script,'Fix it.');raise RuntimeError('rollback')
@@ -211,7 +211,7 @@ class Tests(unittest.TestCase):
 
     def test_runtime_repair_does_not_allow_identical_retry_without_implementation_change(self):
         from orchestrator.storage import transaction
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             run,_=self.failed_host()
             old=next(i['artifact'] for i in self.rt.spec(self.rt.task(run,'app'))['inputs'] if i.get('media_type')=='text/x-python')
             with transaction(self.state.db),self.assertRaisesRegex(ValueError,'implementation change'):
@@ -220,7 +220,7 @@ class Tests(unittest.TestCase):
 
     def test_planning_preserves_request_and_exposes_no_gh_operation(self):
         from orchestrator.execution import catalog
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             row=self.setup_plan()
         self.assertEqual(row['request'],'Create a Rhino tower; leave Grasshopper paused.')
         self.assertIn('Grasshopper is paused',planning.preview(row))
@@ -229,10 +229,10 @@ class Tests(unittest.TestCase):
         self.assertFalse(any('grasshopper' in i for i in ids))
 
     def test_native_candidate_reaches_review_and_delivery_queue_once(self):
-        import production_control as pc
+        from task_relay import production_control as pc
         from orchestrator.step_runner import execute
         from orchestrator.runtime import file_hash
-        with patch('host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             row=self.setup_plan()
             with self.state.db:
                 self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],))

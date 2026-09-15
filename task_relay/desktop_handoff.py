@@ -147,7 +147,8 @@ class Handoff:
             if spec == target:
                 raise DesktopServiceError('This connection already belongs to the companion.')
             args = spec.get('ProgramArguments', [])
-            recognized = ((channel == 'relay' and len(args) >= 3 and Path(args[1]).name == 'bridge.py' and args[2] == 'run') or
+            recognized = ((channel == 'relay' and (args[1:] == ['-m', 'task_relay.bridge', 'run'] or
+                           len(args) == 3 and Path(args[1]).name == 'bridge.py' and args[2] == 'run')) or
                           (channel == 'messages' and len(args) == 1 and Path(args[0]).name == 'MessagesRelay'))
             if spec.get('Label') != target['Label'] or not recognized or not all(
                 spec.get('EnvironmentVariables', {}).get(key) == value for key, value in self.paths.environment().items()):

@@ -15,7 +15,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
         del self.fail
-        self.signature = patch('host_evidence.application_signature', return_value={'path': '/fixture/rhino'})
+        self.signature = patch('task_relay.host_evidence.application_signature', return_value={'path': '/fixture/rhino'})
         self.signature.start()
 
     def tearDown(self):
@@ -197,7 +197,7 @@ class Tests(unittest.TestCase):
         self.assertFalse(repairs.script_failure({'runs': [dict(mode='before', returncode=1, stderr='Traceback (most recent call last)')]}, 'blender.run_python'))
 
     def test_atomic_queue_rollback_leaves_no_worker_or_duplicate_and_restart_resumes(self):
-        from bridge import State
+        from task_relay.bridge import State
         self.setup_failure()
         with self.assertRaisesRegex(RuntimeError,'rollback'),transaction(self.state.db):
             pipelines.advance_production(self.state,self.state.db.execute('SELECT * FROM relay_pipelines').fetchone(),self.step(),self.parent)

@@ -30,10 +30,20 @@ environment available for any service installed from it. An ordinary package
 installation does not follow subsequent source edits. See
 [onboarding](onboarding.md) for setup recovery and current upgrade limitations.
 
-For source development, run `python3 -m task_relay` from the checkout. Root Python
-scripts are compatibility entry points for the corresponding `task_relay` modules.
+For source development, run `python3 -m task_relay` from the checkout. Python
+entry points use package modules, for example `python3 -m task_relay.gemini_runner`.
 Application implementations live in `task_relay/`; `orchestrator/` contains the
 execution runtime.
+
+Older root scripts and bare imports have been removed. Use `from task_relay import
+gemini` or `from task_relay.bridge import State` in code. Refresh an existing
+source macOS service with `python3 -m task_relay.bridge install`; the installer
+preserves its data bindings and restores its previous definition if restart fails.
+Rebuild an older native Messages helper before restarting it, using `python3 -m
+task_relay.messages_service build`. For packaged local app upgrades, use the current
+`desktop/scripts/install-local.py` preparation/apply flow, which records the
+Telegram module-command migration alongside the app replacement. Do not simply
+replace an older app bundle while its services still reference removed root files.
 
 ## Commands
 

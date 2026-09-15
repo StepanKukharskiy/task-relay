@@ -1,9 +1,9 @@
 import unittest
 
-import approval_text
-import codex_approvals as approvals
-from bridge import split_text
-from telegram_text import split_rendered, units
+from task_relay import approval_text
+from task_relay import codex_approvals as approvals
+from task_relay.bridge import split_text
+from task_relay.telegram_text import split_rendered, units
 
 
 class ApprovalTextTests(unittest.TestCase):

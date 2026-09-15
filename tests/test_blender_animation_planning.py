@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-import production_planning as planning
+from task_relay import production_planning as planning
 from orchestrator import contracts as c
 from tests import test_production_planning as fixture
 from tests.test_blender_animation import inputs
@@ -30,7 +30,7 @@ class Tests(unittest.TestCase):
         planning.Worker(self.state,lambda *_:(json.dumps(value),{})).tick()
         row=self.row();self.assertEqual(row['status'],'ready',row['error']);return row
     def test_exact_manifest_delivery_gates_start_and_binary_inputs_are_retained(self):
-        with patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')), patch('host_apps.video_tools',return_value={'available':True}):
+        with patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')), patch('task_relay.host_apps.video_tools',return_value={'available':True}):
             row=self.ready_animation();plan=json.loads(row['plan']);host=plan['tasks'][0]
             self.assertEqual(sum(i['media_type']=='application/x-blender' for i in host['inputs']),1)
             self.assertIn('No automatic final render',planning.preview(row))
@@ -45,7 +45,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.rt.task(self.row()['run'],'app')['attempts'],0)
             self.assertEqual(self.factory.calls,[])
     def test_selected_asset_changed_after_card_cannot_start(self):
-        with patch('host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')), patch('host_apps.video_tools',return_value={'available':True}):
+        with patch('task_relay.host_apps.blender',return_value=dict(available=True,executable='/fixture/blender',evidence='fixture')), patch('task_relay.host_apps.video_tools',return_value={'available':True}):
             row=self.ready_animation();host=json.loads(row['plan'])['tasks'][0]
             item=next(i for i in host['inputs'] if i['media_type']=='application/x-blender');p=Path(self.rt.artifact(item['artifact'])['blob']);p.chmod(0o600);p.write_bytes(b'changed')
             self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],));self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE event_id=?",(row['event_id'],));self.state.db.commit()

@@ -105,7 +105,7 @@ def build():
 def install():
     binary = APP / 'Contents/MacOS/MessagesRelay'
     if not binary.is_file():
-        raise SystemExit('Build the app first: python3 messages_service.py build')
+        raise SystemExit('Build the app first: python3 -m task_relay.messages_service build')
     subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(APP)], check=True)
     runtime=json.loads((APP/'Contents/Resources/runtime.json').read_text())
     if runtime!=runtime_configuration():raise SystemExit('Rebuild the Messages app for the selected path configuration before installing.')

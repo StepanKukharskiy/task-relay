@@ -42,7 +42,6 @@
       "kind": "application",
       "release": true,
       "patterns": [
-        "*.py",
         "task_relay/*.py",
         "orchestrator/*.py"
       ],
@@ -207,8 +206,9 @@
     ".venv",
     "node_modules",
     "dist",
-    "build"
+    "build",
+    ".DS_Store"
   ],
   "maintained_exceptions": [],
-  "release_note": "Wheel and source archive contain only the explicit runtime packages, compatibility modules and bundled assets defined in pyproject.toml and MANIFEST.in. Tests, research, operational data and build evidence remain outside distributions."
+  "release_note": "Wheel and source archive contain only the explicit runtime packages and bundled assets defined in pyproject.toml and MANIFEST.in. Tests, research, operational data and build evidence remain outside distributions."
 }

@@ -11,7 +11,7 @@ import urllib.request
 from . import credentials
 from .relay_paths import PATHS
 
-VERSION = '0.13.25'
+VERSION = '0.13.26'
 PROTOCOL = 2
 REPOSITORY = 'StepanKukharskiy/task-relay'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases/'

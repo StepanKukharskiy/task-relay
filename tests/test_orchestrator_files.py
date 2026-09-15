@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import orchestrator_files as files
-import orchestrator_chat as chat
+from task_relay import orchestrator_files as files
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):

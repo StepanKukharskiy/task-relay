@@ -56,7 +56,7 @@ class HandoffTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.runtime = self.root / 'Task Relay.app/Contents/Resources/resources/runtime'
         self.paths = Paths(self.runtime / 'app', self.root / 'data', self.root / 'work', self.root / 'generated')
-        for name in ('python/bin/python3', 'app/bridge.py', '../../../MacOS/task-relay-desktop'):
+        for name in ('python/bin/python3', 'app/task_relay/bridge.py', '../../../MacOS/task-relay-desktop'):
             path = self.runtime / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture runtime')
@@ -196,7 +196,7 @@ class HandoffTests(unittest.TestCase):
                 if changed == 'definition':
                     service.path.write_bytes(plistlib.dumps({'Label': 'different'}))
                 else:
-                    (self.runtime / 'app/bridge.py').write_text('new version')
+                    (self.runtime / 'app/task_relay/bridge.py').write_text('new version')
                 count = len([x for x in self.host.commands if x[0] == 'bootout'])
                 with self.assertRaises(DesktopServiceError):
                     self.handoff.apply(plan['id'], plan['digest'])

@@ -1,6 +1,6 @@
 import json
 import unittest
-import orchestrator_chat as chat
+from task_relay import orchestrator_chat as chat
 from tests import test_orchestrator_chat as fixture
 
 
@@ -72,7 +72,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):chat.interpret(chat.recover_answer_only(raw),{})
 
     def test_long_valid_code_answer_is_delivered_in_parts_once(self):
-        import telegram_text
+        from task_relay import telegram_text
         answer='Blender script example:\n```python\n'+('print("tower")\n'*580)+'```'
         raw=json.dumps({'answer':answer,'action':None})
         row=self.run_response(raw)

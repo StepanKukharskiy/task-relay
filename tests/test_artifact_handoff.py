@@ -6,9 +6,9 @@ import time
 from tests import test_task_routing as fixture
 from orchestrator.runtime import Runtime
 from tests.test_orchestrator import FakeFactory, plan
-import production_control as pc
-import routing_inputs
-import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import routing_inputs
+from task_relay import orchestrator_chat as chat
 
 
 class Tests(unittest.TestCase):

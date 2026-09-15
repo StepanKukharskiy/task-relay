@@ -5,10 +5,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-import gemini
-import orchestrator_chat as chat
-import production_control as pc
-import production_planning as planning
+from task_relay import gemini
+from task_relay import orchestrator_chat as chat
+from task_relay import production_control as pc
+from task_relay import production_planning as planning
 from orchestrator import templates
 from orchestrator.runtime import Runtime,file_hash
 from tests.test_orchestrator import FakeFactory, pair
@@ -130,7 +130,7 @@ class Tests(unittest.TestCase):
 
     def test_application_evidence_reaches_planner_without_launch(self):
         apps=[{'id':'blender','available':True,'executable':'/fixture/blender'}]
-        with patch('host_apps.catalog',return_value=apps):
+        with patch('task_relay.host_apps.catalog',return_value=apps):
             row=self.queue(text='Run Blender and return a native scene and a preview.')
         context=json.loads(row['context'])
         self.assertEqual(context['host_applications'],apps)
@@ -206,7 +206,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(validated['origin']['job_request_id'],row['request_id'])
 
     def test_text_plan_recovers_after_restart_and_delivers_once(self):
-        from bridge import State, Bridge
+        from task_relay.bridge import State, Bridge
         row=self.ready();self.start(row)
         worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
         producer=self.rt.task('production-1','produce')['latest']

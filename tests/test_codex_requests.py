@@ -4,8 +4,8 @@ import re
 import unittest
 from unittest.mock import patch
 
-import codex_approvals as approvals
-import codex_requests as requests
+from task_relay import codex_approvals as approvals
+from task_relay import codex_requests as requests
 from tests import test_codex_approvals as fixtures
 
 

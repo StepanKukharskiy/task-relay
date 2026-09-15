@@ -19,7 +19,7 @@ from task_relay.relay_paths import Paths
 
 
 def release_fixture():
-    manifest = dict(protocol=1, version='0.14.0', platform='macos', arch='arm64', channel='beta',
+    manifest = dict(protocol=updates.PROTOCOL, version='0.14.0', platform='macos', arch='arm64', channel='beta',
                     asset='Task-Relay-0.14.0-macos-arm64.zip', bytes=99, sha256='a'*64,
                     signer_sha256='b'*64, data_policy='unchanged')
     url = updates.DOWNLOADS + 'v0.14.0/'
@@ -58,6 +58,13 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(self.updater.check(True)['candidate']['version'], '0.14.0')
         self.host.support.return_value['installed'] = '0.15.0'
         self.assertIsNone(self.updater.check(True)['candidate'])
+
+    def test_legacy_installer_refuses_wrapper_free_release_before_download(self):
+        with patch.object(updates, 'PROTOCOL', 1):
+            with self.assertRaisesRegex(updates.UpdateError, 'newer installer'):
+                self.updater.check(True)
+        self.host.spawn_worker.assert_not_called()
+        self.assertFalse(self.updater.receipt.exists())
 
     def test_status_is_local_and_read_only(self):
         self.assertEqual(self.updater.status()['attempt'], {})

@@ -3,8 +3,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-import orchestrator_chat as chat
-import orchestrator_guides as guides
+from task_relay import orchestrator_chat as chat
+from task_relay import orchestrator_guides as guides
 from tests import test_task_routing as fixture
 
 
@@ -111,7 +111,7 @@ class Tests(unittest.TestCase):
 
 
 from tests import test_production_control as production_fixture
-import production_control as pc
+from task_relay import production_control as pc
 
 
 class ProductionTests(unittest.TestCase):
@@ -131,7 +131,7 @@ class ProductionTests(unittest.TestCase):
         action=dict(kind=kind,workflow='demo',items=None,direction='' if kind=='start_production' else 'Update the cards')
         decisions=iter([{'kind':'discover_guides'},action])
         worker=chat.Worker(self.state,lambda *_:json.dumps(dict(answer='Updating.',action=next(decisions))))
-        with patch('project_roadmaps.context',return_value={'available_projects':[str(root)]}):worker.tick()
+        with patch('task_relay.project_roadmaps.context',return_value={'available_projects':[str(root)]}):worker.tick()
         self.bridge.flush(False)
         row=self.state.db.execute('SELECT * FROM orchestrator_guide_choices WHERE job_id=201').fetchone()
         self.assertIsNotNone(row)

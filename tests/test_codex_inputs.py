@@ -3,10 +3,10 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-import codex_inputs as inputs
-import gemini
+from task_relay import codex_inputs as inputs
+from task_relay import gemini
 from tests import test_bridge as fixture
-from bridge import BridgeError, Desktop, State
+from task_relay.bridge import BridgeError, Desktop, State
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')
 

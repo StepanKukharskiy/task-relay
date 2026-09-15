@@ -7,7 +7,7 @@ version-change review, followed by supported programs, input/saved file formats
 and current download availability. Five workflow starters sit in a disclosure
 beneath the examples; Programs and File formats retain direct navigation.
 The program/format list describes implemented support, including dedicated editable
-PPTX generation. The 0.13.0-beta.1 download includes browser setup, media provider connections,
+PPTX generation. The 0.13.26 beta download includes browser setup, media provider connections,
 editable PPTX and workflow starters; other document exports are worker-dependent. Check the
 actual published source archive before claiming an operation is in the beta.
 No dependencies or build step.
@@ -16,7 +16,7 @@ into PPTX, precise Rhino model revisions, named-view renders, Blender asset
 packing and editable design presentations. Each article links to a reported pain
 point, names required inputs and operations, and distinguishes implementation
 from complete live workflow proof. The capability audit used bundled 0.13.24;
-the public 0.13.0-beta.1 download is explicitly a different release.
+the public 0.13.26 beta includes those registered operations, without claiming complete live workflow qualification.
 Exact routes serve the guides and reviewed sample artifacts. The earlier
 invoice/CSV/complaint recipes remain reachable with archive notices and noindex;
 the hub and sitemap list only the current collection. The original architecture
@@ -65,7 +65,7 @@ terminal setup. Both artifacts have SHA-256 sidecars. The page explicitly labels
 the beta as lacking Developer ID/notarization and links Apple's per-app opening
 instructions. Windows remains unavailable.
 
-Place both versions’ eight named artifacts under `downloads/` before startup or deployment.
+Place all three versions’ twelve named artifacts under `downloads/` before startup or deployment.
 The server refuses startup if any advertised artifact is absent. Binary downloads
 stream from disk with HEAD and byte-range support; no arbitrary path is served.
 The directory is excluded from Git and explicitly allowed in the isolated Railway
@@ -77,6 +77,6 @@ immutable. Website and manifest route names must change together for a release.
 The beta source and runtime omit concurrent unreviewed development work even if
 the website describes broader development capabilities.
 
-The current primary download is 0.13.0-beta.1. Retain the immutable 0.12.1-beta.1
+The current primary download is 0.13.26. Retain the immutable 0.13.0-beta.1 and 0.12.1-beta.1
 files for existing links. The CLI tarball includes the reviewed source installer;
 its optional browser/image/presentation extras are separate from core installation.

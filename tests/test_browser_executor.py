@@ -20,7 +20,7 @@ from tests import test_gemini_executor as file_fixtures
 from tests.test_gemini_executor import CONFIG,report
 from tests.test_general_browser import browser_graph,Driver,policy
 from tests import test_executor_planning as planning_fixtures
-import production_planning as planning
+from task_relay import production_planning as planning
 
 
 class ScriptedBrowser:
