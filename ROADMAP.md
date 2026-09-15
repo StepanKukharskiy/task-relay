@@ -21,15 +21,18 @@ outputs and next decision. Distinguish waiting for a human from missing input,
 missing capability, failure and uncertain submission. Never infer acceptance from
 an ambiguous response or replay an uncertain external operation.
 
-### Package entry points and beta refresh — 0.13.26 release preparation
+### Package entry points and beta refresh — locally installed 0.13.26
 
 Source launchers, child workers, installed services and tests use canonical package
 calls. Root forwarding modules and their packaging entries are removed. The local
 installer migrates legacy service commands with rollback records. App update
 protocol 2 requires a one-time manual upgrade from older installers; subsequent
 compatible updates retain Install and restart. Website downloads are versioned
-alongside prior immutable assets. Release installation/publication checks are
-recorded separately from controlled tests; Windows native execution remains O12.
+alongside prior immutable assets and are fetched with pinned checksums during
+the website build. The signed app is installed with 197 matching runtime files,
+verified backups and fresh Telegram/Messages health. GitHub release checks passed;
+publication and website deployment remain separately verified steps. Windows
+native execution remains O12.
 
 ### App access settings and Windows CI correction — locally installed 0.13.25
 

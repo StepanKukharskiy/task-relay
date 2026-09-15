@@ -65,11 +65,15 @@ terminal setup. Both artifacts have SHA-256 sidecars. The page explicitly labels
 the beta as lacking Developer ID/notarization and links Apple's per-app opening
 instructions. Windows remains unavailable.
 
-Place all three versions’ twelve named artifacts under `downloads/` before startup or deployment.
+For local previews, place all three versions’ twelve named artifacts under `downloads/`.
+Deployment fetches the exact URLs, sizes and SHA-256 digests in downloads.json
+during the Docker build. Publish new GitHub assets before deploying the website.
+Old 0.12.1 assets use the existing immutable website URLs; later assets use GitHub.
 The server refuses startup if any advertised artifact is absent. Binary downloads
 stream from disk with HEAD and byte-range support; no arbitrary path is served.
-The directory is excluded from Git and explicitly allowed in the isolated Railway
-upload and Docker context. Build from a reviewed, publication-checked source tree;
+The directory is excluded from Git, Railway uploads and the Docker context so
+retained installers do not exceed upload limits. Any missing or changed remote
+asset fails the build before the live site is replaced. Build from a reviewed, publication-checked source tree;
 never copy personal configuration or installation bindings into a release.
 
 Use a new versioned filename for every changed artifact; published bytes are

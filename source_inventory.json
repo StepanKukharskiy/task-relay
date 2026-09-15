@@ -28,7 +28,9 @@
         "website/public/guides/assets/architecture-sources.json",
         "website/public/guides/assets/architecture-request.txt",
         "website/public/guides/assets/architecture-request-v2.txt",
-        "website/public/guides/assets/complaint-research-request.txt"
+        "website/public/guides/assets/complaint-research-request.txt",
+        "website/fetch-downloads.mjs",
+        "website/downloads.json"
       ]
     },
     {

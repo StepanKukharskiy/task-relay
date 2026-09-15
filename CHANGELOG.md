@@ -12,6 +12,8 @@
 - Qualify canonical installed imports and module entry points from outside the
   checkout. App update protocol 2 prevents legacy installers from replacing the
   app without migrating removed service paths; older apps need one manual upgrade.
+- Fetch immutable, checksum-verified release downloads during the website build
+  to avoid upload limits; failed downloads leave the deployed site unchanged.
 - Refresh the versioned Mac beta and matching source download links, preserving
   earlier immutable URLs. Developer ID/notarization and native Windows execution
   qualification remain pending.
