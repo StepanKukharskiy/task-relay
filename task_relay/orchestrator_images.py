@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import secrets
 import shlex
+from orchestrator.handoff_contracts import MANAGED_IMAGE_REFERENCES
 
 UPLOAD_SCOPE = '@orchestrator'
 
@@ -34,7 +35,7 @@ def validate_selection(action, snapshot):
         from task_relay import gemini
         gemini.model_name(action['model'])
     routing_inputs.validate_artifact_ids(artifacts,snapshot.get('production_artifacts',[]))
-    if len(refs)+len(artifacts)>6:raise ValueError('Choose at most six image references in total.')
+    if len(refs)+len(artifacts)>MANAGED_IMAGE_REFERENCES:raise ValueError('Choose at most six image references in total.')
     known={a['id']:a for a in snapshot.get('production_artifacts',[])}
     if any(Path(known[i]['path']).suffix.lower() not in ('.png','.jpg','.jpeg','.webp') for i in artifacts):
         raise ValueError('Image generation needs an image artifact, not a Blender scene or report.')

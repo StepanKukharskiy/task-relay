@@ -78,6 +78,11 @@ required. PNG reads return metadata only; screenshot capture does not add visual
 reasoning, canvas clicking or verification that map tiles loaded. Do not promise
 visual acceptance; preserve a user review gate for that. Screenshot grants and PNG
 outputs must be shown in the exact plan before Start.
+For a presentation requiring both subject photos and a location map, propose the
+requested image sourcing, browser capture and deck creation together. Use the exact
+named map service and project area; keep URL/time provenance and visible attribution.
+The PNG can feed pptx.create alongside a sourced image bundle. Do not omit the map,
+silently switch services or replace a website screenshot with a generated image.
 
 Editable presentation creation uses plan_production with step_capabilities=["pptx.create"]
 when the operation catalog reports it available. An agent prepares a bounded slide
@@ -88,6 +93,12 @@ no Google login or PowerPoint installation. PPTX can be opened in Keynote, but
 creation/reopen checks do not establish Keynote import fidelity or visual layout.
 Native .key output, arbitrary existing-template editing and PDF/previews are not
 outputs of this operation; preserve those requirements as explicit separate work.
+For real photos of specified subjects, include images.collect in step_capabilities.
+It searches public Wikimedia Commons without an image-generation model, returns an
+exact attributed image bundle and records missing matches. Review subject identity
+and coverage before using the bundle in pptx.create. Preserve all named subjects,
+scientific names when supplied, captions and source credits. Missing images require
+an explicit gap or further sourcing; do not silently replace search with generation.
 
 Direct Rhino support uses rhino.startup, rhino.inspect and rhino.run_python.
 Select exact .3dm artifacts for inspection. For modeling, first prepare/review
@@ -426,12 +437,14 @@ def catalog(state, snapshot):
     from orchestrator.executors import catalog as executor_catalog
     from task_relay.host_apps import catalog as app_catalog
     from task_relay.browser_sites import catalog as site_catalog
+    from .managed_browser import status as managed_browser_status
     from .capability_defaults import read as model_defaults
     from orchestrator.worker_capabilities import CAPABILITIES
     return dict(version=1,operations=specs,graph_operations=graph_catalog(),graph_executors=executor_catalog(state),targets=targets,routing_enabled=enabled,dispatches=receipts,
         worker_capabilities=CAPABILITIES.copy(),
         model_defaults=model_defaults(state.db)['choices'],
         browser_account_sites=site_catalog(state.db),
+        managed_browser=managed_browser_status(),
         host_applications=app_catalog(state),
         backend_catalog_limit=50,backend_catalog_truncated=enabled and state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0]>50,
         image_configured=bool(gemini.read_config()),

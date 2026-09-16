@@ -3,6 +3,8 @@ import io
 import json
 import math
 import re
+from .contracts import relative
+from .handoff_contracts import PPTX_SLIDES, PPTX_ELEMENTS
 
 MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 VERSION = '1.0.2'
@@ -12,16 +14,28 @@ Dimensions and x,y,w,h are inches; default size is [13.333333,7.5].
 Each element has type, x,y,w,h and optional name. Supported elements:
 text: {text:string,font_size?:24,color?:"172B4D",bold?:false,align?:"left"|"center"|"right"}.
 shape: {shape:"rectangle"|"ellipse",fill?:"E8EEF5",color?:"172B4D",text?:string,font_size?:24,bold?:false,align?:"left"|"center"|"right"}.
-image: {path:exact staged PNG/JPEG input path}. Images fit without cropping/distortion.
+image: {path:exact staged PNG/JPEG input path,fit?:"contain"|"cover"}.
+Default contain preserves the whole image; explicit cover center-crops to fill its box.
+Sourced image bundles from images.collect are also accepted: use
+the exact ZIP input path + "/" + the image member path in manifest.json. For
+example, input assets/photos.zip with member images/oak.jpg uses
+assets/photos.zip/images/oak.jpg (no angle brackets). Full image credits are retained in
+slide notes. The planner should include visible captions/credits and review identity.
 table: {rows:[[string,...],...],font_size?:18,color?:"172B4D"}; first row is the header.
 chart: {chart:"column"|"bar"|"line",categories:[string,...],series:[{name:string,values:[number,...]}]}.
 Use native objects, readable text and uncluttered layouts. All boxes must fit the slide.
+Font sizes are 8–96 points. Text frames wrap without automatic resizing, with
+0.06 inch left/right and 0.03 inch top/bottom margins. Tables divide their box
+equally among rows and columns. Text-fit estimates are not rendered measurements;
+report assumptions and distinguish confirmed errors from visual review notes.
 Limits: 1–50 slides, 1–50 elements/slide, 1000 elements/deck, 4000 characters/text,
 20x10 table cells (300 characters each), 50 chart categories and 8 series.
-No arbitrary code, URLs, templates, PPTX import, animations, or font installation.
+No arbitrary code, URLs, native PPTX import, animations, or font installation.
 Creation reopens and checks native objects, text, table/chart data and image bytes.
 These are structural checks, not visual layout approval or Keynote qualification.
 '''
+from .slide_templates import DESCRIPTION as TEMPLATE_DESCRIPTION, expand
+DESCRIPTION += '\n'+TEMPLATE_DESCRIPTION
 
 
 def available():
@@ -68,6 +82,7 @@ def load(text):
 
 
 def validate(document, image_paths=()):
+    document = expand(document)
     _object(document, ('version', 'title', 'slides'), ('size', 'font'))
     if type(document['version']) is not int or document['version'] != 1:
         raise ValueError('Unsupported slide specification version.')
@@ -79,7 +94,7 @@ def validate(document, image_paths=()):
     for n in size:
         _number(n, 1, 40)
     slides = document['slides']
-    if not isinstance(slides, list) or not 1 <= len(slides) <= 50:
+    if not isinstance(slides, list) or not 1 <= len(slides) <= PPTX_SLIDES:
         raise ValueError('Expected 1–50 slides.')
     count = 0
     for slide in slides:
@@ -89,17 +104,17 @@ def validate(document, image_paths=()):
         if not isinstance(slide['elements'], list) or not 1 <= len(slide['elements']) <= 50:
             raise ValueError('Expected 1–50 elements per slide.')
         count += len(slide['elements'])
-        if count > 1000:
+        if count > PPTX_ELEMENTS:
             raise ValueError('Too many presentation elements.')
         for item in slide['elements']:
             if not isinstance(item, dict) or not isinstance(item.get('type'), str):
                 raise ValueError('Missing presentation element type.')
             kind = item['type']
             fields = {
-                'text': (('text',), ('font_size', 'color', 'bold', 'align')),
-                'shape': (('shape',), ('fill', 'text', 'font_size', 'color', 'bold', 'align')),
-                'image': (('path',), ()),
-                'table': (('rows',), ('font_size', 'color')),
+                'text': (('text',), ('font_size', 'color', 'bold', 'align', 'font')),
+                'shape': (('shape',), ('fill', 'text', 'font_size', 'color', 'bold', 'align', 'font')),
+                'image': (('path',), ('fit',)),
+                'table': (('rows',), ('font_size', 'color', 'font')),
                 'chart': (('chart', 'categories', 'series'), ()),
             }
             if kind not in fields:
@@ -113,6 +128,10 @@ def validate(document, image_paths=()):
             _text(item.get('name', ''), 100)
             if 'font_size' in item:
                 _number(item['font_size'], 8, 96)
+            if 'font' in item:
+                _text(item['font'],100,False)
+            if 'fit' in item and item['fit'] not in ('contain','cover'):
+                raise ValueError('Image fit must be contain or cover.')
             for key in ('color', 'fill'):
                 if key in item:
                     _color(item[key])
@@ -125,7 +144,6 @@ def validate(document, image_paths=()):
             if kind == 'shape' and item['shape'] not in ('rectangle', 'ellipse'):
                 raise ValueError('Unsupported native shape.')
             if kind == 'image':
-                from .contracts import relative
                 path = relative(item['path'])
                 if path not in image_paths:
                     raise ValueError('Image must name an exact declared PNG/JPEG input: ' + path)
@@ -158,6 +176,22 @@ def validate(document, image_paths=()):
                     for n in entry['values']:
                         _number(n, -1e12, 1e12)
     return document
+
+
+def validator_source():
+    """Freeze the actual stdlib schema checker for isolated draft/review workers."""
+    import inspect
+    from .slide_templates import CATALOG, STYLES, COLLECTION_LAYOUTS, grid_pages
+    functions=(relative,_object,_text,_number,_color,load,validate)
+    compiler=inspect.getsource(grid_pages).replace('    from .pptx_document import _object, _text\n','')+'\n'+inspect.getsource(expand).replace('    from .pptx_document import _object, _text, _color, _number\n','')
+    return ('import json, math, re, sys, copy\nfrom pathlib import PurePosixPath\n\n'+
+            'PPTX_SLIDES = '+repr(PPTX_SLIDES)+'\nPPTX_ELEMENTS = '+repr(PPTX_ELEMENTS)+'\n'+
+            'CATALOG = '+repr(CATALOG)+'\nSTYLES = '+repr(STYLES)+'\nCOLLECTION_LAYOUTS = '+repr(COLLECTION_LAYOUTS)+'\n\n'+compiler+'\n\n'+
+            '\n\n'.join(inspect.getsource(f) for f in functions)+
+            '\nif __name__ == "__main__":\n'
+            '    with open(sys.argv[1], encoding="utf-8") as source:\n'
+            '        validate(load(source.read()), sys.argv[2:])\n'
+            '    print("RELAY_PPTX_CONTRACT_VALID")\n')
 
 
 def _register_notes_master(deck):
@@ -205,10 +239,15 @@ def _inspect_notes_master(deck):
         raise ValueError('PPTX reopen failed: notes master registration is out of order.')
 
 
-def create(document, images=None, max_bytes=50000000):
+def create(document, images=None, max_bytes=50000000, bundles=None):
     """Return checked PPTX bytes and structural evidence, before any output write."""
     available()
+    from .slide_templates import expand
+    document = expand(document)
     images = images or {}
+    if bundles:
+        from .image_sources import presentation_inputs
+        document,images=presentation_inputs(document,images,bundles)
     validate(document, images)
     from pptx import Presentation
     from pptx.chart.data import CategoryChartData
@@ -239,7 +278,7 @@ def create(document, images=None, max_bytes=50000000):
         frame.margin_left = frame.margin_right = Inches(0.06)
         frame.margin_top = frame.margin_bottom = Inches(0.03)
         for paragraph in frame.paragraphs:
-            paragraph.font.name = document.get('font', 'Arial')
+            paragraph.font.name = item.get('font', document.get('font', 'Arial'))
             paragraph.font.size = Pt(item.get('font_size', default_size))
             paragraph.font.bold = item.get('bold', False)
             paragraph.font.color.rgb = RGBColor.from_string(item.get('color', '172B4D'))
@@ -265,9 +304,15 @@ def create(document, images=None, max_bytes=50000000):
                 text(shape.text_frame, item.get('text', ''), item)
             elif kind == 'image':
                 iw, ih = dimensions[item['path']]
-                scale = min(box[2] / iw, box[3] / ih)
-                w, h = round(iw * scale), round(ih * scale)
-                shape = slide.shapes.add_picture(io.BytesIO(images[item['path']]), round(box[0] + (box[2] - w) / 2), round(box[1] + (box[3] - h) / 2), w, h)
+                if item.get('fit','contain')=='cover':
+                    shape=slide.shapes.add_picture(io.BytesIO(images[item['path']]),*box)
+                    ratio=iw/ih;target=box[2]/box[3]
+                    if ratio>target:shape.crop_left=shape.crop_right=(1-target/ratio)/2
+                    else:shape.crop_top=shape.crop_bottom=(1-ratio/target)/2
+                else:
+                    scale = min(box[2] / iw, box[3] / ih)
+                    w, h = round(iw * scale), round(ih * scale)
+                    shape = slide.shapes.add_picture(io.BytesIO(images[item['path']]), round(box[0] + (box[2] - w) / 2), round(box[1] + (box[3] - h) / 2), w, h)
             elif kind == 'table':
                 rows = item['rows']
                 shape = slide.shapes.add_table(len(rows), len(rows[0]), *box)

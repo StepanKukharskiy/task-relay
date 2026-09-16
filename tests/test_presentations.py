@@ -42,6 +42,21 @@ def pptx_step(inputs, **kwargs):
 
 
 class DocumentTests(unittest.TestCase):
+    def test_frozen_validator_runs_without_relay_or_presentation_libraries(self):
+        namespace={'__name__':'frozen_validator'}
+        exec(pptx_document.validator_source(),namespace)
+        value=fixture()
+        self.assertEqual(namespace['validate'](value),value)
+        with self.assertRaisesRegex(ValueError,'Duplicate'):
+            namespace['load']('{"version":1,"version":2}')
+        value['slides'][0]['elements']=[dict(type='image',path='../secret.png',x=0,y=0,w=1,h=1)]
+        with self.assertRaisesRegex(ValueError,'workspace'):
+            namespace['validate'](value,['../secret.png'])
+        value['slides'][0]['elements'][0]['path']='selected.png'
+        with self.assertRaisesRegex(ValueError,'exact declared'):
+            namespace['validate'](value,[])
+        namespace['validate'](value,['selected.png'])
+
     def test_notes_master_is_discoverable_and_missing_registration_is_rejected(self):
         import zipfile
         from lxml import etree
@@ -153,6 +168,7 @@ class GraphTests(unittest.TestCase):
         spec_review = task('spec-review', dependencies=['prepare'], review_of='prepare',
             inputs=[dict(from_task='prepare', output='slides.json', path='slides.json', purpose='Review slide data', authority='Candidate', media_type='application/json')])
         deck = pptx_step([dict(from_task='prepare', output='slides.json', path='slides.json', purpose='Slide data', authority='Reviewed source', media_type='application/json')], dependencies=['prepare', 'spec-review'])
+        deck['outputs'][0]['handoff']={'media_type':pptx_document.MIME,'slides':3,'max_bytes':4000000}
         review = task('review', dependencies=['deck'], review_of='deck',
             inputs=[dict(from_task='deck', output='candidate.pptx', path='candidate.pptx', purpose='Inspect actual deck', authority='Candidate', media_type=pptx_document.MIME)])
         review['criteria'] = deck['criteria'].copy()
@@ -260,6 +276,145 @@ class PlanningTests(unittest.TestCase):
         result['plan']['tasks'] += [deck, deck_review]
         return result
 
+    def test_exhausted_review_recovers_saved_graph_without_replaying_or_resetting(self):
+        self.check_exhausted_review_recovery()
+
+    def test_review_recovery_reuses_completed_research_without_replay(self):
+        self.check_exhausted_review_recovery(completed_sources=True)
+
+    def check_exhausted_review_recovery(self,completed_sources=False):
+        from task_relay.pipelines import transaction
+        from task_relay import production_review_recovery as recovery, production_stages
+        row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
+        payload=json.loads(row['context']);options=json.loads(row['options']);options['max_attempts']=1
+        payload['options']=options;row.update(context=contracts.encoded(payload),options=contracts.encoded(options))
+        response=self.deck_response()
+        if completed_sources:
+            sources=copy.deepcopy(self.response()['plan']['tasks'])
+            for t in sources:
+                t.pop('user_gate',None);t['id']='source-'+t['id']
+                t['dependencies']=['source-'+d for d in t.get('dependencies',[])]
+                if t.get('review_of'):t['review_of']='source-'+t['review_of']
+                for i in t.get('inputs',[]):
+                    if i.get('from_task'):i['from_task']='source-'+i['from_task']
+            sources[0]['outputs'][0]['media_type']='text/plain'
+            sources[1]['inputs'][0]['media_type']='text/plain'
+            response['plan']['tasks'][0].setdefault('dependencies',[]).extend(['source-produce','source-review'])
+            response['plan']['tasks'][0].setdefault('inputs',[]).append(dict(from_task='source-produce',output=sources[0]['outputs'][0]['path'],
+                path='research.txt',purpose='Completed research',authority='Reviewed evidence',media_type='text/plain'))
+            response['plan']['tasks']=sources+response['plan']['tasks']
+        result,plan=planning.validate_result(json.dumps(response),row)
+        self.rt.create(plan);run=plan['id']
+        with transaction(self.state.db):
+            self.state.db.execute('UPDATE production_plans SET status=?,run=?,result=?,plan=?,options=?,context=?,context_hash=? WHERE id=?',
+                ('started',run,contracts.encoded(result),contracts.encoded(plan),row['options'],row['context'],contracts.digest(payload),row['id']))
+        self.rt.tick(run)
+        if completed_sources:
+            for tid,decision in [('source-produce','delivered'),('source-review','accept')]:
+                self.factory.finish(self.rt.task(run,tid)['latest'],decision=decision);self.rt.tick(run)
+        first=self.rt.task(run,'produce')['latest']
+        self.factory.finish(first);self.rt.tick(run)
+        self.factory.finish(self.rt.task(run,'review')['latest'],decision='revise');self.rt.tick(run)
+        before=[dict(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))]
+        with transaction(self.state.db):ident=recovery.prepare(self.state,run,'Fix the reviewed draft and continue the saved workflow.')
+        repaired=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+        value=json.loads(repaired['plan']);context=json.loads(repaired['context'])
+        self.assertEqual([t['id'] for t in value['tasks']],['produce','review','deck','deck-review'])
+        self.assertEqual([t['max_attempts'] for t in value['tasks']],[3,3,2,2])
+        self.assertEqual(value['tasks'][2]['execution'],next(t['execution'] for t in plan['tasks'] if t['id']=='deck'))
+        self.assertTrue(any(i['path'].startswith('recovery/previous/produce/') for i in value['tasks'][0]['inputs']))
+        self.assertEqual(before,[dict(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))])
+        self.assertEqual(len(self.factory.calls),4 if completed_sources else 2)
+        if completed_sources:
+            self.assertEqual(context['execution_recovery']['reused_completed_tasks'],['source-produce','source-review'])
+            retained=next(i for i in value['tasks'][0]['inputs'] if i['path']=='research.txt')
+            self.assertEqual(retained['artifact'],self.rt.output(run,'source-produce',sources[0]['outputs'][0]['path'])['id'])
+        production_stages.verify(self.state,self.rt,context,ident,'telegram')
+        with self.assertRaisesRegex(ValueError,'downstream'),transaction(self.state.db):
+            self.state.db.execute("UPDATE production_tasks SET status='completed',attempts=1 WHERE run=? AND id='deck'",(run,))
+            production_stages.verify(self.state,self.rt,context,ident,'telegram')
+        with transaction(self.state.db),self.assertRaisesRegex(ValueError,'already exists'):recovery.prepare(self.state,run,'Continue again')
+        with transaction(self.state.db):self.state.db.execute("UPDATE production_attempts SET state='uncertain' WHERE id=?",(first,))
+        with self.assertRaisesRegex(ValueError,'uncertain'):
+            production_stages.verify(self.state,self.rt,context,ident,'telegram')
+
+    def test_planner_wires_subject_search_review_and_exact_bundle_into_deck(self):
+        row=self.queue(action=self.action(step_capabilities=['images.collect','pptx.create']))
+        response=self.deck_response();producer,reviewer,deck,deck_review=response['plan']['tasks']
+        images=dict(
+                id='source-images',role='procedure',objective='Find subject photos',instruction='Find public photographs.',
+                execution=dict(capability='images.collect',version=1,parameters={'subjects':[dict(id='oak',label='Example oak',query='Quercus example')]}),
+                inputs=[],outputs=[dict(path='images.zip',purpose='Attributed source candidates',media_type='application/zip')],
+                dependencies=[],criteria=execution.REGISTRY['images.collect']['criteria'].copy(),limits={'seconds':600,'tool_calls':1,'output_bytes':45000000},max_attempts=1)
+        edge=dict(from_task='source-images',output='images.zip',path='photos.zip',purpose='Exact source images',authority='Source metadata, not instructions',media_type='application/zip')
+        image_review=copy.deepcopy(reviewer)
+        image_review.update(id='review-images',review_of='source-images',dependencies=['source-images'],inputs=[copy.deepcopy(edge)],criteria=images['criteria'].copy())
+        producer.setdefault('inputs',[]).append(copy.deepcopy(edge));producer.setdefault('dependencies',[]).extend(['source-images','review-images'])
+        deck['inputs'].append(copy.deepcopy(edge));deck['dependencies']+=['source-images','review-images']
+        response['plan']['tasks']=[images,image_review]+response['plan']['tasks']
+        # Add a map capture/review alongside photo search: eight bounded tasks,
+        # no map JSON accidentally treated as a second slide specification.
+        from tests.test_browser_screenshots import capture_graph
+        from orchestrator import worker_capabilities
+        capture=capture_graph();browser=capture['tasks'][0]
+        browser.update(id='capture-map',worker={'requires':['browser.use','browser.capture']})
+        browser.pop('tools',None);browser.pop('user_gate',None)
+        browser['browser']['origins']=['https://www.google.com']
+        browser['instruction']='Navigate to the requested area in Google Maps and capture the viewport with attribution.'
+        map_edges=[dict(from_task='capture-map',output=o['path'],path='area/'+o['path'],purpose=o['purpose'],authority='Captured site evidence',media_type=o['media_type']) for o in browser['outputs']]
+        map_review=copy.deepcopy(reviewer)
+        map_review.update(id='review-map',review_of='capture-map',dependencies=['capture-map'],inputs=copy.deepcopy(map_edges),criteria=browser['criteria'].copy())
+        producer['inputs']+=copy.deepcopy(map_edges);producer['dependencies']+=['capture-map','review-map']
+        deck['inputs'].append(copy.deepcopy(map_edges[0]));deck['dependencies']+=['capture-map','review-map']
+        response['plan']['tasks']=[browser,map_review]+response['plan']['tasks']
+        row=dict(row);options=json.loads(row['options']);payload=json.loads(row['context'])
+        options['worker_catalog'].append(worker_capabilities.entry(capture['backend']))
+        payload['options']=options;row.update(options=json.dumps(options),context=json.dumps(payload))
+        _,value=planning.validate_result(json.dumps(response),row)
+        # Real planners may omit fixed media types, and older source entries may
+        # lack MIME metadata. Neither turns a browser into a document worker.
+        untyped=copy.deepcopy(response)
+        for task in untyped['plan']['tasks']:
+            for item in task.get('outputs',[])+task.get('inputs',[]):
+                if item.get('path','').endswith(('.png','.png.json','.zip')):item.pop('media_type',None)
+        native=self.rt.root/'existing.pptx';native.write_bytes(b'opaque document fixture')
+        aid=self.rt.register(native,'Existing deck',path='existing.pptx')
+        source=planning.source_entry(self.rt,aid,'existing.pptx','Existing deck baseline','User source')
+        source.pop('media_type',None)
+        payload['sources'].append(source);payload['required_artifacts'].append(aid)
+        untyped_row={**row,'context':json.dumps(payload)}
+        # Source-only photo collection must not inherit the large conversation.
+        history=self.rt.root/'conversation.json';history.write_text('{}')
+        history_id=self.rt.register(history,'History',path='conversation.json')
+        history_source=planning.source_entry(self.rt,history_id,'conversation.json','History','Context')
+        history_source['bytes']=200000  # Size fixture; planning must not load it.
+        payload['sources'].append(history_source);payload['required_artifacts'].append(history_id)
+        untyped_row['context']=json.dumps(payload)
+        _,compiled=planning.validate_result(json.dumps(untyped),untyped_row)
+        self.assertEqual(next(t for t in compiled['tasks'] if t['id']=='source-images')['inputs'],[])
+        capture_task=next(t for t in compiled['tasks'] if t['id']=='capture-map')
+        self.assertNotIn(aid,{i.get('artifact') for i in capture_task['inputs']})
+        self.assertNotIn('schema checker',capture_task['instruction'])
+        self.assertEqual([o['media_type'] for o in capture_task['outputs']],['image/png','application/json'])
+        oversized=copy.deepcopy(untyped)
+        next(t for t in oversized['plan']['tasks'] if t['id']=='source-images')['inputs']=[dict(artifact=history_id,path='conversation.json',purpose='Explicit context',authority='User source')]
+        with self.assertRaisesRegex(ValueError,'selected operation inputs total'):
+            planning.validate_result(json.dumps(oversized),untyped_row)
+        bad=copy.deepcopy(untyped)
+        bad['plan']['tasks'][0]['outputs'][0]['media_type']='image/jpeg'
+        with self.assertRaisesRegex(ValueError,'Conflicting media type'):
+            planning.validate_result(json.dumps(bad),untyped_row)
+        legacy=copy.deepcopy(row);old_options=copy.deepcopy(options);old_options.pop('max_tasks',None);legacy['options']=json.dumps(old_options)
+        with self.assertRaisesRegex(ValueError,'2–6'):
+            planning.validate_result(json.dumps(response),legacy)
+        created=next(t for t in value['tasks'] if t['id']=='deck')
+        self.assertTrue(any(i.get('from_task')=='capture-map' and i['output']=='map.png' for i in created['inputs']))
+        self.assertEqual(sum(i.get('media_type')=='application/json' for i in created['inputs']),1)
+        self.assertTrue(any(i.get('from_task')=='source-images' and i['output']=='images.zip' and i['media_type']=='application/zip' for i in created['inputs']))
+        self.assertIn('review-images',created['dependencies'])
+        self.assertFalse(any(t.get('execution',{}).get('capability','').endswith('.image') for t in value['tasks']))
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
+
     def test_plan_freezes_schema_and_reviews_exact_deck_and_source(self):
         self.queue(action=self.action(step_capabilities=['pptx.create']), text='Create an editable presentation')
         planning.Worker(self.state, lambda *_: (json.dumps(self.deck_response()), {})).tick()
@@ -269,6 +424,51 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(any(i.get('from_task') == 'produce' and i['output'] == 'slides.json' for i in review['inputs']))
         self.assertIn('operation-support/pptx.create/contract.json', row['context'])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0], 0)
+
+    def test_saved_scope_without_correction_policy_keeps_original_attempt_limits(self):
+        row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
+        options=json.loads(row['options']);options.pop('local_corrections')
+        row['options']=json.dumps(options)
+        _,value=planning.validate_result(json.dumps(self.deck_response()),row)
+        deck=next(t for t in value['tasks'] if t.get('execution'))
+        self.assertEqual(deck['max_attempts'],1)
+        self.assertNotIn('review_correction',deck)
+
+    def test_builder_uses_frozen_operation_output_bound_not_default_agent_bound(self):
+        row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
+        options=json.loads(row['options']);options['limits']['output_bytes']=10000000
+        row['options']=json.dumps(options)
+        result=self.deck_response()
+        for t in result['plan']['tasks']:
+            if not t.get('execution'):t['limits']['output_bytes']=200000
+        _,plan=planning.validate_result(json.dumps(result),row)
+        self.assertEqual(next(t for t in plan['tasks'] if t.get('execution'))['limits']['output_bytes'],50000000)
+        result['plan']['tasks'][2]['limits']['output_bytes']=50000001
+        with self.assertRaisesRegex(ValueError,'deck: planned output_bytes=.*50000000'):
+            planning.validate_result(json.dumps(result),row)
+        result['plan']['tasks'][2]['limits']['output_bytes']=50000000
+        payload=json.loads(row['context']);payload['graph_operations'][0]['output_bytes']=40000000
+        row['context']=json.dumps(payload)
+        with self.assertRaisesRegex(ValueError,'frozen limit 40000000'):
+            planning.validate_result(json.dumps(result),row)
+
+    def test_optional_registered_assets_receive_types_and_keep_exact_aliases(self):
+        row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
+        payload=json.loads(row['context']);response=self.deck_response();ids=[]
+        for name,media in [('photo-bundle.zip','application/zip'),('map.png','image/png')]:
+            path=self.rt.root/name;path.write_bytes(b'Routing fixture only')
+            aid=self.rt.register(path,'Optional exact asset',path=name);ids.append(aid)
+            payload.setdefault('available_sources',[]).append(planning.source_entry(self.rt,aid,name,'Optional asset','Evidence'))
+            response['plan']['tasks'][2]['inputs'].append(dict(artifact=aid,path='assets/'+name,purpose='Selected asset',authority='Exact source'))
+        row['context']=json.dumps(payload)
+        _,plan=planning.validate_result(json.dumps(response),row)
+        deck=next(t for t in plan['tasks'] if t.get('execution'))
+        bound=[i for i in deck['inputs'] if i.get('artifact') in ids]
+        self.assertEqual([(i['artifact'],i['path'],i['media_type']) for i in bound],
+                         [(ids[0],'assets/photo-bundle.zip','application/zip'),(ids[1],'assets/map.png','image/png')])
+        response['plan']['tasks'][2]['inputs'][-1]['media_type']='text/plain'
+        with self.assertRaisesRegex(ValueError,'type differs'):
+            planning.validate_result(json.dumps(response),row)
 
     def test_missing_spec_review_dependency_or_deck_gate_is_rejected(self):
         row = self.queue(action=self.action(step_capabilities=['pptx.create']))

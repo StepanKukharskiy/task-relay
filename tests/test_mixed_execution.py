@@ -186,7 +186,7 @@ class Tests(unittest.TestCase):
             def create(adapter,control,workspace,frozen,backend):
                 session=super().create(control,workspace,frozen,backend)
                 path=Path(control)/'launch.json';launch=json.loads(path.read_text())
-                script=('import sys,time;sys.path.insert(0,'+repr(str(root))+');import gemini;'
+                script=('import sys,time;sys.path.insert(0,'+repr(str(root))+');from task_relay import gemini;'
                     'gemini.read_config=lambda:{"api_key":"fixture"};'
                     'gemini.Client=lambda key:type("Waiting",(),{"request":lambda *a,**k:time.sleep(30)})();'
                     'from orchestrator.step_runner import main;main()')

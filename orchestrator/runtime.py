@@ -34,6 +34,14 @@ def failure_detail(db,attempt):
     """Expose a validated saved worker blocker without rewriting old receipts."""
     if not attempt:return None
     original=attempt['error']
+    revision=db.execute("SELECT e.data FROM production_events e JOIN production_tasks t ON t.run=e.run AND t.id=e.task WHERE e.attempt=? AND e.kind='revision_limit' AND t.latest=e.attempt AND t.status='blocked' ORDER BY e.id DESC LIMIT 1",(attempt['id'],)).fetchone() if db is not None else None
+    if revision:
+        detail=json.loads(revision['data'])
+        return 'Review correction allowance exhausted: '+str(detail.get('instruction','See the saved review.'))[:1800]
+    correction=db.execute("SELECT e.data FROM production_events e JOIN production_tasks t ON t.run=e.run AND t.id=e.task WHERE e.attempt=? AND e.kind='review_correction_required' AND t.latest=e.attempt AND t.status='blocked' ORDER BY e.id DESC LIMIT 1",(attempt['id'],)).fetchone() if db is not None else None
+    if correction:
+        detail=json.loads(correction['data'])
+        return 'Review requested corrections: '+detail['summary'][:900]+'\nRequested correction: '+detail['instruction'][:1500]
     if attempt['state']!='blocked':return original
     receipt=json.loads(attempt['receipt'] or '{}')
     operation=receipt.get('operation') or {}
@@ -271,6 +279,35 @@ class Runtime:
         tasks = self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,)).fetchall()
         return dependencies_ready(spec, tasks, [self.spec(t) for t in tasks])
 
+    def checked_inputs(self, run, spec, backend):
+        """Validate exact late-bound sources before creating or spending an attempt."""
+        from . import executors
+        from .browser_contract import png_input, png_info
+        resolved=[]
+        for item in spec['inputs']:
+            artifact=self.artifact(item['artifact']) if 'artifact' in item else self.output(run,item['from_task'],item['output'])
+            if artifact is None:raise ValueError('Missing upstream artifact: '+item['path'])
+            blob=Path(artifact['blob'])
+            safe_file(self.root,str(blob.relative_to(self.root)))
+            if blob.stat().st_size!=artifact['bytes'] or file_hash(blob)!=artifact['sha256']:
+                raise ValueError('Registered artifact content changed: '+item['path'])
+            resolved.append({**item,'artifact':artifact['id'],'sha256':artifact['sha256'],
+                             'bytes':artifact['bytes'],'blob':blob})
+        if spec.get('execution'):
+            ceiling=execution.REGISTRY[spec['execution']['capability']]['input_bytes']
+            if sum(i['bytes'] for i in resolved)>ceiling:
+                raise ValueError(f'Registered operation input byte limit exceeded ({ceiling} bytes).')
+        elif backend['type'] in executors.API_TYPES:
+            executors.validate_input_sizes(resolved,backend)
+            if backend['type'] not in executors.CODE_TYPES:
+                for item in resolved:
+                    raw=item['blob'].read_bytes()
+                    if backend['type'] in executors.BROWSER_TYPES and png_input(item):png_info(raw)
+                    else:
+                        try:raw.decode('utf-8')
+                        except UnicodeError:raise ValueError('API executors require UTF-8 text inputs: '+item['path']) from None
+        return resolved
+
     def claim(self, run):
         if self.db.in_transaction:
             raise ValueError('Worker claims require a transaction boundary before transport.')
@@ -318,6 +355,12 @@ class Runtime:
                         continue
                 from .worker_capabilities import backend_for
                 backend=backend_for(spec,plan['backend'])
+                try:resolved_inputs=self.checked_inputs(run,spec,backend)
+                except (ValueError,OSError) as exc:
+                    self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                    self.event(run,task['id'],None,'input_preflight_blocked',
+                               {'assignment':task['assignment'],'reason':str(exc),'dispatched':False})
+                    continue
                 if not spec.get('execution') and hasattr(self.factory,'available'):
                     try:self.factory.available(backend)
                     except ValueError as exc:
@@ -337,6 +380,9 @@ class Runtime:
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
+                if frozen.get('execution',{}).get('capability')=='images.collect':
+                    from task_relay import orchestrator_web
+                    frozen['runtime_sources']['task_relay/orchestrator_web.py']=file_hash(Path(orchestrator_web.__file__))
                 if frozen.get('execution',{}).get('capability') in execution.CLOUD_MEDIA:
                     from task_relay import cloud_providers
                     frozen['runtime_sources']['task_relay/cloud_providers.py'] = file_hash(Path(cloud_providers.__file__))
@@ -347,13 +393,11 @@ class Runtime:
                     rhino_app=host_apps.rhino()
                     frozen['rhino_application']={'signature':application_signature(rhino_app['executable']),
                         'major':rhino_app.get('major',8),'version':rhino_app.get('version')}
-                for item in frozen['inputs']:
-                    artifact = self.artifact(item['artifact']) if 'artifact' in item else self.output(run, item['from_task'], item['output'])
-                    if file_hash(artifact['blob']) != artifact['sha256']:
-                        raise ValueError('Registered artifact content changed')
-                    item.update(artifact=artifact['id'], sha256=artifact['sha256'])
+                for item,artifact in zip(frozen['inputs'],resolved_inputs):
+                    item.update(artifact=artifact['artifact'], sha256=artifact['sha256'])
                     target = workspace / item['path']; target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(artifact['blob'], target); target.chmod(0o400)
+                    if file_hash(target)!=artifact['sha256']:raise ValueError('Registered artifact changed while staging: '+item['path'])
                 if spec.get('review_of'):
                     frozen['review_target'] = self.task(run, spec['review_of'])['latest']
                 relay = workspace / '.relay'; relay.mkdir()
@@ -375,12 +419,43 @@ class Runtime:
         return next((t for t in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,)).fetchall()
                      if self.spec(t).get('review_of') == tid), None)
 
+    def retry_review(self,run,tid,instruction,source='user'):
+        """Explicit local API review recovery within its existing attempt budget."""
+        from . import executors
+        with self.transaction():
+            c.nonempty(instruction,'Review recovery request')
+            task=self.task(run,tid);spec=self.spec(task)
+            if task['status']!='blocked' or not spec.get('review_of') or spec.get('browser') or spec.get('execution'):
+                raise ValueError('Only a stopped local review can recover here.')
+            if task['attempts']>=spec['max_attempts']:raise ValueError('Review attempt budget exhausted.')
+            if self.db.execute('SELECT status FROM production_runs WHERE id=?',(run,)).fetchone()[0]!='active':
+                raise ValueError('Paused or cancelled work cannot recover here.')
+            attempt=self.db.execute('SELECT * FROM production_attempts WHERE id=?',(task['latest'],)).fetchone()
+            frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
+            if (attempt['state']!='blocked' or receipt.get('status')!='finished'
+                or receipt.get('external_outcome')!='no_pending_response' or receipt.get('pending_requests')
+                or frozen['backend']['type'] not in (*executors.FILE_TYPES,*executors.CODE_TYPES)):
+                raise ValueError('Confirmed finished API review with no pending response is required; no uncertain replay.')
+            target=self.task(run,spec['review_of'])
+            if target['status']!='awaiting_review' or target['latest']!=frozen['review_target']:
+                raise ValueError('The exact review target changed.')
+            for other in self.db.execute('SELECT * FROM production_tasks WHERE run=?',(run,)):
+                if other['status'] in ACTIVE or (other['attempts'] and tid in self.spec(other)['dependencies']):
+                    raise ValueError('Active or downstream work prevents review recovery.')
+            spec['revision']={'instruction':instruction,'source':source,'previous_attempt':attempt['id']}
+            aid=self.new_assignment(run,c.assignment(spec))
+            self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?",(aid,run,tid))
+            self.event(run,tid,attempt['id'],'review_retry_requested',spec['revision'])
+
     def revise(self, run, tid, instruction, source='user'):
         with self.transaction():
             self._revise(run, tid, instruction, source)
 
     def _revise(self, run, tid, instruction, source):
         task = self.task(run, tid); spec = self.spec(task)
+        if spec.get('review_correction'):
+            from .corrections import schedule
+            if schedule(self,run,tid,instruction,source):return
         if task['status'] in ACTIVE or spec.get('review_of') or not task['latest']:
             raise ValueError('Cannot revise an active, unstarted, or reviewer assignment')
         reviewer = self.reviewer(run, tid)
@@ -390,7 +465,11 @@ class Runtime:
         for other in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,)).fetchall():
             if other['attempts'] and tid in self.spec(other)['dependencies'] and (not reviewer or other['id'] != reviewer['id']):
                 raise ValueError('Downstream work already started; create a new explicit workflow')
-        if task['attempts'] >= spec['max_attempts']:
+        limit=spec['max_attempts']
+        for downstream in self.db.execute('SELECT * FROM production_tasks WHERE run=?',(run,)):
+            if self.spec(downstream).get('review_correction',{}).get('producer')==tid and downstream['attempts']==0:
+                limit=min(limit,2)  # Reserve the third draft for a built-document correction.
+        if task['attempts'] >= limit:
             self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?", (run, tid))
             self.event(run, tid, task['latest'], 'revision_limit', {'instruction': instruction, 'source': source})
             return
@@ -402,6 +481,11 @@ class Runtime:
             spec['inputs'].append({'artifact': a['id'], 'path': 'previous/' + a['path'],
                 'purpose': 'Previous delivery to revise', 'authority': 'Prior candidate, not user approval',
                 'previous_delivery': True})
+        if reviewer and source=='model_review:'+str(reviewer['latest']):
+            for a in self.db.execute('SELECT * FROM production_artifacts WHERE attempt=?',(reviewer['latest'],)):
+                spec['inputs'].append({'artifact':a['id'],'path':'previous-review/'+a['path'],
+                    'purpose':'Exact independent review of the previous candidate',
+                    'authority':'Review evidence for correction, not user approval','previous_delivery':True})
         spec = c.assignment(spec)
         aid = self.new_assignment(run, spec)
         self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?", (aid, run, tid))
@@ -448,6 +532,12 @@ class Runtime:
             state = 'cancelled' if receipt.get('reason') == 'cancelled' or attempt['state'] == 'cancelling' else 'blocked'
             self.set_state(attempt, state, receipt.get('reason') or 'Worker failed')
             self.preserve_stopped_outputs(attempt['id'])
+            if (state=='blocked' and frozen.get('review_correction')
+                    and receipt.get('operation',{}).get('outcome')=='failed'):
+                from .corrections import schedule
+                schedule(self,attempt['run'],attempt['task'],
+                    'Correct the saved specification using this local operation failure receipt: '+c.encoded(receipt['operation']),
+                    'local_operation_failure:'+attempt['id'])
             return
         artifacts, failures = [], []
         total = 0
@@ -456,6 +546,9 @@ class Runtime:
                 path = safe_file(workspace, output['path']); total += path.stat().st_size
                 if total > frozen['limits']['output_bytes']:
                     raise ValueError('Declared output byte limit exceeded')
+                if output.get('handoff'):
+                    from .handoff_contracts import check_file
+                    check_file(path,output['handoff'])
                 artifacts.append(self.register(path, output['purpose'], attempt['run'], attempt['task'], attempt['id'], output['path']))
             except (ValueError, OSError) as exc:
                 failures.append(str(exc))
@@ -499,7 +592,16 @@ class Runtime:
             if target['latest'] != frozen['review_target'] or target['status'] != 'awaiting_review':
                 self.set_state(attempt, 'blocked', 'Stale review target'); return
             if result['decision'] == 'revise':
-                self._revise(attempt['run'], target['id'], result['instruction'], 'model_review:' + attempt['id'])
+                target_spec=self.spec(target)
+                if target_spec.get('execution') and not target_spec.get('review_correction'):
+                    # A review is complete even when its candidate needs correction.
+                    # Native/external work requires a new exact approval, never replay.
+                    self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(attempt['run'],target['id']))
+                    self.event(attempt['run'],target['id'],target['latest'],'review_correction_required',
+                        {'review_attempt':attempt['id'],'summary':result['summary'],'instruction':result['instruction'],
+                         'reason':'Registered operation needs a separately approved correction; existing downstream evidence is preserved.'})
+                else:
+                    self._revise(attempt['run'], target['id'], result['instruction'], 'model_review:' + attempt['id'])
             else:
                 state = 'awaiting_user' if self.spec(target).get('user_gate') else 'completed'
                 self.db.execute('UPDATE production_tasks SET status=? WHERE run=? AND id=?', (state, attempt['run'], target['id']))

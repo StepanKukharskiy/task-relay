@@ -68,7 +68,12 @@ class Tests(unittest.TestCase):
 
     def test_two_stages_keep_selected_bytes_instructions_identity_and_recover_once(self):
         card,mid=self.selected();selected=self.rt.artifact(card['artifact'])
+        prior=self.row();context=json.loads(prior['context'])
+        source=context['sources'][0];source['workflow_artifact']='exact-upstream-version'
+        with self.state.db:self.state.db.execute('UPDATE production_plans SET context=? WHERE id=?',(json.dumps(context),prior['id']))
         row=self.next_plan();payload=json.loads(row['context'])
+        carried=next(s for s in payload['sources'] if s['artifact']==source['artifact'])
+        self.assertEqual(carried['workflow_artifact'],'exact-upstream-version')
         self.assertEqual(payload['options']['job_request_id'],1)
         self.assertEqual(payload['previous_stage']['decisions'][0]['artifact'],card['artifact'])
         self.assertIn(card['artifact'],payload['required_artifacts'])

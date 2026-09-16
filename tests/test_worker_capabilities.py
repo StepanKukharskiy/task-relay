@@ -36,6 +36,14 @@ class CompositionTests(unittest.TestCase):
             self.assertEqual(t['tools'],['files'])
         self.assertEqual(compose(task(),['code.execute'])['worker']['backend'],CODEX)
 
+    def test_automatic_work_uses_narrow_configured_worker_but_named_choice_wins(self):
+        self.assertEqual(compose(task())['worker']['backend'],GEMINI)
+        code={'type':'gemini-code','model':'configured-flash','runtime':'a'*64}
+        t=task();t['worker']={'requires':['files.text','code.execute']}
+        workers.resolve(t,CATALOG+[workers.entry(code)],CODEX)
+        self.assertEqual(t['worker']['backend'],code)
+        self.assertEqual(compose(task(),executor='codex-cli')['worker']['backend'],CODEX)
+
     def test_missing_capability_never_fabricates_a_worker(self):
         for requires in (['media.compose'],['install.plugin'],[],['files.text','files.text']):
             with self.subTest(requires=requires), self.assertRaises(ValueError):compose(task(),requires or ['invalid'])
@@ -166,6 +174,19 @@ class PlanningTests(unittest.TestCase):
             self.assertTrue(all(call.args==(GEMINI,) for call in available.call_args_list))
         self.assertEqual(self.row()['status'],'started')
 
+    def test_automatic_worker_freezes_its_narrower_limits_before_start(self):
+        with patch.object(workers,'capture',return_value=copy.deepcopy(CATALOG)):
+            row=self.queue()
+        result=self.response()
+        for task in result['plan']['tasks']:
+            task.pop('tools');task['worker']={'requires':['files.text']}
+        _,plan=planning.validate_result(json.dumps(result),row)
+        for task in plan['tasks']:
+            self.assertEqual(task['worker']['backend'],GEMINI)
+            self.assertEqual(task['limits']['tool_calls'],24)
+            self.assertEqual(task['limits']['seconds'],600)
+            self.assertEqual(task['limits']['output_bytes'],200000)
+
     def test_python_plan_discloses_runtime_and_blocks_changed_runtime_at_start(self):
         backend={'type':'qwen-code','model':'fixture-qwen','runtime':'a'*64}
         catalog=[workers.entry(CODEX),workers.entry(backend)]
@@ -197,6 +218,60 @@ class PlanningTests(unittest.TestCase):
         with patch.object(workers,'capture',side_effect=AssertionError('Must retain old catalog')):
             row=self.queue(ident=2,action=self.action(parent_id='plan-1'),text='Use the supplied file.')
         self.assertEqual(json.loads(row['options'])['worker_catalog'],CATALOG)
+
+    def test_blocked_proposal_refreshes_workers_only_in_new_unlocked_scope(self):
+        browser=workers.entry({'type':'gemini-browser','model':GEMINI['model']})
+        with patch.object(workers,'capture',return_value=copy.deepcopy(CATALOG)):
+            self.queue(text='Add a map screenshot to the presentation.')
+        planning.Worker(self.state,lambda *_:(json.dumps({'decision':'blocked','message':'Browser unavailable','plan':None}),{})).tick()
+        original=dict(self.row())
+        with patch.object(workers,'capture',return_value=CATALOG+[browser]) as capture:
+            row=self.queue(ident=2,action=self.action(parent_id='plan-1'),text='Browser is connected; continue.')
+        capture.assert_called_once()
+        self.assertIn(browser,json.loads(row['options'])['worker_catalog'])
+        self.assertIn(original['request'],row['request'])
+        self.assertEqual(self.row(1)['context_hash'],original['context_hash'])
+        self.assertEqual(self.row(1)['result'],original['result'])
+        self.assertEqual(json.loads(self.row(1)['options'])['worker_catalog'],CATALOG)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
+
+    def test_blocked_explicit_executor_cannot_discover_other_workers(self):
+        with patch.object(executors,'catalog',return_value=[dict(id='gemini-agent',available=True,backend=GEMINI)]),patch.object(executors,'available'):
+            old=self.queue(action=self.action(executor='gemini-agent'))
+        with self.state.db:self.state.db.execute("UPDATE production_plans SET status='blocked' WHERE id=?",(old['id'],))
+        with patch.object(workers,'capture',side_effect=AssertionError('Named executor must stay locked')),patch.object(executors,'available'):
+            row=self.queue(ident=2,action=self.action(parent_id=old['id']),text='Continue.')
+        self.assertEqual(json.loads(row['options'])['worker_catalog'],json.loads(old['options'])['worker_catalog'])
+
+    def test_exact_repeated_request_recovers_new_capabilities_without_chat_model(self):
+        prior_catalog=CATALOG[:2]
+        prompt='Edit the saved deck with a map screenshot and separate subject photos.'
+        with patch.object(workers,'capture',return_value=copy.deepcopy(prior_catalog)):
+            self.queue(text=prompt)
+        planning.Worker(self.state,lambda *_:(json.dumps({'decision':'blocked','message':'Browser unavailable','plan':None}),{})).tick()
+        old=dict(self.row())
+        browser=workers.entry({'type':'gemini-browser','model':GEMINI['model']})
+        current=[dict(x,available=True) for x in prior_catalog+[browser]]
+        from task_relay import orchestrator_chat as chat
+        with patch.object(executors,'catalog',return_value=current),patch.object(workers,'capture',return_value=prior_catalog+[browser]):
+            snap=chat.snapshot(self.state,None)
+            for text in ('Why is this blocked?', 'Do not continue. '+prompt):
+                self.assertIsNone(planning.repeated_blocked_request(self.state,{'prompt':text},snap))
+            # Repeating without newly available capabilities is not a retry.
+            unchanged=copy.deepcopy(snap);unchanged['capabilities']['graph_executors']=current[:-1]
+            self.assertIsNone(planning.repeated_blocked_request(self.state,{'prompt':prompt},unchanged))
+            self.bridge.process({'update_id':2,'message':{'text':'/orchestrator '+prompt,
+                'from':{'id':7},'chat':{'id':7,'type':'private'}}})
+            chat.Worker(self.state,lambda *_:(_ for _ in ()).throw(AssertionError('No conversation model needed'))).tick()
+        new=self.row(2)
+        self.assertIsNotNone(new);self.assertEqual(new['status'],'queued')
+        self.assertEqual(new['parent_id'],old['id'])
+        self.assertIn(browser,json.loads(new['options'])['worker_catalog'])
+        self.assertEqual(self.row(1)['context_hash'],old['context_hash'])
+        self.assertEqual(self.row(1)['result'],old['result'])
+        self.assertEqual(self.state.get('orchestrator-capability-replan:2')['parent_id'],old['id'])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
+        self.assertIsNone(planning.repeated_blocked_request(self.state,{'prompt':prompt},snap))
 
     def test_explicit_scope_cannot_expand_through_a_worker_choice(self):
         with patch.object(executors,'catalog',return_value=[dict(id='gemini-agent',available=True,backend=GEMINI)]),patch.object(executors,'available'):

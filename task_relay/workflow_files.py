@@ -15,7 +15,7 @@ def encoded(value):
 
 
 def folder_path(state, pid):
-    if not re.fullmatch(r'pipe-[a-f0-9]{24}', pid):
+    if not re.fullmatch(r'(?:pipe|job)-[a-f0-9]{24}', pid):
         raise ValueError('Invalid workflow folder identity.')
     from .relay_paths import PATHS
     data = state.media_dir.parent.absolute()
@@ -136,33 +136,36 @@ def _snapshot(state, pid):
             for r in state.db.execute('SELECT inputs FROM relay_pipeline_requests WHERE pipeline=? AND step=?', (pid,row['id'])):
                 artifact_ids.update(s['artifact'] for s in json.loads(r[0]).get('sources',[]))
             report['stages'].append(stage)
-        report['productions'] = []
-        for run in sorted(runs):
-            artifact_ids.update(r[0] for r in state.db.execute('SELECT id FROM production_artifacts WHERE run=?',(run,)))
-            tasks = [dict(t) for t in state.db.execute('SELECT id,status,latest,attempts FROM production_tasks WHERE run=?',(run,))]
-            attempts = [dict(a) for a in state.db.execute('SELECT id,task,state,error,receipt,frozen FROM production_attempts WHERE run=? ORDER BY rowid',(run,))]
-            for a in attempts:
-                a['receipt'] = json.loads(a['receipt']) if a['receipt'] else None
-                a['frozen'] = json.loads(a['frozen'])
-                artifact_ids.update(i['artifact'] for i in a['frozen'].get('inputs',[]) if i.get('artifact'))
-            decisions = [dict(d) for d in state.db.execute('SELECT * FROM production_decisions WHERE run=? ORDER BY id',(run,))]
-            report['productions'].append({'run':run,'tasks':tasks,'attempts':attempts,'decisions':decisions})
-        for aid in sorted(artifact_ids):
-            if aid.startswith('media-'):
-                a = state.db.execute("SELECT job_id AS run,NULL AS task,NULL AS attempt,filename AS path,'Generated media' AS purpose,sha256,size AS bytes,path AS blob FROM artifacts WHERE id=? AND role='output'",(aid[6:],)).fetchone()
-            else:
-                a = state.db.execute('SELECT id,run,task,attempt,path,purpose,sha256,bytes,blob FROM production_artifacts WHERE id=?',(aid,)).fetchone()
-            if not a:
-                report['missing_artifacts'].append(aid)
-                continue
-            a = dict(a);a['id']=aid
-            if not re.fullmatch(r'(?:[a-f0-9]{32}|media-[a-f0-9]{20,64})', aid):
-                raise ValueError('Invalid registered artifact identity.')
-            name = re.sub(r'[^A-Za-z0-9._-]+','-',Path(a['path'] or 'artifact').name).strip('.-')[:150] or 'artifact'
-            a['copy_path'] = 'files/'+a['id']+'/'+name
-            report['artifacts'].append(a)
-        return report
+        return collect_artifacts(state, report, runs, artifact_ids)
 
+
+def collect_artifacts(state, report, runs, artifact_ids):
+    report['productions'] = []
+    for run in sorted(runs):
+        artifact_ids.update(r[0] for r in state.db.execute('SELECT id FROM production_artifacts WHERE run=?',(run,)))
+        tasks = [dict(t) for t in state.db.execute('SELECT id,status,latest,attempts FROM production_tasks WHERE run=?',(run,))]
+        attempts = [dict(a) for a in state.db.execute('SELECT id,task,state,error,receipt,frozen FROM production_attempts WHERE run=? ORDER BY rowid',(run,))]
+        for a in attempts:
+            a['receipt'] = json.loads(a['receipt']) if a['receipt'] else None
+            a['frozen'] = json.loads(a['frozen'])
+            artifact_ids.update(i['artifact'] for i in a['frozen'].get('inputs',[]) if i.get('artifact'))
+        decisions = [dict(d) for d in state.db.execute('SELECT * FROM production_decisions WHERE run=? ORDER BY id',(run,))]
+        report['productions'].append({'run':run,'tasks':tasks,'attempts':attempts,'decisions':decisions})
+    for aid in sorted(artifact_ids):
+        if aid.startswith('media-'):
+            a = state.db.execute("SELECT job_id AS run,NULL AS task,NULL AS attempt,filename AS path,'Generated media' AS purpose,sha256,size AS bytes,path AS blob FROM artifacts WHERE id=? AND role='output'",(aid[6:],)).fetchone()
+        else:
+            a = state.db.execute('SELECT id,run,task,attempt,path,purpose,sha256,bytes,blob FROM production_artifacts WHERE id=?',(aid,)).fetchone()
+        if not a:
+            report['missing_artifacts'].append(aid)
+            continue
+        a = dict(a);a['id']=aid
+        if not re.fullmatch(r'(?:[a-f0-9]{32}|media-[a-f0-9]{20,64})', aid):
+            raise ValueError('Invalid registered artifact identity.')
+        name = re.sub(r'[^A-Za-z0-9._-]+','-',Path(a['path'] or 'artifact').name).strip('.-')[:150] or 'artifact'
+        a['copy_path'] = 'files/'+a['id']+'/'+name
+        report['artifacts'].append(a)
+    return report
 
 def _name(value):
     return re.sub(r'[^A-Za-z0-9._-]+', '-', str(value)).strip('.-')[:150] or 'artifact'
@@ -282,8 +285,13 @@ def _sync(state, pid, report):
     old = json.loads(marker.read_text())
     state_signature = hashlib.sha256(encoded(report)).hexdigest()
     versions = _layout(report, old)
+    def stamp(a):
+        path=_inside(root,old.get('paths',{}).get(a['id'],a['copy_path']))
+        if not path.is_file():return None
+        st=path.stat()
+        return [st.st_size,st.st_mtime_ns,st.st_ctime_ns]
     if (old.get('format_version')==2 and old.get('state_signature') == state_signature and not old.get('errors')
-            and all(_inside(root,a['copy_path']).is_file() for a in report['artifacts'])):
+            and all(stamp(a)==old.get('file_stats',{}).get(a['id']) and stamp(a) is not None for a in report['artifacts'])):
         return root
     previous = dict(old.get('paths', {}))
     if old.get('format_version')!=2 and old.get('snapshot'):
@@ -379,6 +387,7 @@ def _sync(state, pid, report):
     old.update(format_version=2, snapshot=signature, state_signature=state_signature,
                errors=bool(errors or report['missing_artifacts']), versions=versions,
                paths={a['id']:a['copy_path'] for a in report['artifacts']}, managed_hashes=hashes)
+    old['file_stats']={a['id']:stamp(a) for a in report['artifacts']}
     _replace(marker,encoded(old))
     return root
 

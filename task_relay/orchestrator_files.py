@@ -107,7 +107,9 @@ def run(name, client, endpoint, request, roots, receipt, web=None, context=None)
     """
     request = copy.deepcopy(request)
     specs = definitions(roots, web, context)
-    if name == 'gemini':
+    if not specs:
+        request.pop('tools',None)
+    elif name == 'gemini':
         request['tools'] = [{'functionDeclarations':[
             {'name':d['name'],'description':d['description'],'parametersJsonSchema':d['parameters']} for d in specs]}]
         request['generationConfig'].pop('responseMimeType', None)

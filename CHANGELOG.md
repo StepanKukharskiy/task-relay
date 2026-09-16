@@ -1,5 +1,386 @@
 # Changelog
 
+## 0.13.54 — native inspection and release downloads
+
+- Resolve website download links and version labels from the newest complete
+  published GitHub release, including betas, with cached fallback and preserved
+  legacy download URLs. Publish matching DMG, CLI source and app update assets.
+- Bind Rhino and Blender inspection to explicitly selected artifacts or declared
+  upstream model outputs. Historical models remain reviewer evidence and no longer
+  become extra inspection arguments after a script correction.
+- Keep missing/ambiguous model selection validation; recover a valid saved,
+  unexecuted proposal without repeating provider calls or changing selected code.
+
+## 0.13.53 — actionable native review corrections
+
+- Preserve completed reviews when a registered-operation candidate needs changes;
+  retain the findings instead of masking them with a downstream-revision error.
+  Completed native execution and inspection are not replayed.
+- Show the review findings and a Plan correction action for Rhino/Blender script
+  candidates. Propose exact-evidence preparation and independent review, followed
+  by a separate Start for changed native code. Recognize existing affected receipts
+  without rewriting them; reject stale targets and uncertain execution.
+- Clarify that Rhino execution outputs checks.json as a verification report; its
+  selected input checks specification is a separate contract. Review instructions
+  must not validate the output report as an input specification.
+
+## 0.13.52 — uploaded references in production planning
+
+- Bind explicitly selected chat uploads to production plans by exact file ID and
+  hash. Preserve captions and media types through preparation and review, including
+  clarification requests; unrelated uploads are explicitly excluded.
+- Distinguish visual image inspection from binary file access when selecting
+  workers. Reject workers that cannot inspect the required image pixels.
+- Recover unstarted missing-reference plans using the original upload snapshot
+  without editing the original request, failure receipt or starting native code.
+
+## 0.13.51 — resume rate-limited stage interpretation
+
+- Route an explicit continuation after a confirmed Gemini 429 to its actual
+  failed phase, including stage interpretation before any production plan or
+  image request exists. Preserve the original failed request/receipt, exact stage
+  prompt, provider/model and selected upstream inputs in an atomic successor.
+- Expose Retry stage for this pre-dispatch failure; bind its button to the failed
+  request so stale clicks cannot retry a newer failure. Completed stages remain
+  untouched. Uncertain responses, existing dispatches and changed sources are
+  rejected; no automatic retry or provider fallback is added.
+
+## 0.13.50 — script repair review allowance
+
+- New workflow repair grants include one revision after independent review, with
+  explicit API request and response budgets shared with normal code planning.
+  Existing grants and executed attempts retain their original limits.
+- Exhausted repair reviews can propose a delivered preparation Start card with
+  bounded extra attempts and exact prior evidence. Keep original host failures,
+  script/checks, models and completed work; native execution still needs a
+  separate Start on the independently reviewed corrected script.
+- Refuse unchanged repair scripts and placeholder diagnoses before host planning.
+  Surface the exhausted review instructions in workflow pause messages. Supply
+  RhinoViewport camera signatures to authors/reviewers instead of trusting an
+  incorrect API suggestion in a prior review.
+
+## 0.13.49 — bounded workflow type correction
+
+- Correct a complete but type-invalid workflow proposal once before dispatch.
+  The correction can change only handoff media types and corresponding edges;
+  preserve stages, provider instructions, gates, limits and requested quantities.
+  Keep the initial response, validation cause and corrected response as evidence.
+- Give the correction authoritative operation types, with no file or web tools.
+  Reject scope changes and explicitly requested format substitutions. Capacity
+  failures and uncertain provider submissions do not trigger this correction.
+- State managed PNG and canonical native-model types explicitly. Recognize
+  noncanonical Rhino/JPEG type declarations as correctable planning errors.
+  Confirmed saved workflow rejections can recover atomically with a type-only
+  successor; never rewrite the original failure or duplicate its dispatch.
+
+## 0.13.48 — declared workflow handoffs and feasibility
+
+- New workflows declare versioned output types, exact upstream deliverable edges,
+  optional byte bounds, companion files and requested PPTX slide counts. Validate
+  every declared stage before starting; report unknown sizes explicitly. Reject
+  unsupported scale and incompatible direct inputs without shrinking the request.
+- Bind those promises to concrete production outputs and exact selected artifact
+  identities. Carry bindings through clarification and preparation/execution;
+  managed images use only the declared image references. Existing saved workflows
+  and legacy procedure contracts are not rewritten.
+- Enforce declared output byte bounds, UTF-8 text and exact PPTX slide counts at
+  delivery; reject a mismatched slide specification before building the deck.
+  Share PPTX and managed-image reference limits with their execution paths.
+- Restore Rhino handoff regression fixtures to the current deferral/approval
+  contract. Controlled cross-stage fixtures do not qualify live providers, native
+  geometry, semantic source use or large-deck assembly.
+
+## 0.13.47 — registered builder planning boundaries
+
+- Apply each registered builder’s frozen output allowance, bounded by its current
+  contract, instead of the default agent’s output limit. Keep stage deadlines,
+  attempts and worker limits intact; identify the task and field in limit errors.
+- Compile file types and exact aliases for explicitly selected optional operation
+  sources as well as required sources. Retain source identity and reject conflicting
+  explicit types, so a selected map or image bundle cannot lose metadata at handoff.
+- These changes allow a previously rejected, unexecuted presentation proposal to
+  be recovered through existing saved-plan controls without another planner call.
+  Provider changes still require the existing Start approval.
+
+## 0.13.46 — late input checks and resilient status
+
+- Validate exact upstream and revision inputs before worker creation: source identity,
+  per-worker byte limits, UTF-8 text and browser PNG structure. Check registered
+  operation input totals too. Preserve files and prior attempts; no provider switch,
+  dropped input or automatic replay.
+- Save a task-specific pre-dispatch blocker without spending an attempt or stopping
+  unrelated ready tasks. Surface the current assignment failure even after a prior
+  attempt, rather than displaying its older error.
+- Keep status readable when a declared text artifact is invalid UTF-8, missing or
+  changed. Report an unavailable text preview and retain the registered artifact;
+  never substitute decoded text or treat missing evidence as verified.
+
+## 0.13.45 — stage input limits and recoverable planning setup
+
+- Apply API text/binary limits to each worker's assigned files, after role-specific
+  input selection, rather than the entire frozen workflow source catalog. Retain
+  source ZIPs for later presentation stages without treating them as browser text.
+  Check assigned UTF-8 text and PNG bytes before creating workers.
+- Show saved setup/provider/interpretation causes in workflow pause messages and
+  expose eligible local setup recovery in workflow status and controls.
+- Explicit Recover stage setup revalidates the exact saved plan_production response
+  after a confirmed local enqueue failure. Preserve the failed chat/error and exact
+  workflow sources in a successor request; do not repeat interpretation, completed
+  work or uncertain external actions. New planning remains a separate queued step.
+
+## 0.13.44 — align recovery, presentation inputs and result delivery
+
+- Restore exact sourced-image ZIP dependencies when revising a selected Relay
+  presentation, including image-grid slides, alongside direct PNG/JPEG images.
+- Share completed-source retention between browser/preparation and exhausted-review
+  recovery. Reuse completed upstream artifacts and receipts; reject started
+  downstream work and preserve prior attempts. A new exact Start is still required.
+- Select pending completed result handoffs rather than the latest 20 selections,
+  so delivered or unfinished stages cannot hide an older completed result.
+- Preserve approved legacy procedure image-generation semantics in a new reviewable
+  workflow. Record the compatibility mapping and display it before Resume without
+  changing the saved procedure version or weakening new reference-image validation.
+
+## 0.13.43 — workflow correction limits and authentic reference imagery
+
+- Validate workflow document-correction attempts against the same bounded local
+  graph used by execution. New workflow receipts explicitly cover the correction
+  loop; older receipts require exact Start without rewriting approved limits.
+  External operations and unrelated tasks do not inherit expanded attempts.
+- Default factual research imagery to authentic online sources at workflow routing,
+  not just production planning. New visual stages declare reference or synthetic
+  intent; reference stages cannot select managed image generation or provider image
+  operations. Requested concepts and renders remain supported. Intent interpretation
+  remains model-based; no live provider accuracy guarantee is claimed.
+- Preserve saved workflows, generated artifacts and receipts. Existing generated
+  imagery requires an explicitly revised sourcing stage, not a silent replacement.
+
+## 0.13.42 — image grids and predictable slide styling
+
+- Add image_grid with four- or six-image pages, automatic pagination, editable
+  labels/captions, retained ordering and source attribution. Validate expanded
+  slide limits and logo collisions without dropping items or shrinking text.
+- Add explicit clean_minimal_v1 styling. Existing saved decks keep their defaults.
+  Use whole-image fitting by default; explicit cover mode performs native center
+  cropping and records it in image-bundle credits without changing source bytes.
+- Guide new photo catalogue authors to supply compact content collections instead
+  of writing individual coordinates. Retain existing templates and brand decisions.
+
+## 0.13.41 — reusable slide layouts and selected-result handoffs
+
+- Add seven data-only slide layouts with named content slots, custom layout definitions,
+  heading/body fonts, colors and fixed logo boxes. Compile to editable native objects;
+  retain version 1 decks and independent review. Native PowerPoint master import and
+  a Settings template library remain outside this implementation.
+- Export completed standalone productions and their recorded recovery ancestry into
+  inspectable results folders. Queue one post-selection completion handoff with verified
+  absolute file paths, without inferring workflow ownership or replaying old notices.
+  Preserve local edits and all registered versions; status cards show exported results.
+- Keep model-disclosed typo/keyboard-layout interpretations visible even when routing
+  replaces its prose with an action receipt. Preserve the original message and gates.
+
+## 0.13.40 — explicit response budgets for code preparation
+
+- Freeze and display per-response output token limits as part of new Start plans.
+  New code authors receive up to 16,384 tokens per response; reviewers keep 4,096.
+  Existing assignments without this field retain the original 4,096-token limit.
+  Enforce integer bounds and send the exact frozen value to every supported API
+  provider. Request, time, attempt and model choices remain separately bounded.
+- Align the local Python argument allowance with the approved response budget,
+  retaining the legacy 6000-byte guard for old assignments. Larger response
+  allowances can consume more tokens and are disclosed before Start.
+- Allow checkpoints to save real partial work without demanding placeholder
+  files for every output. Require all actual outputs before delivery and retain
+  independent review. New recovery instructions name only the latest feedback
+  snapshot first; all historical source files and user decisions remain intact.
+
+## 0.13.39 — compact worker edits and readable blocker cards
+
+- Show a plain-language blocker and its technical reason in terminal and status
+  cards, with a blank line between task sections. Resolve legacy generic provider
+  failures from the saved response envelope without changing historical receipts
+  or displaying generated code as an error message.
+- Recover once each from received generation-length and malformed-call failures
+  within the existing request allowance (at most two recoveries). Discard every
+  rejected candidate; uncertain outcomes and safety refusals still stop. Explicit
+  Continue can propose a new Start for an already stopped malformed-call attempt.
+- Keep local Python edits within 6000 UTF-8 bytes and guide workers to transform
+  existing data incrementally. Excerpt large model-facing stdout and suppress
+  inspection-only checkpoint output while retaining complete tool receipts locally.
+  File contents, review requirements and execution budgets remain unchanged.
+- Give recovery drafts paths containing their originating attempt ID, preserving
+  all versions without duplicate input-path failures on repeated continuations.
+
+## 0.13.38 — bounded incomplete-generation recovery
+
+- Local code workers can recover once from an explicitly received generation
+  length limit, within the existing request, tool and time allowance. Discard
+  every incomplete tool call, retain its response and recovery receipt, and
+  continue from confirmed files and conversation. Applies across supported API
+  providers; no automatic replay of unknown outcomes, browser actions or safety
+  refusals, and no automatic increase in limits or provider switch.
+- Keep draft progress checkpoints active after files exist. Four calls without
+  changed output bytes require a targeted edit checkpoint or completion report;
+  rewriting identical bytes does not release the checkpoint. Independent review
+  still determines whether the requested changes are actually complete.
+- Explicit continuation of a stopped preparation generation can propose a new
+  Start with exact drafts, feedback and completed sources retained. Verify the
+  saved provider response for legacy incomplete receipts; preserve old attempts.
+
+## 0.13.37 — bounded document correction loops
+
+- Newly approved local presentation plans can correct the specification once
+  after review and once after a confirmed PPTX build failure or final review.
+  Re-review each version; allow at most three specification attempts and two
+  local builds, with unchanged per-attempt model, request, time and tool limits.
+  Preserve exact drafts, review reports and failure receipts without resetting
+  counters or replaying browser, host or external API operations.
+- Keep legacy plans on their saved allowances. Display the correction scope
+  before Start; stop on exhausted budgets, uncertain work or dispatched downstream
+  dependencies. Final artifact selection remains the user's decision.
+- Recovery carries exact user feedback and the latest request to authors and
+  reviewers. When the user permits missing photos to be skipped, omit those
+  images while keeping subject data and recording the omission in the summary;
+  an authorized omission alone must not block the deck.
+
+## 0.13.36 — preparation checkpoints and exact presentation inputs
+
+- Stop unrestricted inspection loops in text/script code producers after four
+  calls without a complete draft. Offer explicit Python draft checkpoint or
+  text writes, preserving existing document content through compact code edits.
+  Resume ordinary inspection/validation after outputs exist; file existence is
+  never independent review or acceptance. Binary exporters/reviewers are unchanged.
+- Compile exact creator image/bundle paths into slide author and reviewer
+  assignments, sharing the same source identities and rejecting dependency cycles.
+  Missing photos must remain explicit, with no fabricated paths or substitutions.
+- Continue after exhausted local preparation proposes a new bounded Start plan.
+  Reuse completed outputs/reviews, preserve old attempts and receipts, and retain
+  selected presentation images through verified original creation provenance.
+  Keep approved request limits; no provider switch, automatic paid retry or reset.
+
+## 0.13.35 — task-sized provider request budgets
+
+- New local code-worker plans explicitly freeze a provider request allowance
+  up to their tool-call limit, capped at 24. Legacy assignments retain eight
+  requests unless a new delivered Start approves a changed assignment.
+- Show request limits alongside time/tool limits and reported request counts
+  in production status. Give workers a live list of missing/written outputs
+  and an early instruction to write and validate instead of repeatedly scanning.
+- Continue after a confirmed local preparation request-budget failure proposes
+  use of the remaining approved attempt and aligned request limits for unstarted
+  code reviews. Preserve exact sources, previous drafts, completed tasks and
+  failure receipts; never reset attempts or replay uncertain work.
+
+## 0.13.34 — review captured image pixels
+
+- Browser scopes can explicitly grant visual_inputs for exact declared PNGs.
+  Send those selected bytes to Gemini, OpenAI or Qwen using native image inputs;
+  legacy scopes continue to expose metadata only. Keep source hashes and bounds.
+- Independent reviewers can inspect saved image pixels and provenance without
+  demanding live DOM text from canvas-rendered pages. No visual acceptance is
+  inferred from container checks or source URLs.
+- Continue after a metadata-only review failure proposes a delivered Start visual
+  review card. It grants one additional review, preserves the captured candidate
+  and old failure receipt, and resumes the approved graph only after review.
+
+## 0.13.33 — browser startup and completed-work recovery
+
+- Allow up to 30 seconds for managed Chrome to publish its verified local
+  connection, reusing one launch and the saved profile. Open a neutral new tab.
+- An explicit continuation after a confirmed pre-action Chrome timeout proposes
+  a new Start card with unchanged browser permissions. Preserve old attempts,
+  completed producer/reviewer receipts, and exact deliverable artifact identities.
+  Only unfinished tasks enter the resumed plan. Uncertain actions remain blocked.
+
+## 0.13.32 — shared browser session and lean photo collection
+
+- Let newly approved browser scopes select the saved Settings Chrome session with
+  profile managed and session_source settings. Share the setup/job lock, keep
+  unrelated tabs untouched, and honor Browser use off and manual sign-in state.
+  Existing profile-only scopes retain their original browser sessions.
+- Expose managed session readiness to planning. Required consent redirect origins
+  must appear in a new approved scope; challenges never authorize bypasses.
+- Photo collection can use its frozen subject parameters without file inputs.
+  Stop inheriting conversation histories into that operation and reject oversized
+  explicit operation inputs before Start; downstream reviews retain their context.
+- Prepare a new bounded setup-repair proposal from confirmed browser observations
+  and image failures that occurred before network dispatch. Preserve old attempts,
+  exact outputs and action grants; changed profiles/origins require a new Start.
+
+## 0.13.31 — compile screenshot and document handoffs
+
+- Infer fixed PNG/provenance types only for explicitly declared screenshot grants,
+  and propagate those types through exact file dependencies before worker matching.
+  Fill registered operations’ fixed output types without overriding explicit types.
+- Exclude incompatible implicit document inputs from browser roles even when older
+  source metadata omits MIME type. Explicit choices still require compatible workers.
+- Keep document schema execution instructions scoped to document workers.
+
+## 0.13.30 — preserve current capabilities in conversation context
+
+- Keep a compact current executor/operation availability index visible when large
+  conversation snapshots are excerpted, including browser profiles beyond the
+  generic list prefix. Exact catalog pointers retain full permission details.
+- Treat a renewed exact request for a blocked, unexecuted proposal as a request
+  to replan when new worker capabilities are available. Preserve the old receipt,
+  original sources and explicit executor locks; no execution or uncertain retry
+  is inferred. The new proposal retains its own Start boundary.
+- Distinguish historical plan catalogs from current availability in routing
+  instructions and record local recovery without a conversation-provider call.
+
+## 0.13.29 — browser availability and blocked planning recovery
+
+- Keep verified Gemini, OpenAI and Qwen browser model connections eligible while
+  credentials, endpoint and model match. Website sign-in is separate from provider
+  metadata; elapsed time alone no longer removes the browser worker. Failed
+  connection checks, missing runtimes and origin/action restrictions still apply.
+- Refresh worker discovery for a new follow-up proposal after planning was blocked
+  without an executable plan. Preserve the original receipt and request, explicit
+  executor locks, approved plans and execution attempts.
+
+## 0.13.28 — sourced images for presentations
+
+- Add generic `images.collect`: public Wikimedia Commons searches for planned
+  subjects, bounded photo downloads, author/licence/source receipts and explicit
+  missing matches. No generation model, credentials or automatic retry required.
+- Preserve reviewed image bundles between stages. PPTX creation embeds their exact
+  photos and retains full attribution in slide notes; planners include visible
+  captions and review subject coverage. Prior artifacts are never replaced.
+- Reject altered hashes, unsafe archive members and unsupported image sources.
+  Review-directed revisions can exclude exact rejected file titles.
+- Separate image search from generation defaults and expose the new operation to
+  the planner. Restore a remaining package import in the API-timeout test fixture.
+- Compose subject photos, a requested map-site viewport capture and PPTX creation
+  in one bounded plan. New mixed scopes allow up to twelve tasks; saved scopes
+  without that limit retain six. Browser workers omit incompatible implicit
+  document contracts/bundles, preserving explicit source choices.
+
+## 0.13.27 — bounded document workers and review recovery
+
+- Prefer the narrowest suitable configured file/Python worker for automatic roles,
+  preserving explicit executor choices and approval of provider changes. Ordinary
+  document work can use configured API models without Codex CLI.
+- Keep file/code verification valid while credentials, endpoint and model match;
+  browser checks still expire, failed checks invalidate eligibility, and native
+  code execution still requires a verified runtime. No provider retries are added.
+- Give every API file/Python worker a request countdown and reserve its last
+  requests for saving outputs and reporting completion. Preserve exact worker
+  failure reasons instead of reporting only “Worker failed.”
+- Save a reviewer’s sole Markdown/text artifact directly from its structured
+  decision and evidence. Explicitly retry a confirmed failed API review within
+  its remaining approved attempt budget, preserving the exact producer candidate.
+- Include one review-directed correction in newly approved local draft/review
+  plans. Registered operations and browser tasks retain one attempt, and saved
+  plans retain their original limits. Show the actual exhausted-review reason.
+- Freeze the PPTX creator’s executable schema validator with preparation inputs.
+  Distinguish structural checks and estimated text fit from observed rendering.
+- Record leftover backup scratch paths without aborting a verified app backup
+  when Finder recreates temporary metadata during cleanup; signature and archive
+  verification remain mandatory.
+- Allow explicit recovery of an exhausted draft review in a mixed graph: retain
+  exact prior drafts/reviews and the remaining dependencies, propose a new bounded
+  plan, and preserve original attempts. Started downstream work blocks this path.
+
 ## 0.13.26 — direct package entry points and refreshed beta
 
 - Migrate provider children, source launchers, macOS service definitions, native
@@ -524,6 +905,10 @@
   preserved. Live end-to-end acceptance and public release remain open.
 
 ## Unreleased — website
+
+- Clarified how a job connects briefs, selected files, review decisions and final
+  outputs. Workflow examples lead with their intended outcomes and explain native
+  editable files; the existing hero remains. A real case study awaits user material.
 
 - Simplified the hero to getting work done with existing tools, connected jobs
   and user choices. Page metadata and llms.txt use the same three-line brand story.

@@ -248,12 +248,24 @@ def dispatch(state, job, action, snap):
         raise ValueError('Supply every parameter exactly once; saved examples are not defaults.')
     template = map_text(value['template'], lambda t: re.sub(
         r'\{\{([a-z][a-z0-9_]*)\}\}', lambda m: bindings[m[1]], t))
+    # An approved older template already declared these generation operations.
+    # Preserve that meaning in the new reviewable plan, never rewrite its version.
+    legacy_visuals=[]
+    for stage in template['stages']:
+        if 'visual_intent' not in stage and pipelines.generates_images(stage):
+            stage['visual_intent']='synthetic';legacy_visuals.append(stage['id'])
     plan = dict(kind='plan_pipeline', title=template['title'], planning_only=True, stages=template['stages'])
+    # Existing approved templates keep their exact contract and remain reviewable.
+    # Typed templates retain their declarations; legacy templates are not upgraded
+    # by inventing ports, quantities or conversions.
+    if all(s.get('handoff') for s in template['stages']):plan['contract_version']=1
+    else:snap={**snap,'workflow_contract_version':0}
     # The ordinary validator checks current operations and expanded text bounds.
     result = pipelines.dispatch(state, job, plan, snap)
     pid = state.db.execute('SELECT id FROM relay_pipelines WHERE request_id=?', (job['id'],)).fetchone()[0]
     context = dict(procedure_id=row['id'], sha256=row['sha256'], bindings=bindings,
                    request=template['request'])
+    if legacy_visuals:context['legacy_generation_stages']=legacy_visuals
     old = state.db.execute('SELECT context FROM relay_procedure_runs WHERE pipeline=?', (pid,)).fetchone()
     if old and old[0] != pipelines.encoded(context):
         raise ValueError('Procedure run identity conflict.')
@@ -263,6 +275,8 @@ def dispatch(state, job, action, snap):
     # Include the fully bound brief in the same review card as the Resume control.
     key = f'pipeline:{pid}:workflow:created'
     detail = '\n\nProcedure: ' + row['id'] + '\nBound request:\n' + template['request']
+    if legacy_visuals:
+        detail+='\nLegacy image-generation stages retain their approved behavior: '+', '.join(legacy_visuals)+'. Review before Resume; these stages do not source reference photos.'
     if not old:
         state.db.execute('UPDATE outbox SET text=text || ? WHERE id=?', (detail, key))
     return result[0] + detail, None

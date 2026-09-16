@@ -72,6 +72,14 @@ class Tests(unittest.TestCase):
         self.attempt['frozen']=json.dumps(self.frozen)
         self.assertEqual(activity.snapshot(self.root,self.attempt,self.spec,self.backend)['model'],'api-model')
 
+    def test_response_allowance_uses_saved_attempt_not_changed_plan(self):
+        self.frozen['backend']={'type':'gemini-code','model':'fixture','runtime':'fixture'}
+        self.frozen['limits']={'seconds':600,'response_tokens':16384}
+        self.attempt['frozen']=json.dumps(self.frozen)
+        self.spec['limits']['response_tokens']=4096
+        s=activity.snapshot(self.root,self.attempt,self.spec,self.backend)
+        self.assertIn('Response limit: 16,384 output tokens per request','\n'.join(activity.lines(self.task(s))))
+
     def test_nested_usage_details_and_missing_fields_are_not_invented(self):
         result=activity.usage_totals([{'prompt_tokens':100,'completion_tokens':20,
             'prompt_tokens_details':{'cached_tokens':80},'completion_tokens_details':{'reasoning_tokens':10}},

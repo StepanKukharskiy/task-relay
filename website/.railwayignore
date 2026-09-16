@@ -18,3 +18,5 @@
 !public/sitemap.xml
 !fetch-downloads.mjs
 !downloads.json
+!releases.mjs
+!release-fallback.json

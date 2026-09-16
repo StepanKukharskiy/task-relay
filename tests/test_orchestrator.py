@@ -153,6 +153,40 @@ class Tests(unittest.TestCase):
         self.rt.create(pair(max_attempts=1)); self.rt.tick('demo'); self.finish(); self.finish('review', decision='revise')
         self.rt.tick('demo'); self.assertEqual(len(self.factory.calls), 2)
         self.assertEqual(self.rt.status('demo')['status'], 'blocked')
+        from orchestrator.runtime import failure_detail
+        attempt=self.rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(self.latest('produce'),)).fetchone()
+        self.assertEqual(attempt['state'],'completed')
+        self.assertIn('correction allowance exhausted',failure_detail(self.rt.db,attempt))
+
+    def test_retry_failed_api_review_preserves_candidate_and_old_attempt(self):
+        from orchestrator import executors
+        value=pair(max_attempts=2);value['backend']={'type':'gemini-agent','model':'fixture'}
+        for t in value['tasks']:t.update(tools=['files'],limits=executors.GEMINI_LIMITS.copy())
+        self.rt.create(value);self.rt.tick('demo');self.finish()
+        producer=self.latest();review=self.latest('review')
+        receipt={'status':'finished','exit_code':1,'external_outcome':'no_pending_response','pending_requests':[],'reason':'Final report file missing'}
+        self.factory.sessions[review]['status']=receipt;self.rt.tick('demo')
+        before=dict(self.rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(review,)).fetchone())
+        self.rt.retry_review('demo','review','Review the same candidate and finish its report.')
+        self.assertEqual(self.latest(),producer);self.rt.tick('demo')
+        self.assertNotEqual(self.latest('review'),review)
+        self.assertEqual(self.rt.task('demo','review')['attempts'],2)
+        self.assertEqual(before,dict(self.rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(review,)).fetchone()))
+        self.finish('review',decision='accept')
+        self.assertEqual(self.rt.status('demo')['status'],'completed')
+        self.assertEqual(len(self.factory.calls),3)
+
+    def test_review_recovery_rejects_pending_response_and_exhausted_budget(self):
+        from orchestrator import executors
+        value=pair(max_attempts=2);value['backend']={'type':'gemini-agent','model':'fixture'}
+        for t in value['tasks']:t.update(tools=['files'],limits=executors.GEMINI_LIMITS.copy())
+        self.rt.create(value);self.rt.tick('demo');self.finish();review=self.latest('review')
+        receipt={'status':'finished','exit_code':1,'external_outcome':'unknown','pending_requests':['api-01']}
+        self.factory.sessions[review]['status']=receipt;self.rt.tick('demo')
+        with self.assertRaisesRegex(ValueError,'uncertain replay'):self.rt.retry_review('demo','review','Retry')
+        self.assertEqual(len(self.factory.calls),2)
+        with self.rt.transaction():self.rt.db.execute("UPDATE production_tasks SET attempts=2 WHERE run='demo' AND id='review'")
+        with self.assertRaisesRegex(ValueError,'budget exhausted'):self.rt.retry_review('demo','review','Retry')
 
     def test_model_acceptance_is_not_user_selection_and_purpose_is_exact(self):
         self.rt.create(pair(gate='audio preference')); self.rt.tick('demo'); self.finish(); self.finish('review', decision='accept')
@@ -258,7 +292,8 @@ class Tests(unittest.TestCase):
         source = self.root / 'source.txt'; source.write_text('one'); aid = self.rt.register(source, 'Input')
         self.rt.create(plan([task(inputs=[dict(artifact=aid, path='in.txt', purpose='X', authority='X')])]))
         blob = Path(self.rt.artifact(aid)['blob']); blob.chmod(0o600); blob.write_text('two')
-        with self.assertRaises(ValueError): self.rt.tick('demo')
+        self.assertEqual(self.rt.tick('demo')['status'],'blocked')
+        self.assertEqual(self.rt.task('demo','produce')['attempts'],0)
         self.assertEqual(self.factory.calls, [])
 
     def test_future_step_can_be_added_but_late_review_gate_cannot(self):

@@ -8,13 +8,36 @@ from pathlib import Path
 GEMINI_LIMITS = {'seconds': 1800, 'tool_calls': 24, 'output_bytes': 200000}
 MAX_INPUT_BYTES = 512000
 MAX_ROUNDS = 8
+MAX_EXPLICIT_ROUNDS = 24
 MAX_OUTPUT_TOKENS = 4096
-VERIFICATION_SECONDS = 900
+MAX_RESPONSE_TOKENS = 16384
 BROWSER_TYPES = ('gemini-browser', 'openai-browser', 'qwen-browser')
 PROVIDERS = ('gemini','openai','qwen','deepseek','openrouter')
 FILE_TYPES = tuple(p+'-agent' for p in PROVIDERS)
 CODE_TYPES = tuple(p+'-code' for p in PROVIDERS)
 API_TYPES = (*FILE_TYPES, *BROWSER_TYPES, *CODE_TYPES)
+
+
+def code_budgets(task, backend, response_budgets=True):
+    """Freeze missing code-agent budgets while retaining explicit smaller limits."""
+    if task.get('execution') or backend['type'] not in CODE_TYPES:return
+    task['limits'].setdefault('provider_requests',min(MAX_EXPLICIT_ROUNDS,task['limits']['tool_calls']))
+    if response_budgets:
+        task['limits'].setdefault('response_tokens',MAX_OUTPUT_TOKENS if task.get('review_of') else MAX_RESPONSE_TOKENS)
+
+
+def request_limit(assignment):
+    value=assignment.get('limits',{}).get('provider_requests',MAX_ROUNDS)
+    if type(value) is not int or not 1<=value<=MAX_EXPLICIT_ROUNDS:
+        raise ValueError('Invalid provider request limit')
+    return value
+
+
+def response_limit(assignment):
+    value=assignment.get('limits',{}).get('response_tokens',MAX_OUTPUT_TOKENS)
+    if type(value) is not int or not 1024<=value<=MAX_RESPONSE_TOKENS:
+        raise ValueError('Invalid provider response token limit')
+    return value
 
 
 def provider_for(backend):
@@ -137,6 +160,16 @@ def probe(provider='gemini'):
     return {k:v for k,v in receipt.items() if k!='fingerprint'}
 
 
+def verification_current(receipt,config,backend):
+    checked=receipt.get('verified_at')
+    # Metadata verification is bound to the credentials, endpoint and model.
+    # Worker metadata does not expire with time. Website login and browser
+    # origin/action grants are checked separately by the browser runtime.
+    # This is not a promise of generation quota or a license to retry a request.
+    return (receipt.get('backend')==backend and receipt.get('fingerprint')==fingerprint(config,backend)
+            and type(checked) in (int,float) and 0<checked<=time.time())
+
+
 def available(backend):
     validate(backend)
     if backend['type']=='codex-cli':
@@ -152,14 +185,16 @@ def available(backend):
         if backend!=current:raise ValueError('Selected worker model changed; no fallback.')
         try:r=json.loads(receipt_path(provider).read_text())
         except (OSError,ValueError):raise ValueError('Verify the '+provider+' worker connection before use.') from None
-        if r.get('backend')!=verification_backend(provider,backend['model']) or r.get('fingerprint')!=fingerprint(config,backend) or not 0<=time.time()-r.get('verified_at',0)<=VERIFICATION_SECONDS:
+        if not verification_current(r,config,verification_backend(provider,backend['model'])):
             raise ValueError(provider+' worker verification is stale; refresh its connection check.')
         return
     if backend['type']=='gemini-browser':
         from task_relay.host import HOST
         from task_relay.relay_paths import PATHS
         HOST.browser_python(PATHS.install,PATHS.data)
-        return available({'type':'gemini-agent','model':backend['model']})
+        base={'type':'gemini-agent','model':backend['model']}
+        available(base)
+        return
     if backend['type'] in ('openai-browser','qwen-browser'):
         from task_relay.host import HOST
         from task_relay.relay_paths import PATHS
@@ -169,14 +204,14 @@ def available(backend):
         HOST.browser_python(PATHS.install,PATHS.data)
         try:r=json.loads(receipt_path(provider).read_text())
         except (OSError,ValueError):raise ValueError('Verify the '+provider+' browser connection before use.') from None
-        if r.get('backend')!=backend or r.get('fingerprint')!=fingerprint(config,backend) or not 0<=time.time()-r.get('verified_at',0)<=VERIFICATION_SECONDS:
+        if not verification_current(r,config,backend):
             raise ValueError(provider+' browser verification is stale; refresh its connection check.')
         return
     config,current=configured()
     if backend!=current:raise ValueError('The selected Gemini model changed; no fallback is allowed.')
     try:r=json.loads(receipt_path().read_text())
     except (OSError,ValueError):raise ValueError('Verify the Gemini executor connection before use.') from None
-    if r.get('backend')!=backend or r.get('fingerprint')!=fingerprint(config,backend) or not 0<=time.time()-r.get('verified_at',0)<=VERIFICATION_SECONDS:
+    if not verification_current(r,config,backend):
         raise ValueError('Gemini executor verification is stale; refresh its connection check.')
 
 

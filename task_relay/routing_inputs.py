@@ -96,6 +96,38 @@ def validate_ids(ids,documents):
         raise ValueError('A selected research document is no longer available.')
 
 
+def validate_upload_ids(ids, files):
+    available={f['id'] for f in files if f['status']=='ready'}
+    if (not isinstance(ids,list) or len(ids)>10 or any(type(i) is not int for i in ids)
+        or len(ids)!=len(set(ids)) or not set(ids)<=available):
+        raise ValueError('Select distinct ready uploaded reference IDs, or [] for none.')
+
+
+def freeze_uploads(state,job,ids):
+    """Bind explicit upload versions; never guess the latest file or consume it."""
+    if ids is None:return []
+    from . import orchestrator_images,production_control as pc,codex_inputs
+    validate_upload_ids(ids,orchestrator_images.files(state,job['focus']))
+    selected=[];metadata=[]
+    for ident in ids:
+        row=state.db.execute('SELECT * FROM production_uploads WHERE id=?',(ident,)).fetchone()
+        path=safe_file(pc.root(state).parent/'production-guides',str(ident)+'/'+row['filename'])
+        if str(path.resolve())!=row['path'] or path.stat().st_size!=row['bytes'] or file_hash(path)!=row['sha256']:
+            raise ValueError('The selected uploaded reference changed; no planning request was queued.')
+        if not 0<row['bytes']<=codex_inputs.MAX_FILE:
+            raise ValueError('Uploaded reference is empty or exceeds 20 MB.')
+        import mimetypes
+        mime=mimetypes.guess_type(row['filename'])[0] or 'application/octet-stream'
+        if path.suffix.lower() in codex_inputs.IMAGES:
+            from .media import valid_image
+            if not valid_image(path.read_bytes(),path.suffix.lower()):
+                raise ValueError('Uploaded image bytes do not match its file type.')
+        selected.append((path,row['filename'],'User-selected uploaded reference',None,row['sha256']))
+        metadata.append({'upload_id':ident,'media_type':mime,'caption':row['caption'] or ''})
+    records=capture(state,job,selected,section='uploads',max_bytes=codex_inputs.MAX_TOTAL)
+    return [{**r,**m} for r,m in zip(records,metadata)]
+
+
 def guide_paths(project,prompt,state=None):
     from task_relay.guide_discovery import discover
     return [(Path(d['source']),d['name']) for d in discover(project,prompt,state)['guides']]

@@ -7,7 +7,7 @@ version-change review, followed by supported programs, input/saved file formats
 and current download availability. Five workflow starters sit in a disclosure
 beneath the examples; Programs and File formats retain direct navigation.
 The program/format list describes implemented support, including dedicated editable
-PPTX generation. The 0.13.26 beta download includes browser setup, media provider connections,
+PPTX generation. The current release includes browser setup, media provider connections,
 editable PPTX and workflow starters; other document exports are worker-dependent. Check the
 actual published source archive before claiming an operation is in the beta.
 No dependencies or build step.
@@ -16,7 +16,7 @@ into PPTX, precise Rhino model revisions, named-view renders, Blender asset
 packing and editable design presentations. Each article links to a reported pain
 point, names required inputs and operations, and distinguishes implementation
 from complete live workflow proof. The capability audit used bundled 0.13.24;
-the public 0.13.26 beta includes those registered operations, without claiming complete live workflow qualification.
+current releases include those registered operations, without claiming complete live workflow qualification.
 Exact routes serve the guides and reviewed sample artifacts. The earlier
 invoice/CSV/complaint recipes remain reachable with archive notices and noindex;
 the hub and sitemap list only the current collection. The original architecture
@@ -65,22 +65,33 @@ terminal setup. Both artifacts have SHA-256 sidecars. The page explicitly labels
 the beta as lacking Developer ID/notarization and links Apple's per-app opening
 instructions. Windows remains unavailable.
 
-For local previews, place all three versions’ twelve named artifacts under `downloads/`.
-Deployment fetches the exact URLs, sizes and SHA-256 digests in downloads.json
-during the Docker build. Publish new GitHub assets before deploying the website.
-Old 0.12.1 assets use the existing immutable website URLs; later assets use GitHub.
-The server refuses startup if any advertised artifact is absent. Binary downloads
-stream from disk with HEAD and byte-range support; no arbitrary path is served.
-The directory is excluded from Git, Railway uploads and the Docker context so
-retained installers do not exceed upload limits. Any missing or changed remote
-asset fails the build before the live site is replaced. Build from a reviewed, publication-checked source tree;
-never copy personal configuration or installation bindings into a release.
+For local previews, retain the legacy artifacts listed in downloads.json under
+`downloads/`. The deployment build fetches and checksum-verifies these immutable
+legacy files, preserving existing 0.12.1, 0.13.0 and 0.13.26 URLs and byte ranges.
 
-Use a new versioned filename for every changed artifact; published bytes are
-immutable. Website and manifest route names must change together for a release.
-The beta source and runtime omit concurrent unreviewed development work even if
-the website describes broader development capabilities.
+New downloads are discovered at runtime from the public GitHub releases API for
+StepanKukharskiy/task-relay. Every five minutes, the first relevant page/API request
+refreshes the shared cache; concurrent requests share one fetch. Both stable and
+beta releases are eligible. Semantic version order determines the newest complete
+release, regardless of list ordering. Drafts, incomplete/duplicate asset sets and
+foreign URLs are rejected. Discovery requires these uploaded, nonempty assets:
 
-The current primary download is 0.13.26. Retain the immutable 0.13.0-beta.1 and 0.12.1-beta.1
-files for existing links. The CLI tarball includes the reviewed source installer;
-its optional browser/image/presentation extras are separate from core installation.
+- `Task-Relay-VERSION-arm64.dmg` and its `.sha256` sidecar.
+- `Task-Relay-VERSION-source.tar.gz` and its `.sha256` sidecar.
+
+Publish all assets in a draft release before publishing it. No website edits or
+redeployment are needed for subsequent releases using this naming convention.
+The homepage and llms.txt are rendered from one resolved release. Immutable GitHub
+asset URLs keep the displayed version and downloaded bytes aligned. `/api/release`
+exposes that selection. `/downloads/latest/arm64.dmg`, `/downloads/latest/source.tar.gz`
+and their `.sha256` routes redirect without permanent caching.
+
+GitHub failures, rate limits or malformed responses retain the last known complete
+release. A checked-in complete published release provides the cold-start fallback;
+it need not change on each release. Discovery never automatically downgrades a
+running server. The source archive must contain `task-relay-VERSION/install.sh`.
+The update ZIP/manifest are published alongside these files for the in-app updater.
+
+Run `node --test tests/website-latest-release.test.cjs tests/website-downloads.test.cjs
+tests/website-release-assets.test.cjs` from the repository root. These checks use
+mock release responses and small download fixtures, without live GitHub calls.

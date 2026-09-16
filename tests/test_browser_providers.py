@@ -146,6 +146,34 @@ class Tests(unittest.TestCase):
             with self.assertRaises(gemini.ProviderError):executors.probe('openai')
             with self.assertRaisesRegex(ValueError,'stale'):executors.available(backend)
 
+    def test_browser_metadata_does_not_expire_or_grant_changed_connections(self):
+        from task_relay.host import HOST
+        import time
+        for provider in ('gemini','openai','qwen'):
+            with self.subTest(provider=provider):
+                config={'api_key':'fixture-key',
+                        'models':{'text':'fixture-model'}}
+                base=executors.verification_backend(provider,'fixture-model')
+                browser={'type':provider+'-browser','model':'fixture-model'}
+                path=self.root/'metadata.json'
+                atomic(path,{'backend':base,'fingerprint':executors.fingerprint(config,base),
+                             'verified_at':time.time()-86400})
+                with patch.object(executors,'receipt_path',return_value=path),patch.object(executors,'configured',return_value=(config,base)),patch.object(HOST,'browser_python') as runtime:
+                    executors.available(browser)
+                    runtime.assert_called_once()
+                    changes=[{**config,'api_key':'changed'}]
+                    if provider=='qwen':changes.append({**config,'base_url':api_providers.QWEN_ENDPOINTS['Beijing']})
+                    for changed in changes:
+                        with patch.object(executors,'configured',return_value=(changed,base)):
+                            with self.assertRaisesRegex(ValueError,'stale'):executors.available(browser)
+                    with self.assertRaisesRegex(ValueError,'changed'):
+                        executors.available({**browser,'model':'different-model'})
+                    runtime.side_effect=ValueError('Browser runtime unavailable')
+                    with self.assertRaisesRegex(ValueError,'runtime unavailable'):executors.available(browser)
+                    runtime.side_effect=None
+                    atomic(path,{'verified_at':0})
+                    with self.assertRaisesRegex(ValueError,'stale'):executors.available(browser)
+
     def test_local_preparation_and_usage_keep_each_provider(self):
         from orchestrator.runtime import Runtime
         from task_relay.browser_cli import prepare

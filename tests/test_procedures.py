@@ -22,6 +22,8 @@ class Tests(unittest.TestCase):
                   dict(id='report', instruction='Write the Arizona report using the exact selected evidence.',
                        route='conversation', gate='none', capabilities=[], deliverables={'report': 'Arizona report'})]
         action = dict(kind='plan_pipeline', title='Arizona study', planning_only=False, stages=stages)
+        action['contract_version']=1
+        for s in stages:s['handoff']={'inputs':[],'outputs':{k:{'media_type':'text/plain'} for k in s['deliverables']}}
         self.request(action, 'Research Arizona from briefs/arizona.txt, then write a report. Preserve source files.', 1)
         row = self.state.db.execute('SELECT * FROM relay_pipelines').fetchone()
         choices = [dict(id='a', label='A', value='Old accepted approach'), dict(id='b', label='B', value='Alternative')] if choice else []
@@ -147,6 +149,25 @@ class Tests(unittest.TestCase):
         self.assertEqual(procedures.load(self.state,saved['id'])[0]['status'],'approved')
         newer=next(v for v in versions if v['id']!=saved['id'])
         self.assertEqual(newer['status'],'draft')
+
+    def test_approved_legacy_generation_is_preserved_in_new_reviewable_plan(self):
+        origin=self.completed()
+        spec=json.loads(origin['spec'])
+        spec.pop('contract_version',None)
+        for stage in spec['stages']:stage.pop('handoff',None)
+        spec['stages'][0].update(route='image',gate='selection',instruction='Generate an Arizona concept illustration.')
+        with self.state.db:self.state.db.execute('UPDATE relay_pipelines SET spec=? WHERE id=?',(json.dumps(spec),origin['id']))
+        saved=self.draft(origin);self.approve(saved)
+        before=procedures.load(self.state,saved['id'])[1]
+        self.request(self.run_action(saved),'Reuse the approved concept procedure for Iowa.',102)
+        run=self.state.db.execute('SELECT * FROM relay_pipelines WHERE request_id=102').fetchone()
+        self.assertIsNotNone(run)
+        self.assertEqual(run['status'],'planned')
+        self.assertEqual(json.loads(run['spec'])['stages'][0]['visual_intent'],'synthetic')
+        self.assertEqual(procedures.load(self.state,saved['id'])[1],before)
+        text=self.state.db.execute('SELECT text FROM outbox WHERE id=?',(f"pipeline:{run['id']}:workflow:created",)).fetchone()[0]
+        self.assertIn('do not source reference photos',text)
+        self.assertEqual(procedures.run_context(self.state,run['id'])['legacy_generation_stages'],['research'])
 
     def test_duplicate_run_request_and_approval_are_idempotent(self):
         saved = self.draft(self.completed()); self.approve(saved); self.approve(saved)

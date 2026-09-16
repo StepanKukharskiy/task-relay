@@ -18,7 +18,8 @@ from task_relay.browser_journal import Journal,UncertainAction
 def support_hashes():
     root=Path(general_browser.__file__).parent
     return {name:hashlib.sha256((root/name).read_bytes()).hexdigest()
-            for name in ('general_browser.py','browser_journal.py','browser_sites.py','host_browser_accounts.py','api_providers.py')}
+            for name in ('general_browser.py','browser_journal.py','browser_sites.py','host_browser_accounts.py','api_providers.py',
+                         'managed_browser.py','host_managed_chrome.py','perplexity_browser.py')}
 
 
 def configured(provider='gemini'):

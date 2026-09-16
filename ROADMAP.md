@@ -21,6 +21,451 @@ outputs and next decision. Distinguish waiting for a human from missing input,
 missing capability, failure and uncertain submission. Never infer acceptance from
 an ambiguous response or replay an uncertain external operation.
 
+### Automatic website release discovery — 0.13.54
+
+Implemented a shared server-side release resolver for website version labels, Mac
+downloads, CLI source and checksum links. It includes complete published betas,
+ignores drafts and incomplete asset sets, coalesces refreshes every five minutes
+and retains the last valid release on GitHub failures. Legacy download routes
+remain immutable. Five controlled website tests pass; publication verification
+is recorded separately under `outputs/release-0.13.54/`.
+
+### Native inspection after correction — 0.13.54
+
+Rhino and Blender inspectors now receive only explicit model arguments; historical
+native files remain evidence for reviewers. Missing or ambiguous model selections
+still fail validation. This completes the corrected-script selection → execution
+planning transition without weakening exact-version checks.
+
+Controlled validation: 46 planning, stage, native handoff and review-correction
+tests passed using small fixtures. A copied-state preflight recovered the saved
+execution proposal with unchanged selected script/checks, one upstream inspection
+model and preserved historical review evidence. No provider or native execution
+was performed. Local 0.13.54 installation completed with fresh service health and
+all 209 packaged source hashes matching. The linked recovered execution proposal
+and its exact script/checks attachments were delivered; native execution awaits
+Start. Evidence: `outputs/native-inspection-binding/`.
+
+### Actionable native review corrections — 0.13.53
+
+Registered native-operation reviews now retain a completed revision verdict and
+block the unapproved candidate with its actual findings, without replaying native
+execution or invalidating completed inspection evidence. Status and terminal cards
+explain the next step and expose Plan correction for script-backed Rhino/Blender
+candidates. That action proposes a bounded preparation/review pair using the exact
+saved evidence, requires Start preparation, and retains the separate exact-code
+Start before native execution. Existing affected review receipts are recognized
+without edits; stale or uncertain execution cannot enter this recovery.
+
+The Rhino contract now distinguishes input checks from the output verification
+report, avoiding the schema mismatch produced by generic review instructions.
+All 122 affected controlled tests passed; 14 status/recovery checks passed again
+after the final wording adjustment. A copied-state preflight preserved the saved
+model, review and inspection receipts with no provider/native calls. Local 0.13.53
+installation completed with fresh service health and all 209 packaged source
+hashes matching. The affected job now has a delivered correction-preparation card,
+awaiting Start; corrected native geometry has not been executed or qualified.
+Evidence: `outputs/review-correction-handoff/`.
+
+### Uploaded references in production planning — 0.13.52
+
+General chat uploads now have an explicit production source selector. Exact IDs,
+bytes, hashes, captions and media types reach the author and independent reviewer;
+clarification retains these sources. Images require a worker capable of inspecting
+pixels, rather than treating Python binary-file access as visual understanding.
+An explicit recovery can restore omitted uploads to an unstarted needs-input plan
+from its saved request snapshot, preserving the original failure and request.
+All 101 targeted controlled tests pass. Local 0.13.52 installation completed with
+fresh service health and all 208 packaged source hashes matching. The saved photo
+request was recovered with unchanged bytes and original receipt. Relay delivered
+the new plan and started script preparation with the exact image; independent
+review and native Rhino execution were not yet complete at this check.
+Evidence: `outputs/upload-planning-handoff/`.
+
+### Pre-dispatch stage rate-limit recovery — 0.13.51
+
+The live trial completed research and native modeling, then received Gemini 429
+while interpreting the visualization stage. Explicit continuation incorrectly
+required an existing production plan. Recovery now classifies the phase before
+retrying: a confirmed undispatched stage rejection queues one successor with the
+same prompt, model/provider and frozen inputs. Failed records and completed stages
+remain unchanged; retries require explicit continuation or the bound Retry stage
+button. This does not add automatic retry or qualify general provider failover.
+
+All 48 initial stage-setup/pipeline tests passed; a subsequent six-test retry
+selection also passed, including added stale-button coverage (49 distinct tests).
+A copied-state preflight preserved
+the real selected model/preview and completed stages, with zero provider calls.
+Evidence: `outputs/stage-rate-limit-recovery/`.
+Local 0.13.51 deployment completed with fresh service health and all 208 source
+hashes verified. The already-saved explicit continuation was recovered atomically;
+Relay dispatched the new stage interpretation; it succeeded, and the image job
+completed. Its candidate selection card was delivered. Presentation work still
+awaits the declared image-selection gate; full workflow completion is not claimed.
+
+### Script repair review allowance — 0.13.50
+
+The live trial exposed a repair-policy gap: preparation inherited eight API
+requests and allowed no revision after the first independent review. The rejected
+candidate was byte-identical to the failed script and its diagnosis contained
+placeholders. New versioned grants allow one bounded revision/re-review, explicit
+request/response budgets, and unchanged-script/placeholder checks before host
+planning. Normal code planning and automatic repairs share the budget helper.
+
+Existing grants are preserved. A delivered preparation Start card can approve
+extra bounded attempts for an exhausted repair review, retaining old assignments,
+receipts, original checks and exact draft/review inputs. It resumes the same saved
+workflow; corrected native code still needs its separate execution Start.
+RhinoViewport camera API guidance is shared with author/reviewer contracts.
+
+Twenty-five controlled repair tests pass, alongside 96 affected integration
+checks. The initial combined run had one new fixture error (an oversized Gemini
+tool allowance), corrected before the repair suite passed. Commands, results and
+a read-only copied-state preflight are recorded in `outputs/script-repair-review/`.
+These do not qualify live repaired geometry, provider success or later image/deck stages.
+
+Local 0.13.50 installation completed with the app reopened and fresh Relay/Messages
+service health. All 208 bundled source hashes match. No repair/provider/native
+execution was dispatched during this update; the saved run awaits explicit
+preparation recovery and subsequent exact-code native Start.
+
+### Workflow contract audit — qualification gaps (2026-09-16)
+
+Exact artifact identity and bounded operation contracts are implemented; arbitrary
+cross-capability chains are not fully qualified. Declared whole-job type/capacity
+preflight and concrete artifact binding are now implemented in development source
+(see below). Semantic handoffs, large-document section assembly and unified structured
+recovery eligibility need further work. The PPTX builder remains limited to 50 slides; a single 600-slide deck
+has no qualified automatic batching/assembly path. Do not advertise unrestricted
+workflow composition or scale based on individual tool availability.
+
+The initial targeted contract audit passed 51 of 54 checks; three Rhino handoff tests failed
+because preparation fixtures omitted current deferral declarations (two failures also
+had a masked assertion error). Coverage was restored without weakening
+execution/selection gates. Evidence and prioritized follow-up are recorded under
+`outputs/workflow-contract-audit/`. That audit changed no live workflow. The fixture
+failures are repaired and pass in the implementation checks below.
+
+### Declared workflow handoffs — 0.13.48
+
+New workflows declare each deliverable's type, upstream edges, companions and known
+capacity requirements. A shared compiler checks the complete declared sequence
+before workers start, then binds stage plans to exact selected artifact identities
+and delivery requirements. Unknown sizes remain explicit and require later checks;
+natural-language intent and semantic use still depend on interpretation/review.
+Managed visualization consumes declared image versions rather than every prior image.
+Concrete PPTX plans retain requested counts through pre-build and delivery checks.
+Existing approved workflows keep their original contracts and execution gates.
+
+Controlled tests cover research context → native-model/preview fixture → exact
+visual reference → presentation handoffs, capacity/type/companion failures, actual
+PPTX count rejection, clarification, and native preparation lineage. Rhino adapters
+remain mocked in these checks. Evidence: `outputs/handoff-contracts/`; contract details:
+[workflow handoffs](docs/workflow-handoffs.md). This increment does not add 600-slide
+assembly, universal automatic repair, live semantic/fidelity qualification, or
+Windows native execution qualification.
+
+Local deployment: 0.13.48 is installed with all 207 bundled source files matching
+the source inventory, application startup verified, and fresh Telegram/Messages
+service health. Build, installer backup/receipt and source audit evidence are under
+`outputs/handoff-contracts/deployment/`. No new live qualification workflow was
+submitted by this update; the controlled and live qualification scopes remain separate.
+
+### Workflow declaration correction — 0.13.49
+
+A first live proposal declared managed output as JPEG and used a noncanonical
+Rhino media type. Preflight correctly stopped dispatch but lacked a bounded
+structural correction path. Complete type-invalid proposals now get one tool-free
+correction using registered output contracts. Only media-type fields may change;
+quantities, providers, instructions, decision gates and limits remain exact.
+Explicit format requirements cannot be satisfied by relabeling. Preserve both
+responses; second failures and uncertain calls stop without automatic replay.
+Confirmed pre-dispatch rejections can use a validated, idempotent successor while
+retaining the original request/error. Checks: `outputs/workflow-type-correction/`.
+This corrects workflow declarations; it does not qualify downstream live execution.
+
+Local deployment is verified at 0.13.49 with 208 matching runtime files and fresh
+service health. The confirmed live pre-dispatch rejection was recovered atomically
+as a successor after copied-state validation, preserving its original request and
+error. Research execution and later host/model/review stages require their own
+receipts; recovering the plan is not completion of the cross-provider workflow.
+
+### Registered builder planning boundaries — 0.13.47
+
+Registered operations use their own frozen output contracts rather than an inherited
+browser/text-agent file limit. Explicit optional source bindings receive the same
+metadata compilation as required bindings, retaining artifact identities and aliases.
+Validate against both saved and current operation bounds, with precise task/field
+errors. Saved unexecuted proposals can recover without new model calls; changed
+worker approvals remain required. Checks: `outputs/school-deck-recovery/`.
+
+### Late-bound input and status audit — 0.13.46
+
+Check actual upstream outputs and revision evidence again at dispatch, because they
+do not exist at initial planning. Invalid sources block only their assigned task
+without using an attempt; current assignment receipts expose the precise cause.
+Unreadable or changed text artifacts no longer crash conversation status. Keep
+original bytes and approved limits; correction, source scoping or user input may
+still be required. Controlled checks: `outputs/input-boundary-audit/`. This does not
+qualify live providers or websites and does not resume paused workflows.
+
+### Worker input selection and setup recovery — 0.13.45
+
+The Philadelphia workflow exposed a pre-planning source-catalog check that counted
+a retained photo ZIP against a browser worker's text allowance. Enforce limits on
+the actual per-worker bindings; preserve incompatible prior outputs in the workflow
+catalog for later compatible stages. Keep explicit incompatible bindings rejected.
+Surface the saved failure cause and support explicit local setup recovery from an
+undispatched plan_production response, retaining original failures and exact sources.
+No uncertain action or completed source stage is replayed. Controlled tests and
+copied-state qualification are recorded under `outputs/stage-input-routing/`.
+
+### Cross-layer alignment audit — 0.13.44
+
+Correct four boundary gaps: retain selected image-bundle sources during deck edits;
+reuse completed upstream work during exhausted-review recovery; keep older pending
+completion handoffs visible; preserve approved legacy image procedures in a new
+reviewable plan. Browser and review recovery now share completed-source retention.
+Exact artifact identities, old attempts, independent review and Start boundaries
+remain enforced. Controlled integration checks and limitations are recorded in
+`outputs/alignment-audit/`. This is targeted qualification, not proof that every
+provider, operating system and workflow combination has passed end to end.
+
+### Workflow correction budgets and reference imagery — 0.13.43
+
+Align pipeline validation with the registered local document correction graph.
+Freeze its bounded authorization in new workflow receipts and keep older grants
+unchanged; valid extended plans wait for exact Start rather than a false attempt
+expansion blocker. Do not grant extra attempts to external or unrelated operations.
+Route factual reference imagery to authentic source collection by default, with
+explicit reference/synthetic intent and a generation guard for new workflow stages.
+Semantic intent remains model-interpreted. Existing saved image stages are retained,
+not retrospectively rewritten. Controlled checks and read-only saved-plan preflight
+are recorded under `outputs/colorado-routing/`; no new live research/photo sourcing
+or presentation completion is claimed.
+
+### Image grids and stable styles — 0.13.42
+
+Add an eighth layout, image_grid, with deterministic four/six-item pagination and
+an explicit clean_minimal_v1 style. Preserve source order, image identity, editable
+captions and attribution. Existing defaults remain unchanged; whole-image fitting
+is the default, with optional native center cropping. Authors provide content lists,
+not per-item geometry. Longer content and total-deck bounds fail explicitly rather
+than silently losing data. Native master import and a template Settings UI remain
+separate work. Controlled checks and a rendered preview using all 35 existing plant
+photos are recorded under `outputs/image-grid/`; no live provider token-saving claim.
+
+### Slide layouts and result handoffs — 0.13.41
+
+Implement reusable named slide layouts and explicit brand/custom-layout data compiled
+into editable objects. Preserve v1 specifications and independent review; no native
+PowerPoint master import, font installation, or Settings template library is claimed.
+Complete selected-output delivery through deterministic folder export and a deduplicated
+completion handoff, including standalone plan recovery lineages. Display grouping never
+changes workflow ownership or execution permission. Existing installations do not replay
+historical completion notices. Typo interpretations remain visible with the exact original
+message retained. Checks and deployment evidence: `outputs/templates-handoff/`.
+
+The subsequent 0.13.40 live presentation completed and the user selected its PPTX.
+Saved independent review reports 39 slides with the map and 35 sourced plant photos;
+Codex verified the selected artifact's hash when exporting it. This establishes the
+live production/selection path, not native Keynote or visual quality qualification.
+
+### Task response budgets — locally installed 0.13.40
+
+The subsequent live author again exhausted formatting recovery: both final tool
+calls reached the fixed 4,096-token generation ceiling and ended mid-code.
+Retry guards alone did not address this per-response limit. New Start plans now
+freeze and display response_tokens (up to 16,384 for code authors, 4,096 for
+reviewers), and Python argument bounds follow that approved allowance. Legacy
+assignments retain their old limits. Checkpoints allow meaningful partial drafts
+instead of requiring placeholder outputs. Repeated machine-added recovery
+preambles are consolidated while retaining all exact historical inputs.
+All 68 focused checks passed. A copied-state preflight verified the new author
+allowance, unchanged request counts and exact saved-source continuity. Installation
+completed with fresh service heartbeats and 204 matching runtime source hashes.
+Evidence is under `outputs/response-budgets/`; subsequent live completion is recorded above.
+
+### Compact edits and readable blockers — locally installed 0.13.39
+
+The next attempt used 0.13.38 and recovered from its generation limit, but then
+returned `MALFORMED_FUNCTION_CALL` while rewriting existing content into one large
+code call. Local workers now use bounded incremental Python edits and compact
+model-facing stdout, retaining full tool receipts. Generation length and malformed
+calls each get at most one recovery within the unchanged request allowance.
+Terminal/status cards separate task sections with blank lines and show a readable
+blocker plus technical detail. Legacy generic failures can show their exact saved
+provider finish reason without rewriting historical receipts. Evidence is under
+`outputs/compact-worker-recovery/`. The copied-workflow preflight also caught a
+repeated-recovery input-path collision; draft paths now include the originating
+attempt ID so distinct historical versions remain addressable. Live deck
+completion is still unqualified. Controlled worker/status checks (46), scheduler
+integration checks (36), and updated lineage checks (12) passed. Installation
+completed with fresh service heartbeats and 204 matching runtime source hashes.
+
+### Incomplete generation and persistent draft progress — locally installed 0.13.38
+
+The next live preparation stopped on a received Gemini `MAX_TOKENS` response.
+It also resumed broad inspection after copying the baseline into draft outputs.
+Local code workers now discard incomplete generations and may continue once
+inside their existing request allowance, across supported API providers. Unknown
+outcomes and safety refusals remain blockers. Draft checkpoints continue tracking
+changed bytes after initial file creation; independent review still verifies
+substantive completion. Explicit Continue can prepare a new Start for stopped
+generation-limit attempts while retaining exact drafts and completed sources.
+Controlled worker checks passed (the subprocess cancellation check required an
+unsandboxed rerun); 26 recovery/integration checks passed. A copied-database
+preflight verified the remaining four tasks and retained source identities.
+Installation completed with fresh service heartbeats and all 204 runtime source
+hashes matching. Evidence is under `outputs/generation-recovery/`; live deck
+completion remains unqualified.
+
+### Bounded document correction and authorized image omissions — locally installed 0.13.37
+
+New Start proposals support a local document correction loop: specification review
+can request one correction; a confirmed local PPTX failure or final review can
+request one further correction and rebuild. Each version is independently reviewed,
+with at most three specification attempts and two builds. All earlier artifacts,
+reviews and failure receipts remain immutable. Existing plans keep their approved
+allowances; browser, host and external API operations do not gain automatic replay.
+Recovery now includes exact user feedback for author and reviewer. User-permitted
+missing photos can be omitted while retaining the subject's research/text and a
+summary of omissions. The 153 focused checks passed; six scheduler-only checks also
+passed without optional presentation dependencies. The saved-workflow preflight
+retains the exact user decision and completed map/photo sources. Installation
+completed with fresh service health checks and 204 matching runtime source hashes.
+Evidence is under `outputs/correction-loop/`; live model completion is not yet qualified.
+
+### Preparation checkpoints and asset bindings — locally installed 0.13.36
+
+The 20-request live continuation also failed: nineteen inspection calls produced
+no draft. Text/script producers now enter an explicit draft checkpoint after
+four inspection calls; ordinary Python validation resumes after files are saved.
+Presentation authors/reviewers receive exact creator image and bundle bindings.
+Exhausted local preparation can propose a new Start without resetting attempts,
+repeating completed work, or increasing provider request limits. Selected original
+deck images can be retained through verified creation provenance. This remains
+bounded planned work, not general procedure extraction or inferred acceptance.
+The 89 focused controlled checks passed, followed by targeted retention and Start
+checks. The saved workflow preflight retains both map and photo deliverables with
+four remaining tasks. Installation completed with fresh service health checks and
+all 203 runtime source hashes matching. Evidence is recorded under
+`outputs/preparation-checkpoint-repair/`; live deck completion is not yet verified.
+
+### Preparation request budgets — locally installed 0.13.35
+
+The live map and visual review completed. Slide preparation then exhausted an
+independent eight-request cap after 24 seconds, without writing outputs. New code
+plans freeze explicit request budgets within tool limits (maximum 24), and worker
+prompts expose missing outputs and reserve writing/reporting requests. Explicit
+Continue offers a bounded recovery using the remaining attempt and retaining all
+completed dependencies. The saved workflow preflight uses 20 preparation requests
+and 12 for each queued code review, without changing their time or tool limits.
+Controlled tests passed; the installed app matched all 202 runtime sources and
+passed fresh service health checks. Live preparation subsequently exhausted all
+20 requests without outputs; the checkpoint and source-handoff repair is above.
+
+### Screenshot visual review — locally installed 0.13.34
+
+Live map capture now produced a readable PNG; the independent reviewer stopped
+because the previous worker interface exposed only container metadata. Explicit
+visual_inputs grants now attach selected PNG pixels to configured vision models,
+while legacy scopes stay metadata-only. A delivered review Start card adds one
+review attempt to the same saved graph without regenerating the candidate or
+resetting old attempts. Controlled tests cover provider payloads, exact input
+identity, no-navigation review, and stale/duplicate/undelivered Start controls.
+The installed 0.13.34 app matches all 201 runtime sources and passed fresh
+service health checks. The subsequent live visual review passed; slide preparation
+then reached its request cap, addressed in 0.13.35 above.
+
+### Managed Chrome startup and partial recovery — locally installed 0.13.33
+
+A live launch published its connection after ten seconds, beyond the old eight-
+second wait. The bounded wait is now 30 seconds with one process and a neutral tab.
+Explicit Continue can propose unchanged-scope startup recovery and reuse completed
+outputs/reviews by exact artifact identity, including completed deliverable records.
+Controlled tests and a private copy of the failed workflow validate the six remaining
+tasks without re-collecting photos. The installed app matches all 200 runtime
+sources and passed fresh service health checks. Live map capture remains unverified.
+
+### Saved browser session and operation input repair — locally installed 0.13.32
+
+General browser scopes can explicitly select the same saved Chrome session as
+Settings Browser use. Existing scopes are not silently migrated. Shared locking
+and sign-in/off controls apply to both standalone and graph jobs. Planning exposes
+that session; consent origins belong in proposed scopes, while challenges remain
+manual. Photo collection uses literal subject parameters without implicit history
+files, and known oversized operation inputs fail before Start. A bounded setup
+recovery preserves confirmed read-only browser failures and pre-dispatch photo
+failures in the old run; it proposes new session/origin settings for exact Start.
+The installed app matches all 200 runtime sources and reports fresh service health.
+The saved failed workflow has a delivered repair card using the Settings Chrome
+session, the observed consent origin, and no history inputs for photo collection.
+The subsequent photo collection and independent review completed. Map capture
+failed before browser actions during Chrome startup; see the 0.13.33 repair above.
+
+### Current capability visibility and screenshot handoff — locally installed 0.13.31
+
+Large context summaries retain a bounded, complete current capability index when
+the detailed catalogs are excerpted. Historical blocked-plan catalogs no longer
+serve as the only visible evidence. Exact repeated requests can propose a new
+unlocked, unexecuted plan when worker capabilities improve, preserving old
+receipts and sources. Controlled context/routing tests cover the list-tail browser
+regression and recovery without a conversation-model call or worker execution.
+The live renewed request exposed omitted PNG/provenance types and old implicit
+PPTX sources lacking MIME metadata. Version 0.13.31 compiles explicit capture
+output types and excludes incompatible implicit browser inputs; the saved eight-
+task response now validates without repeating its provider calls. The installed
+0.13.31 runtime matches all 199 release files and reports fresh service health.
+Relay recovered the saved proposal as ready and delivered its plan/source files
+and Start card. Map capture and deck execution remain pending that Start.
+
+### Browser eligibility recovery — locally installed 0.13.29
+
+Browser model metadata stays valid for matching credentials, endpoint and model;
+website login and origin/action permissions remain separate runtime checks. A
+follow-up to blocked planning with no executable plan discovers available workers
+in a new proposal, retaining the prior receipt and explicit executor locks.
+Controlled tests cover aged verification, changed connections, absent runtimes,
+failed checks and proposal recovery without dispatch. The installed build matches
+all 199 runtime sources, reports fresh service health, and exposes the configured
+Gemini browser worker as available. The saved blocked request remains intact; live
+map capture remains a separate execution result.
+
+### Sourced image handoff — locally installed 0.13.28
+
+Generic image collection searches Commons using planned subject names and saves
+bounded photo candidates with source, author, licence and hash receipts. Exact
+reviewed bundles can feed PPTX creation, with credits retained in slide notes.
+Independent review covers identity and gaps; metadata alone is not visual proof.
+Missing images never silently become generated substitutes. Combined plans can
+include the requested map service's browser viewport capture and exact PNG/provenance
+handoff. New mixed scopes allow twelve tasks, preserving six for older scopes;
+browser roles omit incompatible implicit document inputs. A controlled eight-task
+photo/map/deck plan qualifies these edges; live autonomous Google Maps capture
+is not qualified by that test. The final build is installed with all 199 runtime
+files matching source and fresh messaging/service health. The browser metadata
+expiry blocker observed in that build is addressed by the 0.13.29 work above.
+Public release remains separate.
+See [sourced-image handoff](docs/image-sourcing.md).
+
+### Document worker selection and correction recovery — locally installed 0.13.27
+
+Automatic roles prefer suitable configured API file/Python workers over a general
+CLI shell; explicitly selected executors remain fixed. File/code verification is
+credential/model-bound instead of expiring after fifteen minutes. New local
+draft/review plans include one bounded correction, with visible attempt limits.
+An exhausted mixed-graph draft review can propose a successor using exact saved
+candidates and review receipts, with no old attempt reset or downstream replay.
+PPTX preparation carries the creator’s actual stdlib schema validator. Structural
+validation does not establish visual layout or Keynote compatibility.
+The installed build completed a saved deck recovery with the configured Flash
+API worker and local PPTX creator, retaining the selected image and prior attempts.
+Independent review passed; the 26-slide deck imported into Keynote and its PDF
+render was inspected, including the corrected table. Final user selection remains
+pending. This qualifies this recovery case, not every document or provider; public
+release of 0.13.27 remains separate.
+
 ### Package entry points and beta refresh — locally installed 0.13.26
 
 Source launchers, child workers, installed services and tests use canonical package
@@ -401,7 +846,9 @@ acceptance remain open; first-time Messages setup remains a separate pilot.
 
 **Public website — deployed on Railway.** The hero leads with getting things done
 with existing tools, connected jobs and user choices. Cross-tool examples and
-version-change review precede the detailed programs/formats catalogue.
+version-change review precede the detailed programs/formats catalogue. The overview
+explains connected briefs, files and decisions; examples name their intended outcomes
+and highlight editable native outputs. A real case study awaits user-provided material.
 Telegram is the starting interface; each next stage keeps its authorization boundary.
 A public `/llms.txt` provides an overview
 and curated documentation links for AI readers. The text-first page lists supported

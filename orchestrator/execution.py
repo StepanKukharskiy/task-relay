@@ -32,13 +32,23 @@ REGISTRY = {
 }
 
 REGISTRY['pptx.create'] = {
+    'review_correction':'application/json',
     'version':1, 'kind':'procedure',
-    'input_types':[*TEXT_TYPES,'application/json','image/png','image/jpeg'],
+    'input_types':[*TEXT_TYPES,'application/json','image/png','image/jpeg','application/zip'],
     'output_type':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'max_inputs':50, 'input_bytes':50000000, 'seconds':120, 'output_bytes':50000000,
     'criteria':['The bounded slide specification produced a PPTX that reopened with matching editable text, tables, chart data and embedded images; visual layout and Keynote import require separate review.'],
     'parameters':{}, 'external_requests':0,
     'cancellation':'Terminate the local process; preserve partial results and never automatically replay.'}
+
+REGISTRY['images.collect'] = {
+    'version':1,'kind':'procedure','input_types':list(TEXT_TYPES),'output_type':'application/zip',
+    'min_inputs':0,'max_inputs':20,'input_bytes':120000,'seconds':600,'output_bytes':45000000,
+    'criteria':['Each requested subject has a found or missing receipt; downloaded JPEG/PNG candidates retain source, author, licence and byte hashes. Metadata matches are not visual identification.'],
+    'parameters':{'subjects':'1–40 {id,label,query} objects; literal public subject names'},
+    'external_requests':320,
+    'permissions':'Public read-only Wikimedia Commons search and image downloads; no credentials, paid model, generation or arbitrary URLs.',
+    'cancellation':'Stop local downloads; retain receipts; no automatic replay.'}
 
 # Separate versioned capability preserves existing primitive-only plan contracts.
 REGISTRY.update(CLOUD_MEDIA)
@@ -155,6 +165,11 @@ def catalog():
         configured_model=(config.get('models',{}).get(ident.split('.')[1],gemini.DEFAULT_MODELS[ident.split('.')[1]]) if config and ident.startswith('gemini.') else None))
         for ident,spec in REGISTRY.items()]
     for entry in result:
+        if entry['id']=='images.collect':
+            from .image_sources import DESCRIPTION
+            entry['image_source_schema']=DESCRIPTION
+            entry.update(available=importlib.util.find_spec('PIL') is not None,
+                         availability_evidence='Public Commons adapter and local image validation; live coverage varies by subject.')
         if entry['id'] in CLOUD_MEDIA:
             from task_relay.cloud_providers import read_config
             provider,kind=entry['id'].split('.')
@@ -219,6 +234,11 @@ def validate(a):
         raise ValueError('Unknown capability or unsupported execution version.')
     params=e['parameters']
     if not isinstance(params,dict) or set(params)!=set(spec['parameters']):raise ValueError('Invalid registered-operation parameters.')
+    if e['capability']=='images.collect':
+        from .image_sources import validate_subjects
+        validate_subjects(params['subjects'])
+        if any(not str(o.get('path','')).endswith('.zip') for o in a.get('outputs',[])):
+            raise ValueError('Image collection requires a .zip output.')
     if e['capability'] in CLOUD_MEDIA:
         from .cloud_media import validate as validate_cloud, OUTPUTS
         validate_cloud(e['capability'],params,a.get('inputs',[]))
@@ -291,7 +311,7 @@ def validate(a):
             raise ValueError('PPTX creation requires a .pptx output path.')
     if a.setdefault('tools',[])!=[]:raise ValueError('Registered operations have no agent tools.')
     if a.get('criteria')!=spec['criteria']:raise ValueError('Use the registered operation criteria; semantic review is a separate agent step.')
-    if not isinstance(a.get('inputs'),list) or not 1<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
+    if not isinstance(a.get('inputs'),list) or not spec.get('min_inputs',1)<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
     if any(not isinstance(i,dict) or i.get('media_type') not in spec['input_types'] for i in a['inputs']):raise ValueError('Registered input media types do not match the selected operation.')
     if spec['kind']=='host':
         if any(i.get('path','').split('/')[0]=='delivery' for i in a['inputs']):
@@ -313,12 +333,22 @@ def validate(a):
     for key,maximum in [('seconds',spec['seconds']),('output_bytes',spec['output_bytes']),('tool_calls',1)]:
         limits.setdefault(key,maximum)
         if type(limits[key]) is not int or not 1<=limits[key]<=maximum:raise ValueError('Registered operation exceeds its '+key+' limit.')
-    if a.setdefault('max_attempts',1)!=1:raise ValueError('Registered operations permit one attempt; uncertain calls are never replayed.')
+    correction=a.get('review_correction')
+    if correction is not None:
+        if (not spec.get('review_correction') or spec['kind']!='procedure' or spec['external_requests']!=0
+                or not isinstance(correction,dict) or set(correction)!={'producer'}):
+            raise ValueError('Correction requires a supported local data-only operation.')
+        from .contracts import label
+        label(correction['producer'])
+        if a.setdefault('max_attempts',2)!=2:raise ValueError('Local document correction permits two operation attempts.')
+    elif a.setdefault('max_attempts',1)!=1:raise ValueError('Registered operations permit one attempt; uncertain calls are never replayed.')
     return spec
 
 
 def available(a):
     spec=validate(copy.deepcopy(a))
+    if a['execution']['capability']=='images.collect' and importlib.util.find_spec('PIL') is None:
+        raise ValueError('Image collection requires the bundled Pillow image validator.')
     if a['execution']['capability']=='pptx.create':
         from .pptx_document import available as pptx_available
         pptx_available()

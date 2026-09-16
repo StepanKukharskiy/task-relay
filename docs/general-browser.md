@@ -117,7 +117,8 @@ remains uncertain and cannot be automatically replayed under another action ID.
 Collection checks that the PNG and provenance agree before treating delivery as
 successful. Normal artifact registration, downstream input copies and delivery apply.
 
-PNG `file_read` returns container metadata only. Image pixels are saved locally and
+PNG `file_read` returns container metadata only. Without an explicit visual_inputs
+grant (described below), image pixels are saved locally and
 are not sent to Gemini/OpenAI/Qwen by this tool. Capturing canvas content therefore
 does not give the worker visual understanding or prove that map tiles loaded,
 attribution is readable, or a study boundary is correct. Keep those checks for a
@@ -425,3 +426,45 @@ The original stopped production and its uncertainty receipts are preserved.
 No live message, service reload or automatic production replay was performed for
 this correction. Command/option coverage remains distinct from site and outcome
 coverage; a passing count does not qualify every website.
+
+### Connection eligibility
+
+Provider model metadata verification is bound to the configured credentials,
+endpoint and model for Gemini, OpenAI and Qwen. It does not expire after fifteen
+minutes and does not prove website sign-in, generation quota or screenshot
+completeness. Failed connection probes invalidate prior verification. Browser
+dependencies and exact origin/action/capture grants are still checked separately.
+If planning was blocked before an executable plan existed, a follow-up creates a
+new proposal with current worker discovery; named executor locks remain fixed.
+Existing executable plans keep their captured workers and permissions.
+
+### Saved Settings browser session
+
+A new scope can choose `profile: "managed"` and `session_source: "settings"` to
+use the Chrome profile opened by Settings → Browser use. Both fields are explicit
+in the Start card. A legacy profile named managed without session_source continues
+to use its original isolated directory. General tasks and standalone browser jobs
+share the same profile lock. Browser use off or unfinished manual sign-in blocks
+attachment; the driver owns new tabs and detaches without closing unrelated tabs.
+
+Exact permitted origins and actions still apply. Consent redirects need a revised
+approved origin list. A site challenge may still require manual resolution; the
+saved session does not establish successful access or defeat bot verification.
+
+## Reviewing saved screenshots
+
+New browser scopes may include `visual_inputs: ["candidate/map.png"]`. Every
+path must be an exact declared `image/png` input; the combined PNG input limit
+remains 10 MB. Start authorizes sending those bytes to the selected model in its
+request (Gemini inlineData, OpenAI input_image, or Qwen image_url). Use a model
+that accepts vision inputs; provider rejection does not trigger a fallback.
+Existing scopes without this field keep their metadata-only behavior.
+
+Reviewers inspect the selected image with its declared provenance, rather than
+requiring DOM text from a second live page visit. The reviewer must still judge
+the original criteria honestly; container validation never implies acceptance.
+For an exhausted metadata-only browser review, an explicit Continue in the
+paired Telegram chat offers Start visual review. That delivered card shows the
+image path/hash, model, and task limit. It authorizes one additional independent
+review of the same producer attempt and resumes the remaining approved graph.
+Changed candidates, pending actions, and stale cards prevent execution.

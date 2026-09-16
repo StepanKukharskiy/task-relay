@@ -49,7 +49,10 @@ def archive_bundle(app, archive):
     if archive.suffix != '.zip' or Path('/Applications') in archive.resolve().parents:
         raise ValueError('Store recovery ZIPs outside Applications.')
     archive.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.TemporaryDirectory(prefix='.archive-', dir=archive.parent) as directory:
+    # Finder can recreate .DS_Store between cleanup's unlink and rmdir. A failed
+    # cleanup must not invalidate an already verified immutable recovery archive.
+    # Verification/archiving failures still propagate; leftover scratch is recorded.
+    with tempfile.TemporaryDirectory(prefix='.archive-', dir=archive.parent, ignore_cleanup_errors=True) as directory:
         directory = Path(directory)
         temporary = directory / 'bundle.zip'
         run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', app, temporary])
@@ -63,7 +66,8 @@ def archive_bundle(app, archive):
         # Do not overwrite a concurrently created recovery record.
         os.link(temporary, archive)
     return {'source': str(app), 'archive': str(archive), 'bundle_sha256': expected,
-            'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}
+            'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+            'temporary_cleanup_pending':str(directory) if directory.exists() else None}
 
 
 def retire_archived_bundle(app, receipt):

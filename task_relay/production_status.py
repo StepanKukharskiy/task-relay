@@ -30,6 +30,9 @@ def controls(state, event):
     from . import pipelines
     if view and view['status']=='completed' and view.get('deferred_operations') and not pipelines.owns_run(state,run):
         buttons.append([{'text':'Plan execution','callback_data':token(run,'prodexecute')}])
+    from . import production_review_corrections
+    if view and production_review_corrections.details(state,run):
+        buttons.append([{'text':'Plan correction','callback_data':token(run,'prodcorrect')}])
     return {'inline_keyboard':buttons}
 
 
@@ -80,6 +83,9 @@ def current(state, run):
     if view.get('deferred_operations') and view['status'] in ('active','awaiting_user','completed'):
         lines[1]='Preparation in progress; execution pending' if view['status']=='active' else 'Preparation ready; execution pending'
     lines.append('Outcome: '+view['brief'])
+    from . import production_review_corrections
+    correction=production_review_corrections.text(state,run)
+    if correction:lines.extend(['',correction])
     from . import pipelines
     workflow=pipelines.owns_run(state,run)
     from .workflow_files import owner_for_run
@@ -102,18 +108,18 @@ def current(state, run):
         elif status=='running':status='Running'
         elif status=='awaiting_user':status='Waiting for your review'
         elif status=='awaiting_review':status='Waiting for independent review'
-        lines.append(f"{task['id']}: {status} · attempt {task['attempts']}/{task['max_attempts']}")
-        from .production_activity import lines as activity_lines
+        lines.extend(['',f"{task['id']}: {status} · attempt {task['attempts']}/{task['max_attempts']}"])
+        from .production_activity import lines as activity_lines,blocker_lines
+        lines.extend(blocker_lines(task))
         lines.extend(activity_lines(task))
-        if task.get('error') and task['status'] in ('blocked','uncertain','cancelled','cancelling'):
-            lines.append(task['error'][:900])
         target=next((t for t in view['tasks'] if t['id']==task['review_of']),None)
         if target and task.get('latest_attempt') and task.get('review_target')!=target['latest_attempt']:
             lines.append('An earlier review does not approve the current draft.')
+    lines.append('')
     if pending:lines.append('Continuation setup: '+pending['status']+(('; '+pending['error'][:700]) if pending['error'] else ''))
-    if view['status']=='blocked':
+    if view['status']=='blocked' and not correction:
         lines.append('Waiting alone will not resolve this blocker.')
-        if any(t['attempts']>=t['max_attempts'] for t in view['tasks']):
+        if any(t['status']=='blocked' and t['attempts']>=t['max_attempts'] for t in view['tasks']):
             lines.append('Attempt budget exhausted. An explicit continuation request is needed for more work.')
     if view['status']=='awaiting_user':lines.append('Use a Select button for the exact delivered file, or reply with feedback. '+('Relay will continue the saved workflow after selection; exact host-code Start remains required.' if workflow else 'No later stage starts automatically.'))
     if view['status']=='completed' and not pending:
@@ -130,6 +136,12 @@ def current(state, run):
     if not stamp or time.time()-stamp>30:
         lines.append('Scheduler heartbeat is unavailable or stale; these are the latest recorded states, not proof of live execution.')
     lines.append('Checked '+datetime.now(timezone.utc).strftime('%H:%M:%S UTC'))
+    if view['status']=='completed':
+        from .result_handoff import saved_text
+        try:
+            handoff=saved_text(state,run)
+            if handoff:lines.extend(['',handoff])
+        except (ValueError,OSError,KeyError):pass
     return run,'\n'.join(lines)
 
 
@@ -181,7 +193,7 @@ def inspection(state,run,key):
 
 def callback(bridge, update):
     q=update['callback_query'];raw=q.get('data','')
-    if not raw.startswith(('prodstatus:','prodinspect:','prodexecute:')):return False
+    if not raw.startswith(('prodstatus:','prodinspect:','prodexecute:','prodcorrect:')):return False
     state=bridge.state;chat=q.get('message',{}).get('chat',{});user=q.get('from',{})
     if user.get('is_bot') or user.get('id')!=state.get('user_id') or chat.get('type')!='private' or chat.get('id')!=state.get('chat_id'):
         return True
@@ -191,9 +203,15 @@ def callback(bridge, update):
         if not bound or not bound['focus'] or token(bound['focus'],raw.split(':')[0])!=raw:
             raise ValueError('This status button does not match a delivered production message.')
         run,text=current(state,bound['focus'])
-        with state.db:
+        from orchestrator.storage import transaction
+        with transaction(state.db):
             key=hashlib.sha256(q['id'].encode()).hexdigest()[:24]
-            if raw.startswith('prodexecute:'):
+            if raw.startswith('prodcorrect:'):
+                from . import production_review_corrections
+                ident=production_review_corrections.propose(state,bound['focus'])
+                message='Correction plan ready: '+ident+'. Use its Start preparation button.'
+                pc.notice(state,bound['focus'],'correction-plan:'+key,message)
+            elif raw.startswith('prodexecute:'):
                 message=plan_execution(state,bound['focus'])
                 pc.notice(state,bound['focus'],'execution-plan:'+key,message)
             elif raw.startswith('prodinspect:'):
