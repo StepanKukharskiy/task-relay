@@ -26,6 +26,7 @@ class Tests(unittest.TestCase):
 
     def setUp(self):
         fixture.Tests.setUp(self)
+        del self.fail
         self.app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
         self.app.start()
         self.signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'})
@@ -54,6 +55,8 @@ class Tests(unittest.TestCase):
         return response
 
     def prepare(self,ident,response,**action):
+        if not any(t.get('execution') for t in response['plan']['tasks']):
+            response['deferred_operations']={cap:'Exact prepared script/manifest needs selection and Start.' for cap in action.get('step_capabilities',[])}
         row=self.queue(ident,self.action(**action),text='Prepare, model and render the Rhino tower; keep Grasshopper paused.')
         planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
         row=self.row(ident);self.assertEqual(row['status'],'ready',row['error'])
@@ -198,8 +201,10 @@ class Tests(unittest.TestCase):
     def test_incomplete_or_unreviewed_preparation_set_cannot_be_proposed(self):
         row=self.queue(1,self.action(step_capabilities=['rhino.run_python']))
         response=self.preparation();response['plan']['tasks'][0].pop('selection_outputs')
-        with self.assertRaisesRegex(ValueError,'selection_outputs'):planning.validate_result(json.dumps(response),row)
+        response['deferred_operations']={'rhino.run_python':'Prepared inputs need exact Start.'}
+        with self.assertRaisesRegex(ValueError,'selected outputs'):planning.validate_result(json.dumps(response),row)
         response=self.preparation();response['plan']['tasks'][1]['inputs'].pop()
+        response['deferred_operations']={'rhino.run_python':'Prepared inputs need exact Start.'}
         with self.assertRaisesRegex(ValueError,'independent review'):planning.validate_result(json.dumps(response),row)
         self.assertEqual(self.factory.calls,[])
 

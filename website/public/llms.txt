@@ -10,11 +10,15 @@ matching CLI source. Consult the download section for the current version, packa
 contents and installation requirements. Repository documentation tracks development
 and may describe changes not yet included in a published download.
 
-A job connects the original request, stage plans, selected inputs, outputs and
-review decisions across tools. Review important steps and choose the result to
+A job keeps the brief, selected files, review decisions and final outputs together
+across tools, alongside the original request and stage plans. Review important steps and choose the result to
 carry into the next stage. Example paths include brief to research to editable
 presentation, and concept to 3D model to render to presentation. These are staged
 workflows using configured capabilities, not unconditional end-to-end execution.
+Example goals are preparing a site-analysis presentation and developing a concept
+into a model and presentation. These illustrate workflows, not completed case studies.
+Blender `.blend`, Rhino `.3dm` and PowerPoint `.pptx` outputs stay editable in
+their respective applications.
 
 Relay records dependencies between registered inputs and outputs. A confirmed
 replacement of a saved selection can flag affected downstream outputs within the
@@ -53,7 +57,7 @@ be in the current beta download.
 ## Product and downloads
 
 - [Website](https://task-relay-website-production.up.railway.app/): Job overview, examples and supported programs.
-- [Workflow guides](https://task-relay-website-production.up.railway.app/guides/): Site research decks, precise Rhino revisions, named-view renders, Blender asset packing and editable design-review PPTX. Each guide links to reported problems and names inputs, available operations and limits. Audited against bundled 0.13.24 capabilities; the website download is 0.13.26 beta with those registered operations. Exact live workflows remain unqualified. Earlier invoice/CSV/complaint recipes are archived and excluded from the guide index.
+- [Workflow guides](https://task-relay-website-production.up.railway.app/guides/): Site research decks, precise Rhino revisions, named-view renders, Blender asset packing and editable design-review PPTX. Each guide links to reported problems and names inputs, available operations and limits. Audited against bundled 0.13.24 capabilities; the website download is {{RELEASE_VERSION}} release with those registered operations. Exact live workflows remain unqualified. Earlier invoice/CSV/complaint recipes are archived and excluded from the guide index.
 - [Supported programs](https://task-relay-website-production.up.railway.app/#tools): Applications, agents, APIs and their requirements.
 - [Versions and decisions](https://task-relay-website-production.up.railway.app/#changes): Review affected outputs and decide what runs next.
 - [File formats](https://task-relay-website-production.up.railway.app/#formats): Input and saved-output formats, with operation-specific limits.

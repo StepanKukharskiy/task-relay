@@ -2,6 +2,7 @@
 import json
 import math
 import time
+from pathlib import Path
 
 
 def _number(value):
@@ -64,6 +65,9 @@ def snapshot(root, attempt, spec, backend, now=None):
     result={'ai':ai,'model':model,'reasoning':reasoning,'executor':executor,
             'objective':assignment.get('objective',spec.get('objective')),
             'limit_seconds':assignment.get('limits',{}).get('seconds'),
+            'request_limit':assignment.get('limits',{}).get('provider_requests',8) if not execution and executor and executor.endswith(('-agent','-code','-browser')) else None,
+            'response_limit':assignment.get('limits',{}).get('response_tokens',4096) if not execution and executor and executor.endswith(('-agent','-code','-browser')) else None,
+            'api_requests':None,
             'elapsed_seconds':None,'last_event_at':None,'heartbeat_at':None,
             'activity':None,'tool_calls':None,'usage':usage_totals([]),'usage_final':False}
     if not attempt:return result
@@ -80,6 +84,7 @@ def snapshot(root, attempt, spec, backend, now=None):
     if elapsed is None and begun is not None and begun<=now:
         # Stopped/uncertain attempts without a finish receipt have unknown elapsed time.
         if attempt['state'] in ('launching','running','cancelling'):elapsed=now-begun
+    result['api_requests']=_number(recorded.get('api_requests'))
     result.update(elapsed_seconds=elapsed,tool_calls=_number(recorded.get('tool_calls')),
                   usage=usage_totals(recorded.get('usage',[])),usage_final=final)
     for key in ('last_event_at','heartbeat_at'):
@@ -103,6 +108,44 @@ def duration(seconds):
     return (f'{hours}h ' if hours else '')+(f'{minutes}m ' if hours or minutes else '')+f'{seconds}s'
 
 
+def provider_failure_detail(attempt):
+    """Read only the last saved envelope, never expose provider-generated code."""
+    try:
+        session=json.loads(attempt['session']);folder=Path(session['control'])
+        requests=sorted(folder.glob('api-*.request.json'))
+        if not requests:return None
+        response=requests[-1].with_name(requests[-1].name.replace('.request.json','.response.json'))
+        if response.is_symlink() or response.stat().st_size>1000000:return None
+        value=json.loads(response.read_text())
+        candidates=value.get('candidates') or value.get('choices') or []
+        reason=(candidates[0].get('finishReason') or candidates[0].get('finish_reason')) if len(candidates)==1 else (value.get('incomplete_details') or {}).get('reason')
+        if reason not in ('MALFORMED_FUNCTION_CALL','MAX_TOKENS','SAFETY','RECITATION','length','max_output_tokens','content_filter'):return None
+        return 'Provider response rejected: '+reason+'. No tools from this response were executed.'
+    except (KeyError,TypeError,ValueError,OSError,AttributeError):return None
+
+
+def blocker_lines(task):
+    if task['status'] not in ('blocked','uncertain','cancelled','cancelling'):return []
+    error=str(task.get('error') or '')
+    explanations=(
+        ('Review requested corrections:','The independent review finished and requested changes to the candidate.'),
+        ('MALFORMED_FUNCTION_CALL','The AI returned an invalid tool call, so Relay could not execute that response.'),
+        ('generation output limit','The AI response exceeded its generation length limit; bounded recovery could not complete it.'),
+        ('MAX_TOKENS','The AI response reached its generation length limit before completing a usable response.'),
+        ('max_output_tokens','The AI response reached its generation length limit before completing a usable response.'),
+        ('Provider request budget exhausted','The worker used its approved provider requests before completing the required outputs.'),
+        ('time_limit','The worker reached its task deadline before completion.'),
+        ('Review correction allowance exhausted','The reviewed output still needs corrections, but its approved correction attempts are exhausted.'),
+        ('SAFETY','The provider declined the response under its safety policy.'),
+        ('content_filter','The provider declined the response under its content policy.'),
+        ('Incomplete provider response','The provider did not return a complete usable response; its saved receipt has no more specific reason.'),
+    )
+    label='Why blocked: ' if task['status']=='blocked' else 'Reason: '
+    for marker,explanation in explanations:
+        if marker in error:return [label+explanation,'Technical detail: '+error[:1800]]
+    return [label+(error[:1800] if error and error!='Worker failed' else 'The worker stopped without a specific failure reason in its saved receipt. Use Inspect stage to check its logs.')]
+
+
 def lines(task, now=None):
     now=time.time() if now is None else now
     activity=task.get('activity')
@@ -123,7 +166,11 @@ def lines(task, now=None):
     if elapsed is not None:timing.append('Elapsed: '+duration(elapsed))
     if limit is not None:timing.append('Task limit: '+duration(limit))
     if activity['ai'] and activity.get('tool_calls') is not None:timing.append(f'Tools used: {int(activity["tool_calls"])}')
+    if activity.get('request_limit') is not None:
+        used=activity.get('api_requests')
+        timing.append(('Provider requests: '+str(int(used))+'/' if used is not None else 'Provider request limit: ')+str(activity['request_limit']))
     if timing:text.append(' · '.join(timing))
+    if activity.get('response_limit') is not None:text.append(f"Response limit: {activity['response_limit']:,} output tokens per request")
     if task.get('latest_attempt') and activity['ai']:
         tokens=activity['usage']['tokens']
         names={'input':'input','output':'output','cached':'cached input','reasoning':'reasoning'}

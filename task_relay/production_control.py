@@ -24,6 +24,8 @@ def artifact_filename(state, artifact):
 
 
 def initialize(db):
+    from . import result_handoff
+    result_handoff.initialize(db)
     from task_relay import production_folders
     production_folders.initialize(db)
     from task_relay import production_continuations
@@ -116,19 +118,33 @@ def inspect(state, focus=None, include_files=True):
             from orchestrator.runtime import run_status, dependencies_ready, failure_detail
             progress = []
             for task, spec in zip(tasks, specs):
-                attempt = db.execute('SELECT id,state,error,frozen,receipt FROM production_attempts WHERE id=?', (task['latest'],)).fetchone()
+                attempt = db.execute('SELECT id,state,error,frozen,receipt,session FROM production_attempts WHERE id=?', (task['latest'],)).fetchone()
                 frozen = json.loads(attempt['frozen']) if attempt else {}
                 unavailable=db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND kind='capability_unavailable' ORDER BY id DESC LIMIT 1",(row['id'],task['id'])).fetchone() if not attempt else None
                 target = next((t for t in tasks if t['id'] == spec.get('review_of')), None)
                 current = not target or (bool(attempt) and frozen.get('review_target') == target['latest'] and task['status'] == 'completed')
+                error=failure_detail(db,attempt) if attempt else json.loads(unavailable['data'])['reason'] if unavailable else None
+                if task['status']=='blocked':
+                    preflight=db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND kind='input_preflight_blocked' AND json_extract(data,'$.assignment')=? ORDER BY id DESC LIMIT 1",
+                                         (row['id'],task['id'],task['assignment'])).fetchone()
+                    if preflight:error='Input check failed before dispatch: '+json.loads(preflight['data'])['reason']
+                if attempt and task['status']=='blocked' and error and 'Incomplete provider response' in error:
+                    from .production_activity import provider_failure_detail
+                    error=provider_failure_detail(attempt) or error
                 progress.append({'latest_attempt':task['latest'], 'attempt_state':attempt['state'] if attempt else None,
-                    'error':failure_detail(db,attempt) if attempt else json.loads(unavailable['data'])['reason'] if unavailable else None,
+                    'error':error,
                     'dependencies':[{ 'task':dep, 'status':next(t['status'] for t in tasks if t['id']==dep)} for dep in spec['dependencies']],
                     'runnable':task['status']=='queued' and dependencies_ready(spec,tasks,specs),
                     'review_target':frozen.get('review_target'), 'review_is_current':bool(target and current),
                     'output_is_current':bool(task['latest'] and current)})
                 from . import production_activity
                 progress[-1]['activity']=production_activity.snapshot(root(state),attempt,spec,json.loads(row['plan'])['backend'])
+            from . import production_review_corrections
+            correction=production_review_corrections.details(state,row['id']) if any(t['status']=='blocked' for t in tasks) else None
+            if correction:
+                for task,item in zip(tasks,progress):
+                    if task['status']=='blocked' and task['id'] in (correction['target'],correction['reviewer']):
+                        item['error']='Review requested corrections: '+correction['summary']+'\nRequested correction: '+correction['instruction']
             enabled = bool(state.get('production-enabled:' + row['id']))
             uploads = upload_views(state, row['id'])
             pending = state.db.execute("SELECT id,status,error FROM production_revisions WHERE run=? ORDER BY id DESC LIMIT 3", (row['id'],)).fetchall()
@@ -179,6 +195,7 @@ def inspect(state, focus=None, include_files=True):
                 outputs = [a for a in outputs if a['task'] in current_tasks]
                 view['latest_outputs'] = [{k: a[k] for k in ('id', 'task', 'attempt', 'path', 'purpose', 'sha256', 'bytes')} for a in outputs]
                 view['output_texts'] = []
+                view['omitted_output_texts'] = []
                 view['omitted_reference_texts'] = []
                 total = 0
                 output_chars = 0
@@ -198,10 +215,18 @@ def inspect(state, focus=None, include_files=True):
                             view['omitted_reference_texts'].append({'path':a['path'], 'bytes':a['bytes'], 'reason':'Conversation context limit; full registered file remains available to workers.'})
                             continue
                         total += a['bytes']
-                    raw = Path(a['blob']).read_bytes()
-                    if hashlib.sha256(raw).hexdigest() != a['sha256']:
-                        raise ValueError('A registered production reference changed.')
-                    value = raw.decode('utf-8')
+                    try:
+                        from orchestrator.runtime import safe_file
+                        blob=Path(a['blob'])
+                        safe_file(root(state),str(blob.relative_to(root(state).resolve())))
+                        raw = blob.read_bytes()
+                        if hashlib.sha256(raw).hexdigest() != a['sha256']:
+                            raise ValueError('Registered file checksum changed.')
+                        value = raw.decode('utf-8')
+                    except (ValueError,OSError) as exc:
+                        view['omitted_output_texts' if is_output else 'omitted_reference_texts'].append(
+                            {'path':a['path'],'bytes':a['bytes'],'reason':'Text preview unavailable: '+str(exc)})
+                        continue
                     if is_output:
                         excerpt = value[:max(0,min(20000,60000-output_chars))]
                         output_chars += len(excerpt)
@@ -507,9 +532,9 @@ class Worker:
                     line = f"{task['id']}: {task['status']}; attempts {task['attempts']}/{task['max_attempts']}"
                     if task['status']=='queued' and not task['runnable']:
                         line += ' (waiting on ' + ', '.join(d['task']+': '+d['status'] for d in task['dependencies']) + ')'
-                    if task.get('error') and task['status'] in ('blocked','uncertain','cancelled'):
-                        line += '\n' + task['error'][:1800]
-                    from .production_activity import lines as activity_lines
+                    from .production_activity import lines as activity_lines,blocker_lines
+                    reason=blocker_lines(task)
+                    if reason:line+='\n'+'\n'.join(reason)
                     details.append(line+'\n'+'\n'.join(activity_lines(task)))
                 ending = ('\nWorker termination is confirmed. Saved partial outputs follow where available; they are not accepted results.'
                           if result['status']=='cancelled' else
@@ -519,8 +544,13 @@ class Worker:
                 from . import pipelines
                 workflow=pipelines.owns_run(self.state,name)
                 if pipelines.owner_of_run(self.state,name):ending=ending.replace('No next stage starts automatically.',pipelines.continuation_text(self.state,name))
-                self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n' +
-                    '\n'.join(details) + pending_execution_text(current,workflow) + ending))
+                from . import production_review_corrections
+                correction=production_review_corrections.text(self.state,name) if result['status']=='blocked' else ''
+                if correction:
+                    details.insert(0,correction)
+                    ending='\nExisting files remain available as unapproved candidates. Use Plan correction above.'
+                self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n\n' +
+                    '\n\n'.join(details) + pending_execution_text(current,workflow) + '\n'+ending))
                 current_outputs = {t['id'] for t in current['tasks'] if t['output_is_current']}
                 for task in result['tasks']:
                     if task['id'] not in current_outputs:

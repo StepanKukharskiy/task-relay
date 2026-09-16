@@ -30,7 +30,9 @@
         "website/public/guides/assets/architecture-request-v2.txt",
         "website/public/guides/assets/complaint-research-request.txt",
         "website/fetch-downloads.mjs",
-        "website/downloads.json"
+        "website/downloads.json",
+        "website/releases.mjs",
+        "website/release-fallback.json"
       ]
     },
     {
@@ -190,7 +192,9 @@
         "docs/perplexity-browser.md",
         "docs/general-browser.md",
         "docs/account-sites.md",
-        "docs/desktop-browser.md"
+        "docs/desktop-browser.md",
+        "docs/image-sourcing.md",
+        "docs/workflow-handoffs.md"
       ]
     }
   ],

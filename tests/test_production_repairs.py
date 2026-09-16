@@ -64,19 +64,109 @@ class Tests(unittest.TestCase):
     def repair(self):return self.state.db.execute('SELECT * FROM production_auto_repairs').fetchone()
     def step(self):return self.state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND id='model'", (self.pid,)).fetchone()
 
-    def finish_preparation(self, decision='script_repair', rejected=False):
+    def finish_preparation(self, decision='script_repair', rejected=False, review_decision=None, script=None, evidence=None):
         child = self.repair()['preparation'];self.rt.tick(child)
         attempt = self.rt.task(child, 'prepare_repair')['latest']
         self.factory.finish(attempt)
         ws = self.factory.sessions[attempt]['workspace']
-        (ws / 'delivery/model.py').write_text(native.CREATE_SCRIPT + '\n# minimal camera correction\n')
+        (ws / 'delivery/model.py').write_text(script if script is not None else native.CREATE_SCRIPT + '\n# minimal camera correction\n')
         (ws / 'delivery/diagnosis.json').write_text(json.dumps(dict(decision=decision, cause='Unsupported API method',
-            evidence='model phase AttributeError in exact receipt', changes='Use supported camera API', required_action='Review host settings' if decision=='needs_input' else '')))
+            evidence=evidence if evidence is not None else 'model phase AttributeError in exact receipt', changes='Use supported camera API', required_action='Review host settings' if decision=='needs_input' else '')))
         self.rt.tick(child)
         reviewer = self.rt.task(child, 'review_repair')['latest'];self.assertIsNotNone(reviewer)
-        self.factory.finish(reviewer, decision='blocked' if rejected else 'accept')
+        self.factory.finish(reviewer, decision=review_decision or ('blocked' if rejected else 'accept'))
         self.rt.tick(child)
         return child
+
+    def use_legacy_policy(self):
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_events SET detail=? WHERE pipeline=? AND kind='created'",
+                                  (c.encoded({'automatic_script_repair':repairs.LEGACY_POLICY}),self.pid))
+
+    def test_review_can_correct_once_without_resetting_attempts_or_running_host(self):
+        self.setup_failure();pipelines.tick(self.state)
+        child=self.finish_preparation(review_decision='revise')
+        self.assertEqual(self.rt.task(child,'prepare_repair')['attempts'],2)
+        current=self.rt.task(child,'prepare_repair')['latest']
+        frozen=self.factory.sessions[current]['frozen']
+        self.assertTrue(any(i['path'].startswith('previous-review/') for i in frozen['inputs']))
+        self.finish_preparation(review_decision='revise');pipelines.tick(self.state)
+        self.assertEqual(self.repair()['status'],'blocked')
+        self.assertIn('Correct the stated criterion',self.repair()['error'])
+        self.assertEqual(self.rt.task(child,'prepare_repair')['attempts'],2)
+        self.assertEqual(self.rt.task(child,'review_repair')['attempts'],2)
+        self.assertEqual(self.before,[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(self.parent,))])
+        self.assertIsNone(self.repair()['plan_id'])
+
+    def test_api_repair_budgets_are_explicit_and_shared_with_normal_planning(self):
+        from orchestrator import worker_capabilities,executors
+        self.setup_failure();reviewer=self.rt.reviewer(self.parent,'app');spec=self.rt.spec(reviewer)
+        backend={'type':'gemini-code','model':'fixture-model','runtime':'a'*64}
+        spec.pop('tools',None)
+        spec['limits']['tool_calls']=24
+        spec['worker']={'requires':['code.execute']}
+        worker_capabilities.resolve(spec,[worker_capabilities.entry(backend)],backend)
+        self.rt.replace_future(self.parent,spec);pipelines.tick(self.state)
+        self.assertEqual(self.repair()['status'],'preparing',self.repair()['error'])
+        for tid,tokens in [('prepare_repair',16384),('review_repair',4096)]:
+            new=self.rt.spec(self.rt.task(self.repair()['preparation'],tid))
+            self.assertEqual(executors.request_limit(new),24)
+            self.assertEqual(executors.response_limit(new),tokens)
+            self.assertEqual(new['max_attempts'],2)
+        small={'limits':{'tool_calls':24,'provider_requests':4,'response_tokens':2048}}
+        executors.code_budgets(small,backend)
+        self.assertEqual(executors.request_limit(small),4);self.assertEqual(executors.response_limit(small),2048)
+
+    def test_legacy_repair_requires_delivered_start_to_expand_review_allowance(self):
+        from task_relay import production_visual_review as recovery,production_continuations
+        self.setup_failure();self.use_legacy_policy();pipelines.tick(self.state)
+        child=self.finish_preparation(review_decision='revise');pipelines.tick(self.state)
+        self.assertEqual(self.rt.spec(self.rt.task(child,'prepare_repair'))['max_attempts'],1)
+        before=[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(child,))]
+        with transaction(self.state.db):
+            message=production_continuations.enqueue(self.state,{'id':999,'prompt':'Continue this repair'},child)
+        self.assertIn('2 additional',message)
+        card=self.state.db.execute('SELECT * FROM production_visual_review_cards').fetchone()
+        self.assertEqual(len(self.factory.calls),3)
+        with self.assertRaisesRegex(ValueError,'delivered'),transaction(self.state.db):recovery.apply(self.state,card['token'],7,9)
+        with transaction(self.state.db):
+            self.state.db.execute('INSERT INTO outbox(id,text,sent) VALUES (?,?,1)',(card['event_id'],message))
+            recovery.remember(self.state,card['event_id'],7,9)
+            recovery.apply(self.state,card['token'],7,9)
+            recovery.apply(self.state,card['token'],7,9)
+        self.assertEqual(before,[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(child,))])
+        self.assertEqual(self.step()['status'],'repairing')
+        self.assertEqual(self.repair()['status'],'preparing')
+        self.finish_preparation();pipelines.tick(self.state)
+        self.assertEqual(self.repair()['status'],'awaiting_start',self.repair()['error'])
+        self.assertEqual(self.rt.task(child,'prepare_repair')['attempts'],2)
+        self.assertEqual(self.before,[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(self.parent,))])
+
+    def test_changed_failure_invalidates_recovery_card(self):
+        from task_relay import production_visual_review as recovery
+        self.setup_failure();self.use_legacy_policy();pipelines.tick(self.state)
+        child=self.finish_preparation(review_decision='revise');pipelines.tick(self.state)
+        baseline,spec=recovery.snapshot(self.state,child)
+        with transaction(self.state.db):self.state.put('production-control-epoch:'+self.parent,99)
+        with self.assertRaisesRegex(ValueError,'changed'):recovery.snapshot(self.state,child)
+
+    def test_uncertain_repair_attempt_cannot_get_a_recovery_start(self):
+        from task_relay import production_visual_review as recovery
+        self.setup_failure();self.use_legacy_policy();pipelines.tick(self.state)
+        child=self.finish_preparation(review_decision='revise');pipelines.tick(self.state)
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE production_attempts SET state='uncertain' WHERE id=?",(self.rt.task(child,'prepare_repair')['latest'],))
+        with self.assertRaisesRegex(ValueError,'uncertain'):recovery.snapshot(self.state,child)
+
+    def test_accepting_unchanged_script_does_not_offer_host_start(self):
+        self.setup_failure();pipelines.tick(self.state);child=self.repair()['preparation']
+        original=next(i for i in self.rt.spec(self.rt.task(child,'prepare_repair'))['inputs'] if i['path'].endswith('.py') and i['path'].startswith('original/'))
+        self.finish_preparation(script=Path(self.rt.artifact(original['artifact'])['blob']).read_text());pipelines.tick(self.state)
+        self.assertIn('unchanged',self.repair()['error']);self.assertIsNone(self.repair()['plan_id'])
+
+    def test_accepting_placeholder_diagnosis_does_not_offer_host_start(self):
+        self.setup_failure();pipelines.tick(self.state);self.finish_preparation(evidence='Draft');pipelines.tick(self.state)
+        self.assertIn('placeholders',self.repair()['error']);self.assertIsNone(self.repair()['plan_id'])
 
     def test_repair_preserves_the_assigned_review_worker_model(self):
         from orchestrator import worker_capabilities

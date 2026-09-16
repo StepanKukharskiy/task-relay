@@ -44,6 +44,11 @@ def validate_files(task):
     for path in captures:
         if path not in outputs or not png_input(outputs[path]):raise ValueError('Screenshot needs a declared image/png output')
         if outputs.get(path+'.json',{}).get('media_type')!='application/json':raise ValueError('Screenshot needs its declared .png.json provenance output')
+    visual=task.get('browser',{}).get('visual_inputs',[])
+    if len(set(visual))!=len(visual):raise ValueError('Duplicate visual input')
+    inputs={i['path']:i for i in task.get('inputs',[])}
+    if any(p not in inputs or not png_input(inputs[p]) for p in visual):
+        raise ValueError('Visual inputs must name exact declared PNG inputs')
     transfers=set(task.get('browser',{}).get('downloads',[]))|set(task.get('browser',{}).get('uploads',[]))
     if transfers & (set(captures)|{p+'.json' for p in captures}):raise ValueError('Screenshot paths cannot be file transfer paths')
     for output in outputs.values():
@@ -92,9 +97,11 @@ def origin(url):
 
 def validate(policy):
     required={'profile','origins','interaction_scope','max_tabs','max_actions','uploads','downloads'}
-    if not isinstance(policy,dict) or not required<=set(policy) or set(policy)-required-{'screenshots'}:
+    if not isinstance(policy,dict) or not required<=set(policy) or set(policy)-required-{'screenshots','session_source','visual_inputs'}:
         raise ValueError('Browser scope needs profile, origins, interaction_scope, max_tabs/actions and exact file grants')
     profile_name(policy['profile'])
+    if 'session_source' in policy and (policy['session_source']!='settings' or policy['profile']!='managed'):
+        raise ValueError('Settings session requires profile managed and session_source settings.')
     if not isinstance(policy['origins'],list) or not 1<=len(policy['origins'])<=20 or any(origin(x)!=x for x in policy['origins']):
         raise ValueError('Select 1–20 exact website origins, without paths or wildcards')
     if not isinstance(policy['interaction_scope'],str) or len(policy['interaction_scope'])>4000:
@@ -102,7 +109,8 @@ def validate(policy):
     for name,maximum in [('max_tabs',8),('max_actions',60)]:
         if type(policy[name]) is not int or not 1<=policy[name]<=maximum:raise ValueError('Invalid browser '+name)
     from .contracts import relative
-    for key in ('uploads','downloads'):
+    for key in ('uploads','downloads','visual_inputs'):
+        if key=='visual_inputs' and key not in policy:continue
         if not isinstance(policy[key],list) or len(policy[key])>10:raise ValueError('At most ten exact '+key+' paths')
         for path in policy[key]:relative(path)
     captures=policy.get('screenshots',[])
@@ -174,7 +182,11 @@ can save an explicitly granted viewport PNG and its .png.json provenance output.
 Capture screenshots before finalization; file_write cannot create them. Keep site
 attribution visible. Captures include canvas pixels but do not add visual reasoning
 or coordinate-based interaction. PNG file_read returns container metadata only;
-never claim to see those pixels or verify map completeness from that metadata.
+never claim to see pixels from metadata. When visual_inputs explicitly lists PNG
+inputs, their exact pixels are attached to the model request. Review those saved
+images and their provenance. A canvas page with empty DOM text does not invalidate
+a visible map screenshot; do not revisit the site just to review the saved image.
+Report blocked if the image itself is unreadable or does not meet the criteria.
 Use DOM evidence for navigation and report visual inspection as pending user review.
 Canvas-only interfaces that need visual interaction,
 file formats or controls that tools cannot inspect are concrete blockers, not a

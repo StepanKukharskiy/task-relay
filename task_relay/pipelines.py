@@ -19,10 +19,27 @@ writing a narrative plan. Infer the necessary stages from the request and availa
 capabilities; no particular sequence, application or domain is mandatory. Simple
 single operations still use their direct actions. Do not create a pipeline for a
 status question. Preserve explicitly named providers and user decision boundaries.
-Action: {kind:"plan_pipeline", title:string, planning_only:boolean, stages:[
+Action: {kind:"plan_pipeline", contract_version:1, title:string, planning_only:boolean, stages:[
 {id:string, instruction:string, route:"conversation"|"production"|"browser_research"|"image",
  gate:"none"|"choice"|"selection", capabilities:[registered graph operation IDs],
- deliverables:{stable_id:description}}]}.
+ visual_intent?:"reference"|"synthetic",
+ deliverables:{stable_id:description},
+ handoff:{outputs:{deliverable_id:{media_type:string,max_bytes?:integer|null,slides?:integer|null,companions?:[deliverable_id]}},
+ inputs:[{stage:earlier_stage_id,deliverable:earlier_deliverable_id,media_type:string,consumer:"context"|selected_capability_id}]}}]}.
+New workflows require contract_version:1 and a handoff contract for EVERY stage.
+Preserve all explicitly requested quantities. A requested 600-slide single PPTX must
+declare slides:600; never reduce it, split it into separate final decks or omit the
+quantity to pass validation. The builder supports 50 slides per deck, 50 MB; larger
+single-deck assembly is unavailable. Explain unsupported scope before doing work.
+Use context for research/conversation findings and worker preparation. Use an exact
+capability for a file passed directly to an operation; raw 3DM/BLEND is not an image
+reference or a PPTX input. Declare a native model's preview as a separate PNG output.
+For a managed image stage the direct consumer is gemini.image.
+For that route, the output is exactly image/png, even for photorealistic imagery;
+never declare JPEG unless an explicit later conversion produces JPEG. Rhino native
+outputs use application/vnd.rhino; Blender native outputs use application/x-blender.
+Unknown byte sizes remain null; do not claim estimated sizes are verified. Companion outputs must be
+passed together. Output types must match the actual selected capability contracts.
 Use 2–12 ordered stages, each with its own scope, covering ALL requested outcomes.
 Stage IDs are unique: 1–50 letters/digits/underscores/hyphens, starting with a letter
 or digit (for example 3d_model). Preserve these IDs throughout the workflow.
@@ -33,6 +50,17 @@ only to that stage. Use conversation/choice for proposing alternatives before us
 selection, production for bounded file/native work, browser_research for supported
 website research, image for one managed visualization. Specify named providers in
 stage instructions. planning_only=true only when execution was not requested.
+For factual research, identification, real examples and documentary presentations,
+default to authentic sourced photos, not invented illustrations. Use production with
+images.collect and visual_intent:"reference" after research establishes the named
+subjects; pass reviewed exact images and attribution to the presentation stage.
+Plants are one example of this universal rule, not a special workflow. Use botanical
+names from research for species photos. Missing photos are explicit gaps; never
+replace them with generated images. Honor permission to omit them while retaining text.
+An image route or provider image-generation operation requires visual_intent:"synthetic",
+reserved for requested concepts, illustrations, designs or photorealistic renders.
+Generic requests for research, visuals or a PPTX do not imply synthetic imagery.
+Separate reference collection from synthetic visualization in mixed workflows.
 A saved pipeline automatically advances within its scope after completion/selection.
 Native scripts still need exact-code Start; unknown future code is not approved.
 
@@ -51,14 +79,19 @@ stage_id,choice_id}, matching the exact offered option; never guess ambiguous ap
 For workflow status answer from snapshot.pipelines; for pause/resume/cancel use
 {kind:"pipeline_control",pipeline_id,verb:"pause"|"resume"|"cancel"|"recover_planning"|"retry_planning"}.
 When the user explicitly asks to continue after Gemini request failed (429), use
-retry_planning: it requests a new bounded plan from the identical frozen inputs
-and provider, retaining the failed receipt and all completed work. It does not
+retry_planning: the service locates the failed phase. Before a plan/action exists,
+it retries only stage interpretation; otherwise it retries the unexecuted plan.
+It retains the exact stage request, frozen upstream inputs, provider, failed receipt
+and all completed work. It does not
 approve host execution. Never schedule this retry without a new user request.
 For an explicit request to recover a blocked unexecuted plan, recover_planning
 revalidates its saved responses, keeping the original requests and receipts. It
 does not repeat a model call or executed operation. A blocked or
 uncertain operation needs explicit recovery, never automatic replay or provider
 fallback. Do not instruct the user to ask for the next stage after a selection.
+recover_planning also handles a confirmed local planning-setup failure before a
+plan was queued: reuse the exact saved plan_production routing response and frozen
+workflow sources. Do not repeat completed research or images, or ask for rephrasing.
 '''
 
 
@@ -96,17 +129,24 @@ class PipelineValidationError(ValueError):
     """A parsed workflow violates its stage contract, not its JSON format."""
 
 
+def generates_images(stage):
+    from orchestrator.execution import IMAGE_PROVIDERS, CLOUD_MEDIA
+    generators=set(IMAGE_PROVIDERS)|{k for k in CLOUD_MEDIA if k.endswith('.image')}
+    return stage['route']=='image' or bool(set(stage['capabilities'])&generators)
+
+
 def validate(action, snap):
     kind=action.get('kind')
     if kind=='plan_pipeline':
-        if (set(action)!={'kind','title','planning_only','stages'} or not bounded(action['title'],200)
+        if (set(action)-{'contract_version'}!={'kind','title','planning_only','stages'} or not bounded(action['title'],200)
                 or type(action['planning_only']) is not bool or not isinstance(action['stages'],list)
                 or not 2<=len(action['stages'])<=12):raise PipelineValidationError('Provide a bounded ordered workflow with 2–12 stages.')
         if snap.get('pipeline_step'):raise PipelineValidationError('Continue the saved workflow; do not create a nested one.')
         known={x['id'] for x in snap.get('capabilities',{}).get('graph_operations',[])}
         ids=set()
         for s in action['stages']:
-            if (not isinstance(s,dict) or set(s)!={'id','instruction','route','gate','capabilities','deliverables'}
+            if (not isinstance(s,dict) or set(s)-{'visual_intent','handoff'}!={'id','instruction','route','gate','capabilities','deliverables'}
+                    or s.get('visual_intent','reference') not in ('reference','synthetic')
                     or not isinstance(s['id'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,49}',s['id'])
                     or s['id'] in ids or not bounded(s['instruction'],3000) or s['route'] not in ROUTES
                     or s['gate'] not in ('none','choice','selection') or not isinstance(s['capabilities'],list)
@@ -115,6 +155,10 @@ def validate(action, snap):
                     or not isinstance(s['deliverables'],dict) or not 1<=len(s['deliverables'])<=8
                     or any(not bounded(k,80) or not bounded(v,500) for k,v in s['deliverables'].items())):
                 raise PipelineValidationError('Invalid workflow stage, capability or deliverable.')
+            if generates_images(s) and s.get('visual_intent')!='synthetic':
+                raise PipelineValidationError('Reference imagery requires image sourcing (images.collect), not image generation. Declare synthetic intent only for requested concepts, illustrations or renders.')
+            if 'images.collect' in s['capabilities'] and s.get('visual_intent')=='synthetic':
+                raise PipelineValidationError('Separate authentic reference collection from synthetic visualization.')
             if s['route'] in ('conversation','browser_research') and s['capabilities']:
                 raise PipelineValidationError('Only production/image stages declare graph operations.')
             if s['gate']=='choice' and s['route']!='conversation':
@@ -122,6 +166,12 @@ def validate(action, snap):
             if s['route']=='conversation' and s['gate']=='selection':raise PipelineValidationError('Conversation choices use a choice gate.')
             if s['route']=='browser_research' and s['gate']!='none':raise PipelineValidationError('Research produces receipt-backed source context.')
             ids.add(s['id'])
+        from orchestrator.handoff_contracts import compile_workflow,ContractError
+        required=snap.get('workflow_contract_version')==1 or 'contract_version' in action
+        if required and action.get('contract_version')!=1:
+            raise PipelineValidationError('New workflows require contract_version:1 and explicit stage handoffs before work starts.')
+        try:compile_workflow(action['stages'],snap.get('capabilities',{}).get('graph_operations',[]),required)
+        except ContractError as exc:raise PipelineValidationError(str(exc)) from exc
     elif kind=='pipeline_result':
         step=snap.get('pipeline_step',{}).get('stage',{})
         if (set(action)!={'kind','result','choices'} or step.get('route')!='conversation'
@@ -171,6 +221,11 @@ def catalog(state):
         stages=[]
         for s in state.db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=? ORDER BY position',(r['id'],)):
             stages.append({**{k:s[k] for k in ('id','status','target_kind','target','error')},'choices':json.loads(s['choices'] or '[]')})
+            if s['status']=='blocked' and rate_limited_stage(state,s):
+                stages[-1]['interpretation_retry_available']=True
+            if s['status']=='blocked' and setup_failure(state,s):
+                failure=state.db.execute('SELECT message FROM orchestrator_chat_errors WHERE job_id=?',(s['request_id'],)).fetchone()
+                stages[-1].update(setup_recovery_available=True,error='Stage planning setup failed: '+failure['message'][:1500])
         from .workflow_files import folder_path
         result.append(dict(id=r['id'],title=r['title'],status=r['status'],stages=stages,files_path=str(folder_path(state,r['id']))))
     return result
@@ -203,6 +258,9 @@ def guard(state, job, action):
             raise ValueError('Stage planning must retain its declared capabilities and deliverables.')
     if kind=='generate_image':
         required={s['artifact'] for s in ctx['inputs']['sources'] if s.get('media_type','').startswith('image/')}
+        if stage.get('handoff'):
+            from orchestrator.handoff_contracts import image_references
+            required=image_references(stage,ctx['inputs'].get('handoffs',[]))
         if set(action.get('artifact_ids',[]))!=required or action.get('reference_ids'):
             raise ValueError('Image stage must use the exact frozen upstream image versions.')
 
@@ -225,11 +283,17 @@ def dispatch(state,job,action,snap):
         for i,s in enumerate(action['stages']):
             state.db.execute('INSERT INTO relay_pipeline_steps(pipeline,position,id,status) VALUES (?,?,?,?)',(pid,i,s['id'],'pending'))
         from .production_repairs import POLICY
-        event(state,pid,None,'created',{**action,'automatic_task_seconds':1800,'automatic_script_repair':POLICY})
+        event(state,pid,None,'created',{**action,'automatic_task_seconds':1800,'automatic_task_attempts':2,'automatic_local_correction':1,'automatic_script_repair':POLICY})
+        if action.get('contract_version')==1:
+            from orchestrator.handoff_contracts import compile_workflow
+            report=compile_workflow(action['stages'],snap.get('capabilities',{}).get('graph_operations',[]),True)
+            event(state,pid,None,'handoff_preflight',report)
         state.db.execute('UPDATE orchestrator_chats SET focus=? WHERE id=?',(pid,job['id']))
         text='Workflow saved: '+action['title']+'\n'+'\n'.join(f'{i+1}. {s["instruction"]}' for i,s in enumerate(action['stages']))
-        text+='\n'+('Planning only; use Resume to start.' if action['planning_only'] else 'Relay will continue after completed steps and your selections. Each task has its own planned deadline, up to 30 minutes. Exact host-code approvals remain separate.')
-        text+='\nConfirmed script failures allow one bounded repair preparation and independent review per stage using its existing model, up to 10 minutes and 24 tools each. Corrected code waits for a new Start.'
+        text+='\n'+('Planning only; use Resume to start.' if action['planning_only'] else 'Relay will continue after completed steps and your selections. Each task has its own planned deadline, up to 30 minutes per attempt. Local drafting includes one review-directed correction. Supported local document builds may correct and rebuild once, with up to three author/review attempts and two build/final-review attempts. Browser and external operations run once. Exact host-code approvals remain separate.')
+        text+='\nConfirmed script failures allow one repair cycle per stage using its existing model: preparation, independent review and at most one revision/re-review. Each attempt allows up to 10 minutes, 24 tools and 24 API requests; code authors receive up to 16,384 response tokens and reviewers 4,096. Corrected code waits for a new Start.'
+        if action.get('contract_version')==1:
+            text+='\nHandoff compatibility checked. '+str(len(report['unknowns']))+' size/count values remain unknown and will be checked against actual outputs. Content and design fidelity still require review.'
         notice(state,pid,None,'created',text)
         return text,None
     if kind=='pipeline_control':
@@ -247,7 +311,7 @@ def dispatch(state,job,action,snap):
 
 
 def choose(state,pid,sid,choice):
-    p=state.db.execute('SELECT channel,status FROM relay_pipelines WHERE id=?',(pid,)).fetchone()
+    p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(pid,)).fetchone()
     if not p or p['channel']!=getattr(state,'channel','telegram') or p['status'] not in ('active','paused'):raise ValueError('Workflow choice is not available in this channel.')
     s=state.db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND id=?',(pid,sid)).fetchone()
     if not s or s['status']!='awaiting_choice':raise ValueError('This workflow decision is no longer pending.')
@@ -261,8 +325,11 @@ def choose(state,pid,sid,choice):
         allowed=('sent','skipped') if p['channel']=='messages' else ('sent',)
         if not sent or not sent[0] or not delivered or delivered[0] not in allowed:raise ValueError('Wait for the complete image and selection card.')
         if len(sources)!=1 or artifact_source(state,choice)!=sources[0]:raise ValueError('Selected workflow artifact changed.')
-    state.db.execute("UPDATE relay_pipeline_steps SET status='completed',result=?,sources=? WHERE pipeline=? AND id=?",
-                     (s['result']+'\n\nUSER SELECTED:\n'+encoded(option),encoded(sources),pid,sid))
+    result=s['result']+'\n\nUSER SELECTED:\n'+encoded(option)
+    if sources:complete(state,p,s,sources,result)
+    else:
+        state.db.execute("UPDATE relay_pipeline_steps SET status='completed',result=?,sources=? WHERE pipeline=? AND id=?",
+                         (result,encoded(sources),pid,sid))
     event(state,pid,sid,'user_choice',option)
 
 
@@ -272,6 +339,12 @@ def control(state,pid,verb,*,request=None):
     if verb in ('recover_planning','retry_planning'):
         if row['status']!='blocked':raise ValueError('Only blocked planning can be recovered.')
         step=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status='blocked' ORDER BY position LIMIT 1",(pid,)).fetchone()
+        if verb=='retry_planning' and step and rate_limited_stage(state,step):
+            retry_stage_interpretation(state,row,step,request)
+            return
+        if verb=='recover_planning' and step and setup_failure(state,step):
+            recover_stage_setup(state,row,step,request)
+            return
         if not step or step['target_kind']!='plan_production':raise ValueError('This is not an unexecuted planning failure; inspect its receipt.')
         from . import production_planning
         if verb=='retry_planning':
@@ -291,6 +364,95 @@ def control(state,pid,verb,*,request=None):
     new={'pause':'paused','resume':'active','cancel':'cancelled'}[verb]
     state.db.execute('UPDATE relay_pipelines SET status=? WHERE id=?',(new,pid))
     event(state,pid,None,verb,{'running_work':'May finish; further workflow dispatch is stopped.'})
+
+
+def rate_limited_stage(state,step):
+    """Confirmed rejection before an action exists, never an uncertain dispatch."""
+    if step['target'] or step['target_kind'] or not step['request_id']:return None
+    job=state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(step['request_id'],)).fetchone()
+    error=state.db.execute('SELECT * FROM orchestrator_chat_errors WHERE job_id=?',(step['request_id'],)).fetchone()
+    if (not job or job['status']!='failed' or job['response'] is not None or job['provider']!='gemini'
+        or not error or error['phase']!='provider' or error['error_type']!='ProviderError'
+        or error['message']!='Gemini request failed (429)'):return None
+    # Corroborate the phase with every stage dispatch journal.
+    if state.db.execute('SELECT 1 FROM production_plans WHERE request_id=?',(job['id'],)).fetchone():return None
+    if state.db.execute('SELECT 1 FROM orchestrator_image_requests WHERE job_id=?',(job['id'],)).fetchone():return None
+    if state.db.execute('SELECT 1 FROM browser_research_requests WHERE source=?',('orchestrator:'+str(job['id']),)).fetchone():return None
+    return job
+
+
+def retry_stage_interpretation(state,p,step,request):
+    """One explicitly requested successor; old request and failure remain intact."""
+    if not state.db.in_transaction:raise ValueError('Stage retry requires an atomic transaction.')
+    if not isinstance(request,str) or not request.strip():raise ValueError('An explicit continuation request is required.')
+    old=rate_limited_stage(state,step)
+    if old is None:raise ValueError('No confirmed undispatched stage rate limit is available.')
+    prior=state.db.execute('SELECT * FROM relay_pipeline_requests WHERE request_id=?',(old['id'],)).fetchone()
+    if not prior or prior['pipeline']!=p['id'] or prior['step']!=step['id']:raise ValueError('Original stage binding is missing.')
+    if old['focus']!=p['id']:raise ValueError('Original stage focus changed.')
+    from . import relay_channels
+    if relay_channels.request_channel(state,old['id'])!=p['channel']:raise ValueError('Original stage channel changed.')
+    context=json.loads(prior['inputs'])
+    for item in context.get('sources',[]):
+        current=artifact_source(state,item['artifact'])
+        if any(current[k]!=item[k] for k in ('sha256','bytes')):raise ValueError('Selected stage input changed; no retry queued.')
+    ident=-int(hashlib.sha256(('stage-rate-limit:'+str(old['id'])).encode()).hexdigest()[:15],16)-1
+    if state.db.execute('SELECT 1 FROM orchestrator_chats WHERE id=?',(ident,)).fetchone():raise ValueError('This stage retry already exists; inspect its saved request.')
+    state.db.execute('INSERT INTO relay_pipeline_requests VALUES (?,?,?,?)',(ident,p['id'],step['id'],prior['inputs']))
+    state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(ident,p['channel']))
+    state.db.execute("INSERT INTO orchestrator_chats(id,prompt,focus,provider,model,status,created) VALUES (?,?,?,?,?,'queued',?)",
+        (ident,old['prompt'],old['focus'],old['provider'],old['model'],time.time()))
+    state.db.execute("UPDATE relay_pipeline_steps SET status='queued',request_id=?,error=NULL WHERE pipeline=? AND id=?",(ident,p['id'],step['id']))
+    state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(p['id'],))
+    event(state,p['id'],step['id'],'stage_interpretation_retry_requested',
+        {'previous_request':old['id'],'request_id':ident,'request':request,'provider':old['provider'],'model':old['model'],
+         'inputs_sha256':hashlib.sha256(prior['inputs'].encode()).hexdigest(),'completed_stages_repeated':False})
+    notice(state,p['id'],step['id'],'interpretation-retry-'+str(ident),
+        'Stage interpretation retry queued with the same request, model and exact selected inputs. Completed work is preserved. No image or host operation has been resubmitted.')
+
+
+def setup_failure(state,step):
+    """Only a rejected local plan enqueue is eligible, never an uncertain action."""
+    if step['target'] or step['target_kind'] or not step['request_id']:return None
+    job=state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(step['request_id'],)).fetchone()
+    error=state.db.execute('SELECT * FROM orchestrator_chat_errors WHERE job_id=?',(step['request_id'],)).fetchone()
+    if not job or job['status']!='failed' or not error or error['phase']!='dispatch' or error['error_type']!='ValueError':return None
+    if state.db.execute('SELECT 1 FROM production_plans WHERE request_id=?',(job['id'],)).fetchone():return None
+    try:action=json.loads(job['response'])['action']
+    except (ValueError,TypeError,KeyError):return None
+    if not isinstance(action,dict) or action.get('kind')!='plan_production':return None
+    return job
+
+
+def recover_stage_setup(state,p,step,request):
+    """Revalidate a saved routing decision; no repeated interpretation/model call."""
+    if not state.db.in_transaction:raise ValueError('Stage recovery requires an atomic transaction.')
+    old=setup_failure(state,step)
+    if old is None:raise ValueError('No confirmed local planning setup failure to recover.')
+    from . import orchestrator_chat as chat,production_planning as planning
+    ident=-int(hashlib.sha256(('setup-recovery:'+str(old['id'])+old['response']).encode()).hexdigest()[:15],16)-1
+    if state.db.execute('SELECT 1 FROM orchestrator_chats WHERE id=?',(ident,)).fetchone():
+        raise ValueError('This setup recovery already exists; inspect its saved plan.')
+    prior=state.db.execute('SELECT inputs FROM relay_pipeline_requests WHERE request_id=?',(old['id'],)).fetchone()
+    if not prior:raise ValueError('Original workflow inputs are missing.')
+    state.db.execute('INSERT INTO relay_pipeline_requests VALUES (?,?,?,?)',(ident,p['id'],step['id'],prior['inputs']))
+    state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(ident,p['channel']))
+    state.db.execute("INSERT INTO orchestrator_chats(id,prompt,focus,provider,model,status,response,created) VALUES (?,?,?,?,?,'answered',?,?)",
+                     (ident,old['prompt'],p['id'],old['provider'],old['model'],old['response'],time.time()))
+    state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(p['id'],))
+    state.db.execute("UPDATE relay_pipeline_steps SET status='queued',request_id=?,error=NULL WHERE pipeline=? AND id=?",(ident,p['id'],step['id']))
+    job=state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(ident,)).fetchone()
+    snap=chat.snapshot(state,p['id']);snap['pipeline_step']=request_context(state,ident)
+    action=chat.interpret(old['response'],snap)['action']
+    guard(state,job,action)
+    text=planning.enqueue(state,job,action,snap)
+    observe_dispatch(state,job,action)
+    state.db.execute('UPDATE orchestrator_chats SET snapshot=?,answer=? WHERE id=?',(encoded(snap),text,ident))
+    event(state,p['id'],step['id'],'setup_recovered',{'previous_request':old['id'],'request_id':ident,
+          'request':request,'routing_response_sha256':hashlib.sha256(old['response'].encode()).hexdigest(),
+          'interpretation_repeated':False,'completed_stages_repeated':False})
+    notice(state,p['id'],step['id'],'setup-recovered-'+str(ident),
+           'Saved stage setup recovered. Completed work and exact sources are retained. '+text)
 
 
 def observe_dispatch(state,job,action):
@@ -355,7 +517,9 @@ def frozen_sources(state,job):
     else:
         with p.open('xb') as f:f.write(raw)
     values.append((p,'pipeline-context.json','workflow source context',None,hashlib.sha256(raw).hexdigest()))
-    return routing_inputs.capture(state,job,values,section='pipeline',max_bytes=150_000_000)
+    records=routing_inputs.capture(state,job,values,section='pipeline',max_bytes=150_000_000)
+    for record,source in zip(records,ctx['inputs']['sources']):record['workflow_artifact']=source['artifact']
+    return records
 
 
 def enqueue_step(state,p,s):
@@ -370,6 +534,21 @@ def enqueue_step(state,p,s):
     procedure=procedures.run_context(state,p['id'])
     if procedure:inputs['procedure']=procedure
     stage=json.loads(p['spec'])['stages'][s['position']]
+    if stage.get('handoff'):
+        inputs['handoffs']=[]
+        specs={x['id']:x for x in json.loads(p['spec'])['stages']}
+        for edge in stage['handoff']['inputs']:
+            previous=next((x for x in prior if x['id']==edge['stage']),None)
+            if previous is None:raise ValueError('Missing completed handoff stage.')
+            if specs[edge['stage']]['route'] in ('conversation','browser_research'):
+                binding={'kind':'context','result':previous['result']}
+            else:
+                result=json.loads(previous['result'] or '{}')
+                source=result.get('deliverables',{}).get(edge['deliverable'])
+                if source is None:raise ValueError('Missing exact handoff deliverable: '+edge['stage']+'/'+edge['deliverable'])
+                if artifact_source(state,source['artifact'])!=source:raise ValueError('Handoff artifact changed.')
+                binding={'kind':'artifact','source':source}
+            inputs['handoffs'].append({**edge,**binding})
     prompt=stage['instruction']+'\n\nOriginal user request:\n'+p['request']+'\n\nSaved workflow stage and exact upstream context:\n'+encoded({'stage':stage,**inputs})
     if json.loads(p['spec'])['planning_only']:
         prompt+='\nThe user subsequently selected Resume for this saved workflow, authorizing its scoped execution.'
@@ -382,6 +561,13 @@ def enqueue_step(state,p,s):
 
 
 def complete(state,p,s,sources,result):
+    spec=json.loads(p['spec'])['stages'][s['position']]
+    if spec['route']=='image' and spec.get('handoff'):
+        from orchestrator.handoff_contracts import check_file
+        if len(sources)!=1 or len(spec['handoff']['outputs'])!=1:raise ValueError('Managed image handoff requires one exact selected image.')
+        ident,expected=next(iter(spec['handoff']['outputs'].items()))
+        check_file(Path(sources[0]['path']),expected)
+        result=encoded({'detail':result,'deliverables':{ident:sources[0]}})
     state.db.execute("UPDATE relay_pipeline_steps SET status='completed',sources=?,result=? WHERE pipeline=? AND id=?",(encoded(sources),result,p['id'],s['id']))
     event(state,p['id'],s['id'],'completed',{'sources':sources,'result':result})
 
@@ -392,12 +578,24 @@ def check_plan(state,p,s,row):
     from orchestrator import host_code
     from orchestrator.execution import REGISTRY
     from orchestrator.worker_capabilities import needs_approval as worker_approval
-    caps=set(spec['capabilities']);needs_approval=worker_approval(plan)
+    context=json.loads(row['context'] or '{}') if 'context' in row.keys() else {}
+    # A fresh recovery budget is not covered by the original stage grant.
+    caps=set(spec['capabilities']);needs_approval=worker_approval(plan) or bool(context.get('execution_recovery') or context.get('review_correction_origin'))
     receipt=state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created' ORDER BY id LIMIT 1",(p['id'],)).fetchone()
-    automatic_seconds=json.loads(receipt[0]).get('automatic_task_seconds',600) if receipt else 600
+    grant=json.loads(receipt[0]) if receipt else {}
+    automatic_seconds=grant.get('automatic_task_seconds',600)
+    automatic_attempts=grant.get('automatic_task_attempts',1)
+    from orchestrator.corrections import workflow_attempt_limits
+    correction_limits=workflow_attempt_limits(plan['tasks'])
     for t in plan['tasks']:
         if t.get('execution',{}).get('capability') not in caps|{None}:raise ValueError('Plan expanded workflow capabilities.')
-        if t['max_attempts']!=1 or t['limits']['seconds']>1800 or t['limits']['tool_calls']>60:raise ValueError('Plan expanded workflow attempt bounds.')
+        base_maximum=1 if t.get('execution') or t.get('browser') else 2
+        maximum=correction_limits.get(t.get('id'),base_maximum)
+        if not 1<=t['max_attempts']<=maximum or t['limits']['seconds']>1800 or t['limits']['tool_calls']>60:raise ValueError('Plan expanded workflow attempt bounds.')
+        approved=min(base_maximum,automatic_attempts)
+        if grant.get('automatic_local_correction')==1 and t.get('id') in correction_limits:
+            approved=maximum
+        if t['max_attempts']>approved:needs_approval=True
         if t['limits']['seconds']>automatic_seconds:needs_approval=True
         if host_code.required(t) or REGISTRY.get(t.get('execution',{}).get('capability'),{}).get('requires_registered_inputs'):
             needs_approval=True
@@ -470,7 +668,17 @@ def advance_production(state,p,s,run,plan_id=None):
         spec=json.loads(p['spec'])['stages'][s['position']]
         if spec['gate']=='selection':raise ValueError('Stage completed without its required output selection.')
         ids=[r[0] for r in state.db.execute('SELECT a.id FROM production_artifacts a JOIN production_tasks t ON t.latest=a.attempt AND t.run=a.run AND t.id=a.task WHERE a.run=?',(run,))]
-    complete(state,p,s,[artifact_source(state,i) for i in ids],encoded({'plan':plan_id,'run':run,'user_selected':bool(decisions)}))
+    spec=json.loads(p['spec'])['stages'][s['position']]
+    bindings={}
+    if spec.get('handoff'):
+        from orchestrator.handoff_contracts import check_file
+        for ident,expected in spec['handoff']['outputs'].items():
+            declared=plan.get('deliverables',{}).get(ident,{})
+            artifact=rt.output(run,declared.get('task'),declared.get('output')) if declared.get('task') else None
+            if not artifact or artifact['id'] not in ids:raise ValueError('Required output was not delivered/selected: '+ident)
+            check_file(Path(artifact['blob']),expected)
+            bindings[ident]=artifact_source(state,artifact['id'])
+    complete(state,p,s,[artifact_source(state,i) for i in ids],encoded({'plan':plan_id,'run':run,'user_selected':bool(decisions),**({'deliverables':bindings} if spec.get('handoff') else {})}))
 
 def attach_continuations(state):
     """Recover workflow ownership only through an explicit registered successor.
@@ -578,7 +786,11 @@ def tick(state):
                 elif s['status']=='running':advance_running(scoped,p,s)
                 elif s['status']=='queued':
                     job=state.db.execute('SELECT status FROM orchestrator_chats WHERE id=?',(s['request_id'],)).fetchone()
-                    if job['status'] in ('failed','uncertain','cancelled'):raise ValueError('Stage interpretation '+job['status']+'; no automatic resubmission.')
+                    if job['status'] in ('failed','uncertain','cancelled'):
+                        failure=state.db.execute('SELECT phase,message FROM orchestrator_chat_errors WHERE job_id=?',(s['request_id'],)).fetchone()
+                        detail=('Stage '+('planning setup' if failure['phase']=='dispatch' else failure['phase'])+' failed: '+failure['message'][:1500]
+                                if failure else 'Stage interpretation '+job['status'])
+                        raise ValueError(detail+'; no automatic resubmission.')
         except (ValueError,OSError,KeyError,TypeError) as exc:
             with transaction(state.db):
                 state.db.execute("UPDATE relay_pipeline_steps SET status='blocked',error=? WHERE pipeline=? AND id=?",(str(exc),p['id'],s['id']))
@@ -587,6 +799,8 @@ def tick(state):
                 notice(state,p['id'],s['id'],'blocked','Workflow paused: '+str(exc))
     from .workflow_files import sync_recent
     sync_recent(state)
+    from . import result_handoff
+    result_handoff.tick(state)
 
 
 def controls(state,event_id):
@@ -600,6 +814,12 @@ def controls(state,event_id):
         for i,c in enumerate(json.loads(s['choices'])):rows.append([{'text':c['label'][:100],'callback_data':f'pipe:{pid}:{s["position"]}:{i}'}])
     if p['status'] in ('planned','paused'):rows.append([{'text':'Resume workflow','callback_data':f'pipe:{pid}:resume'}])
     if p['status']=='active':rows.append([{'text':'Pause workflow','callback_data':f'pipe:{pid}:pause'}])
+    if p['status']=='blocked':
+        failed=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status='blocked' ORDER BY position LIMIT 1",(pid,)).fetchone()
+        if failed and rate_limited_stage(state,failed):
+            rows.append([{'text':'Retry stage','callback_data':f'pipe:{pid}:stage:{failed["request_id"]}'}])
+        if failed and setup_failure(state,failed):
+            rows.append([{'text':'Recover stage setup','callback_data':f'pipe:{pid}:recover_planning'}])
     if p['status']=='blocked' and state.db.execute("SELECT 1 FROM relay_pipeline_steps s JOIN production_plans x ON x.id=s.target WHERE s.pipeline=? AND s.status='blocked' AND s.target_kind='plan_production' AND x.status='blocked' AND x.run IS NULL",(pid,)).fetchone():
         from . import production_planning
         plan=state.db.execute("SELECT x.* FROM relay_pipeline_steps s JOIN production_plans x ON x.id=s.target WHERE s.pipeline=? AND s.status='blocked' ORDER BY s.position LIMIT 1",(pid,)).fetchone()
@@ -621,6 +841,10 @@ def callback(bridge,update):
             p=s.db.execute('SELECT * FROM relay_pipelines WHERE id=? AND channel=?',(pid,getattr(s,'channel','telegram'))).fetchone()
             if not p:raise ValueError('Unknown workflow in this channel.')
             if len(parts)==3 and parts[2] in ('pause','resume','recover_planning'):control(s,pid,parts[2])
+            elif len(parts)==4 and parts[2]=='stage':
+                step=s.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status='blocked' ORDER BY position LIMIT 1",(pid,)).fetchone()
+                if not step or str(step['request_id'])!=parts[3] or not rate_limited_stage(s,step):raise ValueError('This retry card is stale. Inspect the current workflow.')
+                control(s,pid,'retry_planning',request='Retry stage button for request '+parts[3])
             elif len(parts)==4 and parts[2]=='retry':
                 plan=s.db.execute("SELECT x.* FROM relay_pipeline_steps t JOIN production_plans x ON x.id=t.target WHERE t.pipeline=? AND t.status='blocked' ORDER BY t.position LIMIT 1",(pid,)).fetchone()
                 if not plan or plan['token'][:12]!=parts[3]:raise ValueError('This retry card is stale. Inspect the current workflow.')
@@ -645,7 +869,17 @@ def verify_start(state,row,grant=None):
     if not link:
         if grant:raise ValueError('No workflow authorization owns this plan.')
         return
-    if link['pipeline_status']!='active':raise ValueError('Workflow is paused or cancelled; stage Start is disabled.')
+    if (not grant and link['pipeline_status']=='blocked' and link['status']=='blocked'
+        and link['error']=='Plan expanded workflow attempt bounds.' and row['status']=='ready'):
+        # An older scheduler rejected a valid extended draft plan instead of
+        # waiting for exact Start. Preserve the original grant and failure event;
+        # this explicit approval can clear only that obsolete planning blocker.
+        p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(link['pipeline'],)).fetchone()
+        check_plan(state,p,link,row)
+        state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(p['id'],))
+        state.db.execute("UPDATE relay_pipeline_steps SET status='running',error=NULL WHERE pipeline=? AND id=?",(p['id'],link['id']))
+        event(state,p['id'],link['id'],'extended_stage_approved',{'plan':row['id'],'original_grant_preserved':True})
+    elif link['pipeline_status']!='active':raise ValueError('Workflow is paused or cancelled; stage Start is disabled.')
     if grant:
         p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(grant,)).fetchone()
         if not p or grant!=link['pipeline'] or p['channel']!=getattr(state,'channel','telegram') or not check_plan(state,p,link,row):
@@ -685,7 +919,11 @@ def continuation_text(state,run):
     if repair:
         return 'Relay will prepare the exact-code Start card after successful repair review. No host execution or user acceptance is inferred.'
     owner=owner_of_run(state,run)
-    if not owner:return 'Next decision: describe the next stage when ready. Selection alone does not start further work.'
+    if not owner:
+        row=state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()
+        if row and json.loads(row[0]).get('deferred_operations'):
+            return 'Preparation is complete; execution is still pending. Use Plan execution for the remaining outputs.'
+        return 'This production is complete. Relay will publish the selected results and their local folder; no continuation request is needed to receive them.'
     if owner['status']=='paused':return 'The saved workflow is paused. Resume it to continue after selection.'
     if owner['status']=='cancelled':return 'The saved workflow is cancelled. No later stage will start.'
     if owner['status']=='completed':return 'The saved workflow is completed.'

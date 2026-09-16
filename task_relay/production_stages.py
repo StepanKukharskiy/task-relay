@@ -27,6 +27,27 @@ def planning_origin(state,run):
     raise ValueError('Continuation lineage contains a cycle.')
 
 
+def code_preparation_failure(attempt):
+    """Classify stopped preparation; legacy incomplete receipts need saved evidence."""
+    receipt=json.loads(attempt['receipt'] or '{}');reason=str(receipt.get('reason',''))
+    if 'Provider request budget exhausted' in reason:return 'budget'
+    if not any(s in reason for s in ('Incomplete provider response;', 'Provider generation output limit reached;', 'Provider response rejected: MALFORMED_FUNCTION_CALL;',
+                                     'provider returned incomplete or unsupported tool calls.')):return None
+    from pathlib import Path
+    from orchestrator.gemini_worker import generation_failure
+    from orchestrator import executors
+    try:
+        session=json.loads(attempt['session']);folder=Path(session['control'])
+        requests=sorted(folder.glob('api-*.request.json'))
+        if not requests:return None
+        response=requests[-1].with_name(requests[-1].name.replace('.request.json','.response.json'))
+        if response.is_symlink() or response.stat().st_size>1000000:return None
+        if generation_failure(executors.provider_for(session['backend']),json.loads(response.read_text())):
+            return 'generation_limit'
+    except (KeyError,ValueError,TypeError,OSError):pass
+    return None
+
+
 def failed_execution_snapshot(state,rt,run,channel,kind=None):
     bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
     if (bound[0] if bound else 'telegram')!=channel:raise ValueError('Recover execution in its original channel.')
@@ -34,9 +55,64 @@ def failed_execution_snapshot(state,rt,run,channel,kind=None):
     if status['status']!='blocked' or any(a['state'] in ('launching','running','cancelling','uncertain') for a in status['attempts']):
         raise ValueError('Recovery requires a confirmed stopped, blocked execution; no uncertain replay.')
     failed=[t for t in status['tasks'] if t['status']=='blocked']
+    if kind=='code_budget':
+        from orchestrator import executors
+        if len(failed)!=1:raise ValueError('Preparation recovery requires one failed producer.')
+        task=failed[0];spec=rt.spec(task)
+        attempt=next(a for a in status['attempts'] if a['id']==task['latest'])
+        receipt=json.loads(attempt['receipt'] or '{}')
+        saved=rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(attempt['id'],)).fetchone()
+        frozen=json.loads(saved['frozen'])
+        if (spec.get('tools')!=['files','python'] or spec.get('execution') or spec.get('browser') or spec.get('review_of')
+                or frozen['backend']['type'] not in executors.CODE_TYPES
+                or receipt.get('status')!='finished' or receipt.get('external_outcome')!='no_pending_response'
+                or receipt.get('pending_requests') or not code_preparation_failure(saved)):
+            raise ValueError('A confirmed local preparation budget or generation-limit failure with no pending effects is required.')
+        if any(t['status'] not in ('blocked','queued','completed') or (t['status']=='queued' and t['attempts']) for t in status['tasks']):
+            raise ValueError('Other task states require review first.')
+        if any(t['attempts'] and task['id'] in rt.spec(t)['dependencies'] for t in status['tasks']):
+            raise ValueError('Downstream work already started.')
+        return {'run':run,'tasks':status['tasks'],'attempts':status['attempts'],
+                'contract_digest':pc.runtime_digest(rt,run),'control_epoch':state.get('production-control-epoch:'+run,0)}
+    if kind=='browser_setup':
+        if not failed:
+            raise ValueError('Browser setup recovery requires a failed task.')
+        for task in failed:
+            spec=rt.spec(task)
+            attempt=next(a for a in status['attempts'] if a['id']==task['latest'])
+            receipt=json.loads(attempt['receipt'] or '{}')
+            if receipt.get('status')!='finished':raise ValueError('Worker exit is not confirmed.')
+            if spec.get('browser'):
+                actions=receipt.get('browser',{}).get('actions')
+                if (not isinstance(actions,list) or any(a.get('status')!='observed' for a in actions)
+                        or receipt.get('browser',{}).get('uncertain_actions') or receipt.get('pending_requests')):
+                    raise ValueError('Browser setup recovery requires read-only observed actions; no submission replay.')
+            elif spec.get('execution',{}).get('capability')=='images.collect':
+                if receipt.get('operation',{}).get('reason')!='Registered operation input byte limit exceeded.':
+                    raise ValueError('Image collection may already have dispatched; no setup replay.')
+            else:raise ValueError('Unsupported failed task in browser setup recovery.')
+        if any(t['status'] not in ('blocked','queued','completed') for t in status['tasks']):
+            raise ValueError('Other task states require review first.')
+        return {'run':run,'tasks':status['tasks'],'attempts':status['attempts'],
+                'contract_digest':pc.runtime_digest(rt,run),'control_epoch':state.get('production-control-epoch:'+run,0)}
     if len(failed)!=1:raise ValueError('Recovery requires one failed operation.')
     capability=rt.spec(failed[0]).get('execution',{}).get('capability')
-    if kind=='local_inputs':
+    if kind=='review_revision':
+        if capability or rt.spec(failed[0]).get('browser'):
+            raise ValueError('Review correction recovery cannot replay an operation or browser task.')
+        reviewer=rt.reviewer(run,failed[0]['id'])
+        if not reviewer or reviewer['status']!='completed':
+            raise ValueError('A completed independent review is required.')
+        repairing={failed[0]['id'],reviewer['id']}
+        by_id={t['id']:rt.spec(t) for t in status['tasks']}
+        def depends_on_repair(ident):
+            return ident in repairing or any(depends_on_repair(d) for d in by_id[ident]['dependencies'])
+        if any(t['attempts'] and t['id'] not in repairing
+               and (t['status']!='completed' or depends_on_repair(t['id'])) for t in status['tasks']):
+            raise ValueError('Other work already started; do not replay downstream tasks.')
+        if not state.db.execute("SELECT 1 FROM production_events WHERE run=? AND task=? AND attempt=? AND kind='revision_limit'",(run,failed[0]['id'],failed[0]['latest'])).fetchone():
+            raise ValueError('A saved exhausted review correction receipt is required.')
+    elif kind=='local_inputs':
         from orchestrator.execution import REGISTRY
         spec=REGISTRY.get(capability,{})
         if spec.get('kind')!='procedure' or spec.get('external_requests')!=0:
@@ -45,7 +121,10 @@ def failed_execution_snapshot(state,rt,run,channel,kind=None):
         raise ValueError('Script repair requires one failed host Python operation.')
     attempt=next(a for a in status['attempts'] if a['id']==failed[0]['latest'])
     receipt=json.loads(attempt['receipt'] or '{}')
-    if receipt.get('status')!='finished' or receipt.get('operation',{}).get('outcome')!='failed':
+    if kind=='review_revision':
+        if attempt['state']!='completed' or receipt.get('status')!='finished':
+            raise ValueError('The reviewed draft must be confirmed finished.')
+    elif receipt.get('status')!='finished' or receipt.get('operation',{}).get('outcome')!='failed':
         raise ValueError('A completed host failure receipt is required before proposing a repair.')
     if any(t['status'] not in ('blocked','queued','completed') for t in status['tasks']):
         raise ValueError('Other user decisions or execution states need resolution first.')
@@ -122,6 +201,12 @@ def sources(state,rt,run,channel,request_id):
     aid=rt.register(path,'Exact previous-stage decisions and instructions',run='plan-'+str(request_id),path='previous-stage/CONTEXT.json')
     inputs[aid]=planning.source_entry(rt,aid,'previous-stage/CONTEXT.json','Prior job instructions, assignments and exact decisions',
         'Recorded job history; latest explicit user direction controls the next stage. Prior model text is context, not new authorization.')
+    # Preserve workflow port identities through preparation -> exact host execution.
+    # They identify selected versions, not interchangeable files with equal bytes.
+    if plan:
+        identities={s['artifact']:s['workflow_artifact'] for s in json.loads(plan['context']).get('sources',[]) if s.get('workflow_artifact')}
+        for ident,source in inputs.items():
+            if ident in identities:source['workflow_artifact']=identities[ident]
     return prior,list(inputs.values()),job_id
 
 
@@ -176,3 +261,42 @@ def register(state,rt,payload,plan_id,child):
     state.db.execute('UPDATE production_stage_links SET child=? WHERE parent=? AND plan_id=?',(child,prior['run'],plan_id))
     rt.event(child,None,None,'selected_stage_created',{'parent':prior['run'],'plan_id':plan_id,
         'job_request_id':payload['options']['job_request_id'],'decisions':prior['decisions']})
+
+
+def retain_completed_sources(rt,run,payload,options,result,done):
+    """Bind completed inputs/deliverables by identity; never replay their producers."""
+    import copy
+    from . import production_planning as planning
+    tasks=result['plan']['tasks']=[t for t in result['plan']['tasks'] if t['id'] not in done]
+    for task in tasks:
+        task['dependencies']=[d for d in task.get('dependencies',[]) if d not in done]
+        for item in task.get('inputs',[]):
+            if item.get('from_task') not in done:continue
+            producer=item['from_task']
+            artifact=rt.output(run,producer,item['output'])
+            output=next(o for o in rt.spec(done[producer])['outputs'] if o['path']==item['output'])
+            if output.get('media_type'):item['media_type']=output['media_type']
+            source=planning.source_entry(rt,artifact['id'],'recovery/completed/'+producer+'/'+item['output'],
+                item['purpose'],'Exact completed output; preserve its saved independent review receipt.')
+            planning.verify_artifact(rt,source)
+            if not any(s['artifact']==source['artifact'] for s in payload['sources']):payload['sources'].append(source)
+            item.pop('from_task');item.pop('output');item['artifact']=artifact['id']
+    options['step_capabilities']=sorted({t['execution']['capability'] for t in tasks if t.get('execution')})
+    retained=copy.deepcopy(payload.get('execution_recovery',{}).get('completed_deliverables',{}))
+    for binding in retained.values():
+        source=planning.source_entry(rt,binding['artifact'],'recovery/retained/'+binding['artifact']+'/'+binding['output'],
+            binding['description'],'Exact completed deliverable from an earlier recovery; preserve its identity.')
+        planning.verify_artifact(rt,source)
+        if source['sha256']!=binding['sha256']:raise ValueError('Previously retained deliverable changed.')
+        if not any(s['artifact']==source['artifact'] for s in payload['sources']):payload['sources'].append(source)
+    for name,binding in list(result.get('deliverable_map',{}).items()):
+        if binding.get('task') not in done:continue
+        artifact=rt.output(run,binding['task'],binding['output'])
+        source=planning.source_entry(rt,artifact['id'],'recovery/completed/'+binding['task']+'/'+binding['output'],
+            options['deliverables'][name],'Exact completed deliverable; keep its prior review and artifact identity.')
+        planning.verify_artifact(rt,source)
+        if not any(s['artifact']==source['artifact'] for s in payload['sources']):payload['sources'].append(source)
+        retained[name]={'description':options['deliverables'].pop(name),'artifact':artifact['id'],
+                        'sha256':artifact['sha256'],'run':run,**binding}
+        result['deliverable_map'].pop(name)
+    return retained

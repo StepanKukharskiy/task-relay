@@ -9,12 +9,15 @@ test('download routes support complete files, HEAD and resume without exposing a
   const folder=await mkdtemp(join(tmpdir(),'relay-download-'));
   const names=['Task-Relay-0.12.1-beta.1-arm64.dmg','Task-Relay-0.12.1-beta.1-source.tar.gz','Task-Relay-0.13.0-beta.1-arm64.dmg','Task-Relay-0.13.0-beta.1-source.tar.gz','Task-Relay-0.13.26-arm64.dmg','Task-Relay-0.13.26-source.tar.gz'];
   for(const name of names)for(const suffix of ['', '.sha256'])await writeFile(join(folder,name+suffix),'0123456789');
-  const child=spawn(process.execPath,['website/server.mjs'],{env:{...process.env,PORT:'0',TASK_RELAY_DOWNLOAD_DIR:folder}});
+  const child=spawn(process.execPath,['--import=data:text/javascript,globalThis.fetch=async()=>{throw Error(%22offline fixture%22)}','website/server.mjs'],{env:{...process.env,PORT:'0',TASK_RELAY_DOWNLOAD_DIR:folder}});
   try{
     const text=await new Promise((resolve,reject)=>{child.stdout.once('data',b=>resolve(b.toString()));child.once('error',reject);child.once('exit',c=>reject(Error('server exit '+c)));});
     const base='http://127.0.0.1:'+text.match(/port (\d+)/)[1], url=base+'/downloads/'+names[0];
     const page=await (await fetch(base)).text(); assert.match(page,/Beta 0\.13\.26/);
     assert.match(page,/href="\/guides\/"/);
+    const latest=await fetch(base+'/api/release');const release=await latest.json();assert.equal(release.version,'0.13.26');
+    const redirect=await fetch(base+'/downloads/latest/arm64.dmg',{redirect:'manual'});assert.equal(redirect.status,302);assert.equal(redirect.headers.get('location'),release.assets.dmg.url);assert.equal(redirect.headers.get('cache-control'),'no-store');
+    assert.ok(page.includes('href="'+release.assets.dmg.url+'"'));assert.ok(!page.includes('{{'));
     const guidePaths=['/guides/','/guides/architectural-site-analysis','/guides/rhino-model-revisions','/guides/rhino-named-view-renders','/guides/blender-asset-handoff','/guides/design-review-presentation'];
     const archivedPaths=['/guides/rename-invoice-pdfs','/guides/combine-csv-exports','/guides/find-automation-opportunities'];
     for(const guidePath of [...guidePaths,...archivedPaths]){

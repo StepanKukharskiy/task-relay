@@ -11,7 +11,7 @@ from . import credentials
 from .host import HOST
 from .host_browser_accounts import local_endpoint, resolve_endpoint
 
-START_URL = 'https://www.perplexity.ai/'
+START_URL = 'chrome://newtab/'
 
 
 def chrome_path(host=HOST):
@@ -74,7 +74,7 @@ def live_socket(profile):
     return socket if current == socket else None
 
 
-def ensure(root, *, open_window=False, host=HOST, timeout=8):
+def ensure(root, *, open_window=False, host=HOST, timeout=30):
     """Called under setup_lock; launch no task and never copy a personal profile."""
     executable = chrome_path(host)
     if executable is None:
@@ -110,7 +110,7 @@ def ensure(root, *, open_window=False, host=HOST, timeout=8):
         if process is not None and process.poll() not in (None, 0):
             break
         time.sleep(.15)
-    raise ValueError('Chrome did not finish opening. Close the Relay browser window and use Open browser to retry. Your saved sign-ins are retained.')
+    raise ValueError('Chrome did not publish a verified connection within the startup limit. No website action was sent. Retry the blocked browser task after Chrome finishes opening; Relay will reuse the same browser and saved sign-ins.')
 
 
 def stop_owned(root, host=HOST, timeout=6):

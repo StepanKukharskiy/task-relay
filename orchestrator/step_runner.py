@@ -25,8 +25,12 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         if frozen.get('runtime_sources',{}).get(name)!=file_hash(Path(__file__).with_name(name)):
             raise ValueError('Registered operation implementation changed after dispatch was frozen.')
     if frozen['execution']['capability']=='pptx.create':
-        if frozen.get('runtime_sources',{}).get('pptx_document.py')!=file_hash(Path(__file__).with_name('pptx_document.py')):
-            raise ValueError('PPTX implementation changed after dispatch was frozen.')
+        for name in ('pptx_document.py','slide_templates.py','handoff_contracts.py'):
+            if frozen.get('runtime_sources',{}).get(name)!=file_hash(Path(__file__).with_name(name)):
+                raise ValueError('PPTX implementation changed after dispatch was frozen.')
+    if frozen['execution']['capability']=='images.collect' or (frozen['execution']['capability']=='pptx.create' and any(i['media_type']=='application/zip' for i in frozen['inputs'])):
+        if frozen.get('runtime_sources',{}).get('image_sources.py')!=file_hash(Path(__file__).with_name('image_sources.py')):
+            raise ValueError('Image-source implementation changed after dispatch was frozen.')
     documents=[];total=0
     for item in frozen['inputs']:
         path=safe_file(workspace,item['path']);total+=path.stat().st_size
@@ -64,11 +68,29 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         result,upstream,usage=cloud_media.generate(frozen['execution']['capability'],frozen['execution']['parameters'],
             references,control,frozen['limits']['seconds'],frozen['limits']['output_bytes'],client=client)
         print(c.encoded({'type':'turn.completed','usage':usage}),flush=True)
+    elif frozen['execution']['capability']=='images.collect':
+        from orchestrator import image_sources
+        from task_relay import orchestrator_web
+        if frozen.get('runtime_sources',{}).get('task_relay/orchestrator_web.py')!=file_hash(Path(orchestrator_web.__file__)):
+            raise ValueError('Image network implementation changed after dispatch was frozen.')
+        def record(value):
+            import os
+            with (control/'image-requests.jsonl').open('a') as stream:
+                stream.write(c.encoded(value)+'\n');stream.flush();os.fsync(stream.fileno())
+        result,validation=image_sources.collect(frozen['execution']['parameters']['subjects'],
+            seconds=frozen['limits']['seconds'],max_bytes=frozen['limits']['output_bytes'],record=record)
     elif frozen['execution']['capability']=='pptx.create':
         from orchestrator import pptx_document
         manifest=next(d for d,i in zip(documents,frozen['inputs']) if i['media_type']=='application/json')
         images={i['path']:safe_file(workspace,i['path']).read_bytes() for i in frozen['inputs'] if i['media_type'].startswith('image/')}
-        result,validation=pptx_document.create(pptx_document.load(manifest['text']),images,frozen['limits']['output_bytes'])
+        bundles={i['path']:safe_file(workspace,i['path']).read_bytes() for i in frozen['inputs'] if i['media_type']=='application/zip'}
+        document=pptx_document.expand(pptx_document.load(manifest['text']))
+        expected=frozen['outputs'][0].get('handoff',{})
+        if expected.get('slides') is not None and len(document['slides'])!=expected['slides']:
+            from orchestrator.handoff_contracts import ContractError
+            raise ContractError('quantity_mismatch',f"Requested {expected['slides']} slides; specification contains {len(document['slides'])}.")
+        maximum=min(frozen['limits']['output_bytes'],expected.get('max_bytes') or frozen['limits']['output_bytes'])
+        result,validation=pptx_document.create(document,images,maximum,bundles=bundles)
     elif spec['kind']=='procedure':
         result='\n\n'.join(c.encoded({k:v for k,v in d.items() if k!='text'})+'\n'+d['text'] for d in documents)
     else:

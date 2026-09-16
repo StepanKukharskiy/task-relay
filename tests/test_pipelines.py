@@ -25,10 +25,12 @@ class Tests(unittest.TestCase):
 
     def stage(self,ident='outline',route='conversation',gate='none',caps=None):
         return dict(id=ident,instruction='Produce '+ident+' using the exact prior outputs.',route=route,gate=gate,
-                    capabilities=caps or [],deliverables={ident:'Exact '+ident+' output'})
+                    capabilities=caps or [],deliverables={ident:'Exact '+ident+' output'},
+                    handoff={'inputs':[],'outputs':{ident:{'media_type':'image/png' if route=='image' else 'text/plain'}}},
+                    **({'visual_intent':'synthetic'} if route=='image' else {}))
 
     def create(self,stages=None,planning_only=False):
-        action=dict(kind='plan_pipeline',title='A user-defined outcome',planning_only=planning_only,
+        action=dict(kind='plan_pipeline',contract_version=1,title='A user-defined outcome',planning_only=planning_only,
                     stages=stages or [self.stage(),self.stage('finish')])
         self.request(action,'Read the supplied brief, then create the requested outputs. Preserve source files.',1)
         p=self.state.db.execute('SELECT * FROM relay_pipelines').fetchone()
@@ -105,6 +107,85 @@ class Tests(unittest.TestCase):
         self.assertFalse(pipe.check_plan(self.state,p,s,row))
         plan['tasks'][0]['limits']['seconds']=600;row={'plan':json.dumps(plan)}
         self.assertTrue(pipe.check_plan(self.state,p,s,row))
+
+    def test_native_review_correction_always_requires_fresh_preparation_start(self):
+        p=self.create([self.stage('model','production'),self.stage('finish')]);stage=self.step(p,'model')
+        row={'plan':json.dumps({'tasks':[{'max_attempts':1,'limits':{'seconds':600,'tool_calls':20}}]}),
+             'context':json.dumps({'review_correction_origin':{'run':'prior'}})}
+        self.assertFalse(pipe.check_plan(self.state,p,stage,row))
+
+    def test_draft_revision_grant_is_frozen_and_old_grants_wait_for_start(self):
+        p=self.create([self.stage('model','production'),self.stage('finish')]);s=self.step(p,'model')
+        row={'id':'fixture-repair','status':'ready','plan':json.dumps({'tasks':[{'max_attempts':2,'limits':{'seconds':600,'tool_calls':24}}]})}
+        self.assertTrue(pipe.check_plan(self.state,p,s,row))
+        with transaction(self.state.db):
+            receipt=self.state.db.execute("SELECT id,detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created'",(p['id'],)).fetchone()
+            detail=json.loads(receipt['detail']);del detail['automatic_task_attempts']
+            self.state.db.execute('UPDATE relay_pipeline_events SET detail=? WHERE id=?',(json.dumps(detail),receipt['id']))
+        self.assertFalse(pipe.check_plan(self.state,p,s,row))
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipelines SET status='blocked' WHERE id=?",(p['id'],))
+            self.state.db.execute("UPDATE relay_pipeline_steps SET status='blocked',target=?,error='Plan expanded workflow attempt bounds.' WHERE pipeline=? AND id=?",(row['id'],p['id'],s['id']))
+            pipe.verify_start(self.state,row)
+        self.assertEqual(self.state.db.execute('SELECT status FROM relay_pipelines WHERE id=?',(p['id'],)).fetchone()[0],'active')
+        self.assertIsNone(self.step(p,'model')['error'])
+        self.assertNotIn('automatic_task_attempts',json.loads(self.state.db.execute('SELECT detail FROM relay_pipeline_events WHERE id=?',(receipt['id'],)).fetchone()[0]))
+        with transaction(self.state.db):self.state.db.execute("UPDATE relay_pipelines SET status='paused' WHERE id=?",(p['id'],))
+        with transaction(self.state.db),self.assertRaisesRegex(ValueError,'paused'):pipe.verify_start(self.state,row)
+
+    def test_local_document_correction_respects_frozen_workflow_grant(self):
+        from tests.test_corrections import graph
+        from orchestrator.contracts import plan as validate_plan
+        p=self.create([self.stage('deck','production',caps=['pptx.create']),self.stage('finish')])
+        s=self.step(p,'deck');plan=validate_plan(graph())
+        row={'id':'fixture-correction','status':'ready','plan':json.dumps(plan)}
+        with patch('orchestrator.worker_capabilities.needs_approval',return_value=False):
+            self.assertTrue(pipe.check_plan(self.state,p,s,row))
+            row['context']=json.dumps({'execution_recovery':{'kind':'review_revision'}})
+            self.assertFalse(pipe.check_plan(self.state,p,s,row))
+            row.pop('context')
+            receipt=self.state.db.execute("SELECT id,detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created'",(p['id'],)).fetchone()
+            grant=json.loads(receipt['detail']);del grant['automatic_local_correction']
+            frozen=json.dumps(grant)
+            with transaction(self.state.db):
+                self.state.db.execute('UPDATE relay_pipeline_events SET detail=? WHERE id=?',(frozen,receipt['id']))
+            self.assertFalse(pipe.check_plan(self.state,p,s,row)) # Valid proposal, exact Start required.
+            with transaction(self.state.db):
+                self.state.db.execute("UPDATE relay_pipelines SET status='blocked' WHERE id=?",(p['id'],))
+                self.state.db.execute("UPDATE relay_pipeline_steps SET status='blocked',target=?,error='Plan expanded workflow attempt bounds.' WHERE pipeline=? AND id=?",(row['id'],p['id'],s['id']))
+                pipe.verify_start(self.state,row)
+            self.assertEqual(self.state.db.execute('SELECT detail FROM relay_pipeline_events WHERE id=?',(receipt['id'],)).fetchone()[0],frozen)
+            self.assertEqual(self.step(p,'deck')['status'],'running')
+            self.assertEqual(row['plan'],json.dumps(plan))
+
+    def test_correction_policy_cannot_expand_external_or_unrelated_attempts(self):
+        from tests.test_corrections import graph
+        from orchestrator.contracts import plan as validate_plan
+        p=self.create([self.stage('deck','production',caps=['pptx.create','images.collect']),self.stage('finish')]);s=self.step(p,'deck')
+        plan=validate_plan(graph())
+        extra={'id':'extra','max_attempts':3,'limits':{'seconds':600,'tool_calls':24}}
+        plan['tasks'].append(extra)
+        with self.assertRaisesRegex(ValueError,'attempt bounds'):
+            pipe.check_plan(self.state,p,s,{'plan':json.dumps(plan)})
+        plan['tasks'].pop();operation=next(t for t in plan['tasks'] if t.get('execution'))
+        operation['execution']['capability']='images.collect'
+        with self.assertRaises(ValueError):pipe.check_plan(self.state,p,s,{'plan':json.dumps(plan)})
+
+    def test_reference_workflow_cannot_silently_generate_images(self):
+        def action(stage):
+            return dict(kind='plan_pipeline',title='Research and reference deck',planning_only=False,
+                        stages=[stage,self.stage('deck','production')])
+        snap={'capabilities':{'graph_operations':[{'id':'images.collect'},{'id':'gemini.image'}]}}
+        stage=self.stage('photos','image');stage['visual_intent']='reference'
+        with self.assertRaisesRegex(pipe.PipelineValidationError,'image sourcing'):pipe.validate(action(stage),snap)
+        del stage['visual_intent']
+        with self.assertRaisesRegex(pipe.PipelineValidationError,'image sourcing'):pipe.validate(action(stage),snap)
+        stage.update(route='production',capabilities=['gemini.image'])
+        with self.assertRaisesRegex(pipe.PipelineValidationError,'image sourcing'):pipe.validate(action(stage),snap)
+        stage.update(capabilities=['images.collect'],visual_intent='reference')
+        pipe.validate(action(stage),snap)
+        stage.update(capabilities=['gemini.image'],visual_intent='synthetic')
+        pipe.validate(action(stage),snap) # Requested concepts/renders are still supported.
 
     def prepared_host_plan(self):
         value=self.response();produce,review=value['plan']['tasks']
@@ -532,7 +613,10 @@ class Tests(unittest.TestCase):
         p=self.create([self.stage('visual','image','selection'),self.stage('compose')]);pipe.tick(self.state)
         s=self.step(p,'visual');job=dict(self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(s['request_id'],)).fetchone())
         with transaction(self.state.db):
-            self.state.db.execute('UPDATE relay_pipeline_requests SET inputs=? WHERE request_id=?',(json.dumps({'sources':[{'artifact':'selected-image','media_type':'image/png'}],'prior_results':[]}),job['id']))
+            self.state.db.execute('UPDATE relay_pipeline_requests SET inputs=? WHERE request_id=?',(json.dumps({'sources':[{'artifact':'selected-image','media_type':'image/png'}],'prior_results':[],
+                'handoffs':[{'stage':'model','deliverable':'preview','media_type':'image/png','consumer':'gemini.image','kind':'artifact','source':{'artifact':'selected-image'}}]}),job['id']))
+            saved=json.loads(p['spec']);saved['stages'][0]['handoff']['inputs']=[dict(stage='model',deliverable='preview',media_type='image/png',consumer='gemini.image')]
+            self.state.db.execute('UPDATE relay_pipelines SET spec=? WHERE id=?',(json.dumps(saved),p['id']))
         with patch.object(pipe,'artifact_source',return_value={'artifact':'selected-image','media_type':'image/png'}):
             with self.assertRaisesRegex(ValueError,'exact frozen'):pipe.guard(self.state,job,dict(kind='generate_image',reference_ids=[],artifact_ids=['older-image']))
             with self.assertRaisesRegex(ValueError,'exact frozen'):pipe.guard(self.state,job,dict(kind='generate_image',reference_ids=[],artifact_ids=[]))
@@ -548,6 +632,7 @@ class Tests(unittest.TestCase):
 
     def recovered_selected_stage(self, select=True, direct=False):
         stage_spec=self.stage('report','production','selection');stage_spec['deliverables']['details']='Exact supporting output'
+        stage_spec['handoff']['outputs']['details']={'media_type':'text/plain'}
         p=self.create([stage_spec,self.stage('summary')])
         action=dict(kind='plan_production',template='custom',project=None,reference_pack_id=None,research_ids=[],artifact_ids=[],planning_only=False,step_capabilities=[],deliverables={'report':'Exact report output','details':'Exact supporting output'})
         self.answer(action);stage=self.step(p,'report')

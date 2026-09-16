@@ -52,6 +52,8 @@ def assignment(value):
     if 'execution' in a:
         from .execution import validate
         validate(a)
+    elif 'review_correction' in a:
+        raise ValueError('Operation correction policy requires a registered operation.')
     elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser'],['files','python']):
         raise ValueError('Use a supported files or files + shell capability profile')
     outputs = a.get('outputs')
@@ -60,6 +62,10 @@ def assignment(value):
     paths = set()
     for output in outputs:
         if 'media_type' in output:nonempty(output['media_type'],'output media type')
+        if 'handoff' in output:
+            from .handoff_contracts import descriptor
+            descriptor(output['handoff'])
+            if output.get('media_type')!=output['handoff']['media_type']:raise ValueError('Output handoff type differs from its declared media type.')
         p = relative(output['path'])
         nonempty(output.get('purpose'), 'output purpose')
         if p in paths:
@@ -94,7 +100,11 @@ def assignment(value):
             raise ValueError('Browser transfers must name declared input/output paths')
         if a.get('review_of') and (policy['interaction_scope'] or policy['uploads'] or policy['downloads']):
             raise ValueError('Independent browser reviewers may only read/navigate')
-        if a.setdefault('max_attempts',1)!=1:raise ValueError('Browser work permits one attempt; revisions require a new explicit stage')
+        if a.setdefault('max_attempts',1)!=1:
+            revision=a.get('revision',{})
+            if not (a['max_attempts']==2 and a.get('review_of') and policy.get('visual_inputs')
+                    and revision.get('kind')=='visual_review_recovery' and revision.get('previous_attempt')):
+                raise ValueError('Browser work permits one attempt; revisions require an explicit visual review recovery')
     elif 'browser' in a:raise ValueError('Browser authority requires the browser executor profile')
     criteria = a.get('criteria')
     if not isinstance(criteria, list) or not 1 <= len(criteria) <= 30:
@@ -107,6 +117,12 @@ def assignment(value):
         limits.setdefault(key, default)
         if type(limits[key]) is not int or not 1 <= limits[key] <= upper:
             raise ValueError('Invalid ' + key + ' limit')
+    if 'provider_requests' in limits:
+        from .executors import request_limit
+        request_limit(a)
+    if 'response_tokens' in limits:
+        from .executors import response_limit
+        response_limit(a)
     a.setdefault('max_attempts', 2)
     if type(a['max_attempts']) is not int or not 1 <= a['max_attempts'] <= 3:
         raise ValueError('Execution permits 1–3 attempts')
@@ -239,6 +255,8 @@ def plan(value):
                 if item['media_type']!=output.get('media_type'):
                     raise ValueError('Upstream output type does not match the declared input type')
     validate_review_order(p['tasks'])
+    from .corrections import validate as validate_corrections
+    validate_corrections(p['tasks'])
     p.setdefault('concurrency', 2)
     if type(p['concurrency']) is not int or not 1 <= p['concurrency'] <= 4:
         raise ValueError('Concurrency must be 1–4')

@@ -27,15 +27,24 @@ same-scope continuation. Action fields: kind, template (competition, carousel,
 office-anime or custom), project (one known project path or null for a standalone
 workspace), reference_pack_id (ready pack ID or null), research_ids (explicit IDs
 or []), planning_only (boolean). Optional parent_id names one saved needs_input or
-ready plan when the user clarifies/revises it; preserve the original request.
+ready or blocked plan when the user clarifies/revises/repeats its request; preserve
+the original request. Historical worker_catalog entries describe the old proposal,
+not current availability. If previously missing capabilities are now available,
+use parent_id to propose again; do not repeat obsolete setup instructions.
 For an explicit next-stage request after exact output selection, set previous_run
 to the completed production run. Its selected versions, instructions and original
 job identity are carried automatically to both workers. Do not use this for a
 status question or infer a selection from conversational text. A saved unfinished
 next-stage plan is clarified with parent_id, not a second unrelated plan.
 Optional artifact_ids selects exact generated source files from snapshot.production_artifacts
-(e.g. an existing .blend for inspection); [] selects none. For a named existing
-scene, select its exact artifact ID or ask which version if absent/ambiguous.
+(e.g. an existing .blend for inspection); [] selects none. For an
+uploaded reference, reference_ids selects its exact ready ID from snapshot.uploaded_files.
+When ready uploads are listed, include reference_ids explicitly: select the files
+the user asks to use, or [] for unrelated uploads. Resolve "this image" using the
+upload caption/reply context; ask only when the identity is ambiguous. Never claim
+an uploaded reference is included without selecting its ID. Uploads are distinct
+from generated artifact_ids and research_ids.
+For a named existing scene, select its exact artifact ID or ask which version if absent/ambiguous.
 Relative edits such as "make it twice as tall" need the existing artifact, even
 without a filename. Resolve it from conversation/reply provenance and select the
 exact editable source (for a generated tower, scene.json), not just a preview or
@@ -62,11 +71,14 @@ higgsfield.video, meshy.mesh, Blender operations, rhino.startup, rhino.inspect, 
 These grant the planner permission to PROPOSE those operations, not to run them.
 Each API operation makes one external request with an exact model and bounded
 parameters; do not include it unless the user's work needs it. The plan card
-shows that external call before execution is authorized. At most six graph steps.
+shows that external call before execution is authorized. New mixed scopes allow
+at most twelve graph steps; saved scopes retain their own limits.
 When reply_plan_id identifies a started plan, use its run for production status,
 revision or continuation; do not create an unrelated new planning request.
 The planner creates at most one producer and one independent reviewer, each with
-one attempt, at most 1800 seconds/60 tools (profile tool limits may be lower).
+one initial attempt and one review-directed correction for local drafting, at most
+1800 seconds/60 tools per attempt (profile tool limits may be lower). Registered
+operations and browser work retain one attempt; failures never automatically replay.
 Optional task_seconds sets the maximum per-task time in seconds, 60–1800, when
 the user specifies a time budget. The planner chooses each task’s own deadline
 within that ceiling, separately for production and review. Existing plans keep their
@@ -79,6 +91,9 @@ presents its exact scope for approval. No new scope, rendering or acceptance is
 implied by asking a status question. Saved production_plans are authoritative for
 planner state. Never claim workers started from model text or a queued plan request.
 '''
+
+
+UPLOAD_PLANNER_INSTRUCTIONS = '\nSelected uploaded images are present in sources (visual_reference=true); missing_text_artifacts means binary pixels are not inline text, not a missing attachment. Plan workers to inspect those exact files visually before authoring and during review. Require images.view for their worker profiles. Do not invent an image description from captions or ask to upload an already selected source. This text-only planner can delegate image inspection without seeing the pixels itself.'
 
 
 def initialize(db):
@@ -117,7 +132,7 @@ def validate_action(action,snap):
             raise ValueError('The selected plan is not ready.')
         return
     required={'kind','template','project','reference_pack_id','research_ids','planning_only'}
-    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids','starter_workflow','starter_stage','deliverables','task_seconds'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
+    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids','reference_ids','starter_workflow','starter_stage','deliverables','task_seconds'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
         raise ValueError('Specify a template, project, sources and planning-only intent for the new stage.')
     if 'task_seconds' in action and (type(action['task_seconds']) is not int or not 60<=action['task_seconds']<=1800):
         raise ValueError('Task time ceiling must be between 60 and 1800 seconds.')
@@ -134,6 +149,9 @@ def validate_action(action,snap):
     if action['reference_pack_id'] is not None and not any(p['id']==action['reference_pack_id'] and p['status']=='ready' for p in snap.get('reference_packs',[])):
         raise ValueError('Choose a ready reference pack.')
     from task_relay import routing_inputs
+    if 'reference_ids' not in action and any(f['status']=='ready' for f in snap.get('uploaded_files',[])):
+        raise routing_inputs.MissingSourceSelection(['reference_ids'])
+    if 'reference_ids' in action:routing_inputs.validate_upload_ids(action['reference_ids'],snap.get('uploaded_files',[]))
     routing_inputs.validate_ids(action['research_ids'],snap.get('research_documents',[]))
     if 'artifact_ids' in action:
         routing_inputs.validate_artifact_ids(action['artifact_ids'],snap.get('production_artifacts',[]))
@@ -170,6 +188,26 @@ def source_entry(rt,aid,path,purpose,authority):
                 **({'media_type':'image/png'} if Path(path).suffix.lower()=='.png' else {}))
 
 
+def validate_bound_worker_inputs(rt,plan,payload):
+    """Check assigned files, never the entire catalog, before worker creation."""
+    from orchestrator import executors,worker_capabilities
+    from orchestrator.browser_contract import png_input,png_info
+    known={s['artifact']:s for s in source_catalog(payload)}
+    for task in plan['tasks']:
+        if task.get('execution'):continue
+        backend=worker_capabilities.backend_for(task,plan['backend'])
+        if backend['type'] not in executors.API_TYPES:continue
+        inputs=[{**known[i['artifact']],**i} for i in task['inputs'] if 'artifact' in i]
+        executors.validate_input_sizes(inputs,backend)
+        if backend['type'] in executors.CODE_TYPES:continue
+        for item in inputs:
+            raw=verify_artifact(rt,item).read_bytes()
+            if backend['type'] in executors.BROWSER_TYPES and png_input(item):png_info(raw)
+            else:
+                try:raw.decode('utf-8')
+                except UnicodeError:raise ValueError('API executors require UTF-8 text inputs: '+item['path']) from None
+
+
 def blender_preparation_validator(capability):
     """Freeze the actual pure validators without importing host execution in workers."""
     from orchestrator import blender_edit,blender_assets,blender_animation
@@ -186,6 +224,31 @@ def blender_preparation_validator(capability):
     return ('import json, math, re, sys, unicodedata\nfrom pathlib import PurePosixPath\n\n'+
         '\n\n'.join(chunks)+'\n\nwith open(sys.argv[1], encoding="utf-8") as source:\n    '+entry+
         '(json.load(source))\nprint("RELAY_BLENDER_CONTRACT_VALID")\n')
+
+
+def repeated_blocked_request(state,job,snap):
+    """An exact renewed request may replan after capability discovery improves.
+
+    No fuzzy intent inference, model call, dispatch or mutation. Existing enqueue
+    validation and the exact plan Start boundary still apply.
+    """
+    rows=state.db.execute("SELECT * FROM production_plans WHERE channel=? AND status='blocked' AND run IS NULL AND plan IS NULL AND request=? ORDER BY created DESC",
+                          (getattr(state,'channel','telegram'),job['prompt']))
+    matches=list(rows)
+    if len(matches)!=1:return None
+    row=matches[0];options=json.loads(row['options'])
+    if options.get('executor_locked') or options.get('executor') or row['error']:return None
+    if not row['result'] or json.loads(row['result']).get('decision')!='blocked':return None
+    if c.digest(json.loads(row['context']))!=row['context_hash']:return None
+    prior={cap for entry in options.get('worker_catalog',[]) for cap in entry.get('capabilities',[])}
+    current={cap for entry in snap.get('capabilities',{}).get('graph_executors',[])
+             if entry.get('available') for cap in entry.get('capabilities',[])}
+    if not current-prior:return None
+    action=dict(kind='plan_production',template=options['template'],project=options['project'],
+                reference_pack_id=None,research_ids=[],planning_only=options['planning_only'],parent_id=row['id'])
+    validate_action(action,snap)
+    return {'answer':'Available worker capabilities have changed. Preparing a new proposal from your saved request and sources; no workers have started.',
+            'action':action}
 
 
 def enqueue(state,job,action,snap):
@@ -232,21 +295,27 @@ def enqueue(state,job,action,snap):
     from orchestrator import executors
     tools=executors.validate(backend)
     executors.available(backend)
-    options={**action,'backend':backend,'limits':{'seconds':1800,'tool_calls':60,'output_bytes':100000000},'max_attempts':1,
+    options={**action,'backend':backend,'limits':{'seconds':1800,'tool_calls':60,'output_bytes':100000000},'max_attempts':2,'max_tasks':12,'local_corrections':True,'response_budgets':True,
              'planning_limits':{'calls':2,'max_output_tokens':10000,'request_timeout_seconds_at_most':180,'context_chars':MAX_CONTEXT}}
     options['tools']=tools
     if backend['type'] in executors.API_TYPES:options['limits']=executors.limits_for(backend)
-    if parent:options['limits']=json.loads(parent['options'])['limits'].copy()
+    if parent:
+        options['limits']=json.loads(parent['options'])['limits'].copy()
+        options['max_attempts']=json.loads(parent['options']).get('max_attempts',1)
+        options['max_tasks']=json.loads(parent['options']).get('max_tasks',6)
     if 'task_seconds' in action:options['limits']['seconds']=action['task_seconds']
     from orchestrator import worker_capabilities
-    # A clarification retains its captured model choices. A named executor locks
-    # this scope to that profile, including later clarifications/continuations.
+    # Clarifications retain captured choices. A fresh proposal after a blocked
+    # planner (no executable plan/run) may discover newly available workers.
+    # Named executors remain locked; saved executable plans are never rebound.
     prior_options=json.loads(parent['options']) if parent else {}
     if stage and not parent:
         prior_plan=state.db.execute('SELECT options FROM production_plans WHERE run=?',(stage['run'],)).fetchone()
         if prior_plan:prior_options=json.loads(prior_plan['options'])
     options['executor_locked']=bool(action.get('executor') or prior_options.get('executor_locked') or prior_options.get('executor'))
-    if prior_options and not action.get('executor'):
+    refresh_workers=bool(parent and parent['status']=='blocked' and not parent['plan']
+                         and not parent['run'] and not options['executor_locked'])
+    if prior_options and not action.get('executor') and not refresh_workers:
         if 'worker_catalog' in prior_options:options['worker_catalog']=copy.deepcopy(prior_options['worker_catalog'])
     else:
         options['worker_catalog']=worker_capabilities.capture(state,backend,options['executor_locked'])
@@ -270,6 +339,7 @@ def enqueue(state,job,action,snap):
         pack['unresolved']=data.get('unresolved',[])
     from task_relay import routing_inputs; from task_relay import orchestrator_guides
     manifest=routing_inputs.freeze(state,job,[],action['research_ids'],action.get('artifact_ids'))+orchestrator_guides.selected(state,job['id'])
+    manifest+=routing_inputs.freeze_uploads(state,job,action.get('reference_ids'))
     required=[a for a in prior['required_artifacts'] if a in {s['artifact'] for s in sources}] if parent else ([s['artifact'] for s in sources] if stage else [])
     if parent and parent['plan']:
         required.extend(s['artifact'] for s in sources if s['artifact'] in selected)
@@ -288,6 +358,10 @@ def enqueue(state,job,action,snap):
         routing_inputs.handoff(state,dict(id=job['id'],cwd=item['project'],input_manifest=json.dumps([item])))
         aid=rt.register(item['path'],item['role'],run=ident,path=path)
         entry=source_entry(rt,aid,path,item['role'],'Selected guide governs its stated scope; other inputs are source context, not authorization.')
+        if item.get('workflow_artifact'):entry['workflow_artifact']=item['workflow_artifact']
+        if item.get('upload_id') is not None:
+            entry.update(upload_id=item['upload_id'],media_type=item['media_type'],caption=item['caption'])
+            if item['media_type'].startswith('image/'):entry['visual_reference']=True
         sources.append(entry)
         required.append(aid)
     root=state.media_dir.parent/'production-planning'/ident;root.mkdir(parents=True,exist_ok=True)
@@ -309,7 +383,9 @@ def enqueue(state,job,action,snap):
             if capability not in ('pptx.create','blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render'):continue
             prefix='operation-support/'+operation['id']+'/'
             documents={'contract.json':json.dumps(operation,ensure_ascii=False,indent=2)+'\n'}
-            if capability=='pptx.create':pass  # The complete data schema is in the frozen contract.
+            if capability=='pptx.create':
+                from orchestrator.pptx_document import validator_source as pptx_validator
+                documents['validate.py']=pptx_validator()
             elif capability.startswith('rhino.'):
                 from orchestrator import rhino_contract, host_script
                 validator='validate_checks' if capability=='rhino.run_python' else 'validate_render'
@@ -337,15 +413,9 @@ def enqueue(state,job,action,snap):
                 support['operation_support']=operation['id'];sources.append(support);required.append(aid)
     # Keep records distinct by artifact identity, avoiding a full copy per stage.
     sources=list({s['artifact']:s for s in sources}.values())
-    if backend['type'] in executors.API_TYPES and not any('code.execute' in x['capabilities'] for x in options.get('worker_catalog',[])):
-        executors.validate_input_sizes(sources,backend)
-        for source in sources:
-            try:
-                raw=verify_artifact(rt,source).read_bytes()
-                from orchestrator.browser_contract import png_input,png_info
-                if backend['type'] in executors.BROWSER_TYPES and png_input(source):png_info(raw)
-                else:raw.decode('utf-8')
-            except UnicodeError:raise ValueError('API executors require UTF-8 text inputs.') from None
+    # This is the workflow source catalog, not any worker's input pack. A later
+    # stage can retain a photo ZIP while a browser needs only research text.
+    # Validate actual bindings after role-specific source selection below.
     texts=[];used=0
     for source in sources:
         blob=verify_artifact(rt,source)
@@ -357,7 +427,7 @@ def enqueue(state,job,action,snap):
     template_plan=templates.build(action['template'],'template',[],backend) if action['template']!='custom' else None
     if template_plan:
         for task in template_plan['tasks']:
-            task['max_attempts']=1;task['limits']=copy.deepcopy(options['limits'])
+            task['max_attempts']=options['max_attempts'];task['limits']=copy.deepcopy(options['limits'])
         template_plan={k:template_plan[k] for k in ('brief','tasks')}
     from task_relay.host_apps import catalog as app_catalog
     payload={'original_request':request,'project':action['project'],'template':action['template'],
@@ -367,11 +437,16 @@ def enqueue(state,job,action,snap):
         'required_artifacts':required,'source_texts':texts,'reference_pack':pack,
         'missing_text_artifacts':[s['artifact'] for s in sources if s['artifact'] not in {t['artifact'] for t in texts}],
         'max_selected_input_bytes':MAX_INPUT_BYTES}
+    if any(s.get('visual_reference') for s in sources):
+        payload['planner_instructions']+=UPLOAD_PLANNER_INSTRUCTIONS
     from . import pipelines
     pipeline=pipelines.request_context(state,job['id'])
     if not pipeline and action.get('previous_run'):pipeline=pipelines.context_for_run(state,action['previous_run'])
+    if not pipeline and parent and prior.get('pipeline_step'):
+        pipeline={'stage':prior['pipeline_step'],'inputs':{'handoffs':prior.get('handoff_sources',[])}}
     if pipeline:
         payload['pipeline_step']=pipeline['stage']
+        payload['handoff_sources']=pipeline.get('inputs',{}).get('handoffs',[])
         payload['planner_instructions']+='\nThis is one stage of an authorized saved workflow. Its exact stage scope is pipeline_step. A selection gate must select the complete deliverable set, using selection_outputs for related native model/preview files. A gate of none requires independent review but no invented user selection gate, except exact host-script preparation retains its required script/checks selection. Unknown host code is still deferred for exact Start approval. Do not include later-stage capabilities or deliverables. The scheduler advances automatically after completion or required selection.'
     from . import workflow_library
     starter=prior.get('starter_workflow') if parent else None
@@ -392,6 +467,8 @@ def enqueue(state,job,action,snap):
         from task_relay.orchestrator_chat import clock_context
         from task_relay.browser_sites import catalog as site_catalog
         payload['browser_account_sites']=site_catalog(state.db)
+        from .managed_browser import status as managed_status
+        payload['managed_browser']=managed_status()
         payload['planner_instructions']+='\nFor work requiring the user\'s signed-in website account, use browser profile "accounts" and only exact sites listed as confirmed_by_user in browser_account_sites. Otherwise return needs_input with /browser sites add and /browser sites login commands. Never substitute an anonymous profile for an account request. Public research may still use separate public profiles. A saved session does not expand the task origins or interaction_scope.'
         payload['host_clock']=clock_context()
         payload['planner_instructions']+='\nUse host_clock for date interpretation. Disclose inferred years and search defaults in the brief/instructions. Require observed evidence for factual website claims; unverified dates remain unverified, not assumed unavailable.'
@@ -455,14 +532,17 @@ limits, max_attempts, optional review_of and user_gate. Every input has artifact
 path, purpose, authority OR from_task, output, path, purpose, authority.
 Every output has path,purpose. Use exactly one producer and one independent reviewer.
 Reviewer dependencies include producer, inputs include every output under candidate/,
-and criteria exactly equal the producer's. Each task has max_attempts=1, within
-options.limits. When options.worker_catalog exists, compose each agent dynamically:
+and criteria exactly equal the producer's. Local drafting/review tasks have
+max_attempts=options.max_attempts (one initial attempt plus at most one correction).
+Browser tasks and registered operations have max_attempts=1. Stay within options.limits. When options.worker_catalog exists, compose each agent dynamically:
 include worker={"requires":["files.text"]}, optionally executor with an exact catalog ID.
 Choose a task-specific role, objective, exact inputs, outputs and review criteria.
 Use code.execute for local calculations/validation, files.binary for binary files,
 browser.use for scoped website control. These are adapter capabilities, not role names.
 Omit tools: Relay resolves and freezes the actual tools and model from that catalog.
-The default is preferred when compatible. An explicitly named executor never falls
+Leave executor unset unless the user explicitly selected it. Relay prefers the
+narrowest suitable configured API file/Python worker; do not demand Codex or shell
+for ordinary drafting, schema validation or document inspection. An explicitly named executor never falls
 back. Respect the chosen profile's limits as well as options.limits. Missing
 capabilities require a specific blocker, not a fabricated worker or an installation.
 Registered execution steps never have worker. Do not call native applications or
@@ -490,13 +570,26 @@ browser.capture with browser.use; declare image/png outputs and an application/j
 provenance output for each PNG at its exact path plus .json (map.png.json).
 Add the PNG paths to browser.screenshots. These reserved pairs are written only by
 browser_screenshot. A task has a total output budget up to 10 MB. PNG inputs with
-media_type=image/png can be read as metadata only (up to 10 MB combined); text input
+media_type=image/png can be read as metadata (up to 10 MB combined). For visual
+review explicitly list the exact reviewer input paths in browser.visual_inputs;
+Start then authorizes sending those PNG pixels to the selected model. Review the
+saved image and provenance without requiring live DOM text from canvas pages. Text input
 limits remain 512 KB. Screenshot pixels are NOT sent to these workers' models.
 Reviewers can check file metadata, provenance and independent DOM evidence but
 cannot verify screenshot appearance or canvas content. Require user visual review,
 or a separately available capable reviewer, for map completeness/visual criteria.
 Keep attribution visible; no automatic full-page scrolling, canvas clicking or GIS
 analysis is provided. Request the actual location if essential and missing.
+When the user requests a map screenshot in a presentation, include a browser capture
+task and its review in the same proposed graph as image sourcing and deck creation.
+Use the requested map service and location from the user/context. A Google Maps
+request must capture Google Maps, not a generated map or another provider. Preserve
+visible map attribution and the full captured viewport. Retain the capture URL and
+time from map.png.json; give the specification author this provenance and pass the
+exact map.png to pptx.create alongside sourced image bundles. Keep provenance JSON
+as author/reviewer context, not a second PPTX slide specification. Consent, login,
+unloaded map content or verification barriers are concrete blockers, not successful
+map captures. Never claim canvas/map completeness from PNG metadata alone.
 For any browser executor each task requires browser with profile (a dedicated
 profile name), origins (exact https://host origins without paths/wildcards),
 interaction_scope (precise authorized website actions, empty for reading/navigation),
@@ -505,6 +598,14 @@ max_tabs (1–8), max_actions (1–60), uploads (exact declared input paths), do
 Choose origins and actions only from the request's
 scope, and preserve an explicitly named profile. If the needed account/site is
 ambiguous, ask; never invent a signed-in session. Empty transfer lists by default.
+When managed_browser.enabled and managed_browser.available are true, prefer
+profile "managed" with session_source="settings" for general website tasks: it uses the same saved Chrome profile
+as Settings Browser use. Do not invent a fresh profile when the user says they
+already signed in there. Manual sign-in still in progress must finish before work.
+The "accounts" profile retains its separate exact-site confirmation rules.
+Include required consent/redirect origins explicitly in the proposed scope; a
+redirect is evidence for a proposed recovery, never permission to expand a running
+assignment. Bot challenges require user resolution; do not route around them.
 The reviewer uses the same profile/origins but empty interaction_scope/uploads/downloads.
 No login automation, secret entry, arbitrary JavaScript or shell is available.
 Retain evidence URLs and distinguish observed interactions from verified remote
@@ -707,7 +808,30 @@ Use at most 6 tasks: scene-data producer, its reviewer, scene operation, optiona
 scene-output reviewer. Make the scene operation depend on the data review.
 For pptx.create, prepare slides.json using slide_schema in the frozen operation
 catalog and operation-support/pptx.create/contract.json. The operation accepts one
-application/json specification and optional exact PNG/JPEG inputs plus text context.
+application/json specification and optional exact PNG/JPEG inputs, sourced-image
+bundles (application/zip from images.collect), plus text context.
+For images.collect, subjects in parameters contain the complete literal search inputs.
+Use inputs=[]; retain research/context with the independent reviewer and deck author,
+not with the download operation. Never attach conversation histories just for provenance.
+For factual research, identification guides, real examples and documentary decks,
+default to authentic sourced photographs, even when the user only says images or
+visuals. Synthetic illustrations require a requested illustrative/design purpose;
+generic research does not authorize inventing reference examples. Honor the saved
+stage's visual_intent; do not replace its sourcing operation with a media provider.
+For requested real photos or reference illustrations of named subjects, use images.collect
+with the exact subject list, then review its manifest and candidates before slide
+preparation. Follow image_source_schema; missing matches stay explicit. Never use
+image generation as an implicit substitute for image search. This is generic image
+sourcing, not a plant-specific workflow. For plants, use botanical names from the
+research and preserve common names as labels; do not infer taxonomic synonyms.
+Use bundle paths as <staged-bundle.zip>/images/<subject-id>.jpg|png in slides.json,
+and pass the exact reviewed ZIP to pptx.create. If the user permits missing photos
+to be skipped, omit unavailable image elements and photo-only slides, retain the
+subject's research/text, and record omissions in the summary. Apply that permission
+to author and reviewer criteria; missing permitted photos alone must not block.
+Otherwise honor explicit complete-photo requirements. Include every requested subject,
+visible subject captions, author/licence credits and source-page references.
+Review identity, coverage and suitability; metadata matches alone do not prove them.
 Image paths inside JSON must match the staged image input paths in the operation.
 Use parameters={}, one .pptx output with the registered MIME type and criteria,
 and tools=[]. Require the specification producer and its independent reviewer as
@@ -747,7 +871,8 @@ drop the image outcome at the Blender preview gate. For any outcome that require
 a separate approval stage, explain the pending outcome and its gate in the brief.
 
 For this request, graph_operations explicitly extends the two-agent contract:
-use 2–6 tasks with at least one supported agent and only the permitted registered
+use 2–options.max_tasks tasks (6 when absent in an older scope), with at least one
+supported agent and only the permitted registered
 operations when useful. Each registered task has execution={capability,version,
 parameters}, tools=[], one attempt, exactly the registered criteria, and its smaller
 time/output limits. It has 1–20 explicitly typed text inputs and one text/plain
@@ -822,20 +947,24 @@ def complete_operation_wiring(tasks):
     Declared file edges imply dependencies; additional review gates stay intact.
     """
     from orchestrator.execution import REGISTRY
-    if not any(t.get('execution') for t in tasks):return
+    if not any(t.get('execution') or t.get('browser') for t in tasks):return
     def typed(item, media):
         if 'media_type' in item and item['media_type'] != media:
             raise ValueError('Conflicting media type for '+str(item.get('path'))+': expected '+media)
         item['media_type'] = media
     outputs = {(t['id'],o['path']):o for t in tasks for o in t['outputs']}
     for task in tasks:
+        for path in task.get('browser',{}).get('screenshots',[]):
+            for output,media in ((path,'image/png'),(path+'.json','application/json')):
+                item=outputs.get((task['id'],output))
+                if item is not None:typed(item,media)
         e = task.get('execution')
         if not e:continue
         spec = REGISTRY.get(e.get('capability'))
         if not spec or e.get('version') != spec['version']:continue
         for output in task['outputs']:
             media = spec.get('outputs',{}).get(output['path'])
-            if e['capability']=='pptx.create':media=spec['output_type']
+            if spec.get('output_type'):media=spec['output_type']
             if media:typed(output,media)
         if e['capability'] in ('blender.scene','blender.mesh_scene','pptx.create') and not (
             e['capability']=='pptx.create' and any('artifact' in i and i.get('media_type')=='application/json' for i in task['inputs'])):
@@ -871,6 +1000,7 @@ def compatible_implicit_source(capability, source):
     """Capability input types govern operation arguments, not workflow provenance."""
     import mimetypes
     from orchestrator.execution import REGISTRY
+    if capability=='images.collect':return False  # Literal parameters are the operation input.
     allowed=REGISTRY[capability]['input_types']
     suffix=Path(source['path']).suffix.lower()
     media=source.get('media_type')
@@ -903,8 +1033,10 @@ def validate_result(raw,row):
     payload=json.loads(row['context']);options=json.loads(row['options'])
     supplied=result['plan']
     mixed=bool(options.get('step_capabilities'))
-    if not isinstance(supplied,dict) or set(supplied)!={'brief','tasks'} or not isinstance(supplied['tasks'],list) or not (2<=len(supplied['tasks'])<=6 if mixed else len(supplied['tasks'])==2):
-        raise ValueError('Use one producer/reviewer pair, or 2–6 tasks for a permitted mixed graph.')
+    max_tasks=options.get('max_tasks',6)
+    if type(max_tasks) is not int or not 2<=max_tasks<=12:raise ValueError('Invalid saved planning task limit.')
+    if not isinstance(supplied,dict) or set(supplied)!={'brief','tasks'} or not isinstance(supplied['tasks'],list) or not (2<=len(supplied['tasks'])<=max_tasks if mixed else len(supplied['tasks'])==2):
+        raise ValueError('Use one producer/reviewer pair, or 2–'+str(max_tasks)+' tasks for a permitted mixed graph.')
     plan=copy.deepcopy(supplied);plan.update(id='production-'+str(row['request_id']),backend=options['backend'],concurrency=2)
     if not isinstance(plan['brief'],str) or not 1<=len(plan['brief'])<=1500:raise ValueError('Use a concise stage brief.')
     known={s['artifact']:s for s in source_catalog(payload)};used=set(payload['required_artifacts'])
@@ -946,22 +1078,35 @@ def validate_result(raw,row):
                 used.add(item['artifact'])
         declared_inputs=copy.deepcopy(task.get('inputs',[]))
         explicit_inputs={i['artifact'] for i in declared_inputs if 'artifact' in i}
-        task['inputs']=[i for i in task.get('inputs',[]) if i.get('artifact') not in payload['required_artifacts']]
-        for aid in payload['required_artifacts']:
+        bound_artifacts=list(dict.fromkeys(payload['required_artifacts']+
+            ([i['artifact'] for i in declared_inputs if 'artifact' in i] if registered else [])))
+        task['inputs']=[i for i in task.get('inputs',[]) if i.get('artifact') not in bound_artifacts]
+        for aid in bound_artifacts:
             source=known[aid]
+            browser_role=bool(task.get('browser') or 'browser.use' in task.get('worker',{}).get('requires',[]))
+            if not registered and browser_role and aid not in explicit_inputs and not source.get('visual_reference'):
+                # Stage-wide document contracts/bundles are not browser inputs.
+                # Keep explicit source choices; only omit incompatible implicit
+                # context which would demand Python or binary document tooling.
+                from orchestrator.worker_capabilities import has_binary
+                source_png=source.get('media_type')=='image/png' and Path(source['path']).suffix.lower()=='.png'
+                if source.get('operation_support') or (has_binary({'inputs':[source]}) and not source_png):
+                    continue
             if registered and aid not in explicit_inputs and not compatible_implicit_source(e['capability'],source):
                 continue
             if registered and source.get('operation_support') in ('pptx.create','rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
                 continue
             item={k:source[k] for k in ('artifact','path','purpose','authority')}
-            if source.get('media_type')=='image/png':item['media_type']='image/png'
+            if source.get('media_type'):item['media_type']=source['media_type']
+            if source.get('visual_reference') and not registered:item['visual_reference']=True
             if any(i.get('artifact')!=aid and i['path']==item['path'] for i in declared_inputs):
                 item['path']='context/'+aid+'/'+item['path']
             if registered:
-                if (e['capability'] in ('rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate')
+                if (e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render','blender.inspect','blender.run_python','blender.import_asset','blender.animate')
                     and aid not in explicit_inputs):
                     # Historical inputs are context, even when their bytes equal
-                    # a selected script. Bind executable inputs by artifact identity.
+                    # a selected script/model. Bind native arguments explicitly;
+                    # an inspector's upstream model must not acquire old versions.
                     if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py'):continue
                     item['media_type']='text/plain';task['inputs'].append(item);continue
                 if e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render') and Path(source['path']).suffix.lower()=='.3dm':
@@ -972,7 +1117,7 @@ def validate_result(raw,row):
                     item['media_type']='application/json'
                 elif e['capability'] in ('pptx.create','blender.import_asset','gemini.image','openai.image','openrouter.image','runway.image','runway.video') and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
                     item['media_type']={'.png':'image/png','.webp':'image/webp'}.get(Path(source['path']).suffix.lower(),'image/jpeg')
-                elif e['capability']=='blender.animate' and Path(source['path']).suffix.lower()=='.zip':
+                elif e['capability'] in ('blender.animate','pptx.create') and Path(source['path']).suffix.lower()=='.zip':
                     item['media_type']='application/zip'
                 elif e['capability'] in ('blender.import_asset','blender.animate','rhino.render') and source['sha256']==e.get('parameters',{}).get('manifest_sha256'):
                     item['media_type']='application/json'
@@ -991,6 +1136,10 @@ def validate_result(raw,row):
                 if alias.get('media_type') and item.get('media_type') and alias['media_type']!=item['media_type']:
                     raise ValueError('Declared input type differs from its exact source type.')
                 task['inputs'].append({**item,'path':alias['path'],'purpose':alias['purpose']})
+        if not registered and any(i.get('visual_reference') for i in task['inputs']):
+            if 'worker' in task:
+                task['worker']['requires']=list(dict.fromkeys(task['worker'].get('requires',[])+['images.view']))
+            task['instruction']+='\nVisually inspect the exact visual_reference image files using image viewing tools. Caption, filename, dimensions and pixel statistics alone are not visual inspection. Distinguish visible proportions from inferred hidden geometry and scale; keep assumptions explicit.'
         task['instruction']='Read request/USER-REQUEST.txt first. Preserve its exact constraints and current user decisions.\n\n'+task['instruction']
         if not registered:
             for capability in ('blender.run_python','blender.import_asset','blender.animate'):
@@ -1009,12 +1158,38 @@ def validate_result(raw,row):
                     'assignment. Exact host script execution and rendering require later approved stages.')
                 if capability=='rhino.run_python':
                     task['instruction']+='\nHost scripts must be at most 100000 UTF-8 bytes. Run the validator with BOTH checks JSON and script paths: python3 '+prefix+'validate.py CHECKS_JSON SCRIPT_PY. For a flat drawing prepare a saved orthographic named view and preview.named_view.'
+                    from orchestrator.rhino_contract import DESCRIPTION
+                    task['instruction']+='\n'+DESCRIPTION['output_checks']
+        if not registered and not task.get('browser') and 'operation-support/pptx.create/validate.py' in {s['path'] for s in payload['sources']}:
+            task['instruction']+=('\n\nUse the supplied operation-support/pptx.create/validate.py schema checker, '
+                'the same implementation as the PPTX creator. Run it with the slide JSON path followed by '
+                'the exact declared image paths used in that JSON. In an isolated Python worker, execute '
+                'the supplied validator module with runpy and call validate(load(text), image_paths). '
+                'Do not invent another schema validator or launch a presentation application. '
+                'Keep simple requests concise; make targeted corrections to prior candidates. '
+                'Distinguish measured layout failures from assumptions; record uncertain fit estimates '
+                'for review of the actual deck rather than presenting them as observed clipping.')
         if payload.get('previous_stage'):
             task['instruction']='Read previous-stage/CONTEXT.json and the exact selected outputs. Preserve prior relevant user constraints; the latest explicit request controls this stage.\n\n'+task['instruction']
-        if task.get('max_attempts')!=1:raise ValueError('Planner permits one attempt per task.')
-        if any(type(task.get('limits',{}).get(k)) is not int or not (0 if registered and k=='tool_calls' else 1)<=task['limits'][k]<=v for k,v in options['limits'].items()):
-            raise ValueError('Planner exceeds frozen worker limits.')
+        if type(task.get('max_attempts')) is not int or not 1<=task['max_attempts']<=options.get('max_attempts',1):
+            raise ValueError('Planner exceeds the frozen attempt allowance.')
+        if (registered or task.get('browser')) and task['max_attempts']!=1:
+            raise ValueError('Registered operations and browser work permit one attempt.')
+        task_limits=dict(options['limits'])
+        if registered:
+            # The default agent's file allowance is not the registered builder's
+            # output contract. Both the saved and installed operation bound apply.
+            frozen_operation=next((x for x in payload.get('graph_operations',[]) if x['id']==e['capability']),None)
+            if frozen_operation:
+                from orchestrator.handoff_contracts import operation
+                task_limits['output_bytes']=operation(e['capability'],frozen_operation)['output_bytes']
+        for key,maximum in task_limits.items():
+            value=task.get('limits',{}).get(key)
+            if type(value) is not int or not (0 if registered and key=='tool_calls' else 1)<=value<=maximum:
+                raise ValueError(f"{task['id']}: planned {key}={value!r} exceeds or violates its frozen limit {maximum}.")
     complete_operation_wiring(plan['tasks'])
+    from . import presentation_inputs
+    presentation_inputs.bind(plan['tasks'])
     selected_operations=set(options.get('step_capabilities',[]))
     actual_operations={t.get('execution',{}).get('capability') for t in plan['tasks']}
     deferred=result.get('deferred_operations',{})
@@ -1100,6 +1275,12 @@ def validate_result(raw,row):
                 source['path']='source-inputs/'+producer['id']+'/'+item['path']
                 review['inputs'].append(source)
                 if item['from_task'] not in review['dependencies']:review['dependencies'].append(item['from_task'])
+    for operation in plan['tasks']:
+        if not operation.get('execution'):continue
+        ceiling=REGISTRY[operation['execution']['capability']]['input_bytes']
+        total=sum(known[i['artifact']]['bytes'] for i in operation['inputs'] if 'artifact' in i)
+        if total>ceiling:
+            raise ValueError(f"{operation['id']}: selected operation inputs total {total} bytes, exceeding {ceiling}; select only required inputs before Start.")
     if sum(known[aid]['bytes'] for aid in used)>MAX_INPUT_BYTES:raise ValueError('Selected inputs exceed 150 MB; select a smaller source set.')
     pipeline_stage=payload.get('pipeline_step')
     if pipeline_stage and not deferred:
@@ -1120,14 +1301,36 @@ def validate_result(raw,row):
         if 'worker' in task:
             if 'worker_catalog' not in options:raise ValueError('This saved planning scope has no dynamic worker catalog.')
             worker_capabilities.resolve(task,options['worker_catalog'],options['backend'])
+            chosen=task['worker']['backend']
+            if chosen['type'] in executors.API_TYPES:
+                # Composition may choose a narrower profile than the default.
+                # Freeze its smaller bounds in the proposed plan, never expand
+                # the model's requested limits or fail over to a shell for them.
+                for key,limit in executors.limits_for(chosen).items():
+                    task['limits'][key]=min(task['limits'][key],limit)
+        if not task.get('execution') and not task.get('browser'):
+            task['max_attempts']=options.get('max_attempts',1)
         if not task.get('execution') and 'worker_catalog' in options:
             if worker_capabilities.backend_for(task,options['backend'])['type'] in executors.API_TYPES:
                 chosen=worker_capabilities.backend_for(task,options['backend'])
                 supported_capture=chosen['type'] in executors.BROWSER_TYPES and worker_capabilities.matches(task,['browser.use'],chosen)
                 if worker_capabilities.has_binary(task) and not supported_capture and chosen['type'] not in executors.CODE_TYPES:raise ValueError('Resolved API worker requires text or explicitly supported browser PNG files; other binary files need a compatible executor.')
                 executors.validate_input_sizes([{**known[i['artifact']],**i} for i in task['inputs'] if 'artifact' in i],chosen)
+    for task in plan['tasks']:
+        if (not task.get('execution') and any(i.get('visual_reference') for i in task.get('inputs',[]))
+            and 'images.view' not in worker_capabilities.abilities(worker_capabilities.backend_for(task,options['backend']))):
+            raise ValueError('Selected image references require a worker that can inspect pixels (images.view); binary file access alone is insufficient.')
+        executors.code_budgets(task,worker_capabilities.backend_for(task,options['backend']),options.get('response_budgets',False))
+    if options.get('local_corrections') is True and options.get('max_attempts',1)>=2:
+        from orchestrator.corrections import compile as compile_corrections
+        compile_corrections(plan['tasks'])
+    from orchestrator.handoff_contracts import bind_stage
+    bind_stage(payload.get('pipeline_step'),plan,payload.get('handoff_sources',[]),source_catalog(payload))
     plan=c.plan(plan)
     for task in plan['tasks']:
+        if task.get('execution',{}).get('capability')=='images.collect':
+            if not any(r['review_of']==task['id'] for r in reviewers):
+                raise ValueError('Image sourcing needs independent review of subject coverage and candidate identity.')
         if task.get('execution',{}).get('capability')=='pptx.create':
             if not task.get('user_gate') or not any(r['review_of']==task['id'] and any(
                 i.get('from_task')==task['id'] and i.get('output')==task['outputs'][0]['path'] for i in r['inputs']) for r in reviewers):
@@ -1237,10 +1440,15 @@ def preview(row):
         lines.append('Browser and declared text file tools, plus explicitly granted viewport PNG captures and provenance. PNG reads return metadata only; pixels are not sent to the model and visual review remains separate. External transfer: instructions, read text, page observations and capture metadata go to the selected provider. Up to 10 MB outputs and 10 MB PNG inputs; 512 KB text inputs, 8 API requests, 4096 output tokens per request. Dedicated sessions; no shell or credential tools. Site/action scope is shown below. Cancellation cannot undo website actions; uncertain actions are never replayed.')
     if payload.get('previous_stage'):
         lines.append('Next stage after: '+payload['previous_stage']['run']+'; exact recorded selections and prior instructions are included.')
+    if payload.get('review_correction_origin'):
+        origin=payload['review_correction_origin']
+        lines.append('Correction preparation for '+origin['run']+'. Existing model, preview and inspection stay unchanged. This Start approves script preparation and independent review only; native execution needs a separate exact-code Start.')
     if payload.get('execution_recovery'):
         recovery=payload['execution_recovery']
         lines.append('Repair of failed execution: '+recovery['baseline']['run']+'. Original attempts and files remain preserved.')
         if recovery.get('script_replacement'):lines.append('Script SHA-256: '+recovery['script_replacement']['sha256']+'. Start approves the new execution assignment.')
+        elif recovery.get('kind')=='review_revision':lines.append('Correct the saved draft and repeat its independent review; downstream work has not started. No original attempts are reset.')
+        elif recovery.get('kind')=='code_budget':lines.append('New bounded preparation with draft checkpoints and exact creator asset bindings. Completed work is retained; original attempts are not reset. Provider request limits are unchanged.')
         else:lines.append('Local operation input repair; completed preparation and exact source bytes are retained.')
         if recovery.get('runtime_changes'):lines.append('Implementation repair; script bytes unchanged. Updated: '+', '.join(sorted(recovery['runtime_changes'])))
         if recovery.get('reviewed_repair'):
@@ -1248,6 +1456,9 @@ def preview(row):
             lines.extend(['Diagnosis: '+diagnosis['cause'][:600], 'Proposed correction: '+diagnosis['changes'][:600],
                           'Independent review passed. Attached diagnosis, review, script and unchanged checks define this Start.'])
         if recovery['reused_completed_tasks']:lines.append('Already completed; not repeated: '+', '.join(recovery['reused_completed_tasks']))
+    for task in plan['tasks']:
+        if task.get('review_correction'):
+            lines.append('Automatic local correction: '+task['review_correction']['producer']+' can correct its draft once after specification review and once after deck failure/review. Re-review each version; build the deck at most twice. Per-attempt limits below apply to every attempt. No browser, host-app or external API operation is replayed.')
     used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
     selected=[s for s in source_catalog(payload) if s['artifact'] in used]
     lines += ['Project: '+(payload['project'] or 'Isolated production workspace'),
@@ -1279,11 +1490,14 @@ def preview(row):
             if e['capability'] in ('blender.startup','blender.scene','blender.mesh_scene'):
                 lines.append('Host execution: Blender runs with normal OS permissions using fixed Relay code and validated data. No arbitrary scripts or agent shell escalation.')
             if e['capability']=='gemini.text':lines.append('External transfer: listed text inputs and instructions go to Gemini in one API request. Local cancellation cannot undo an accepted remote request; unknown cost remains unknown.')
+            if e['capability']=='images.collect':lines.append('Image sourcing: only the displayed literal subject queries go to public Wikimedia Commons. No credentials or image generation model; exact downloads, source credits and missing matches are retained for review.')
             if e['capability']=='gemini.image':lines.append('External transfer: listed images, text and instructions go to the exact displayed image model in one API request. Cancellation cannot undo accepted work; uncertain submissions are never replayed.')
             if e['capability']=='openrouter.image':lines.append('External transfer: listed images, text and instructions go through OpenRouter to the selected model in one image request; provider fallbacks are disabled. Uncertain submissions are never replayed.')
             if e['capability']=='openai.image':lines.append('External transfer: listed images, text and instructions go to OpenAI in one image API request. Cancellation cannot undo accepted work; uncertain submissions are never replayed.')
         lines += ['\n'+task['role']+': '+task['objective'], 'Outputs: '+', '.join(o['path'] for o in task['outputs']),
-                  'Checks: '+'; '.join(task['criteria']),f"Limits: {task['limits']['seconds']} seconds, {task['limits']['tool_calls']} tool calls, one attempt."]
+                  'Checks: '+'; '.join(task['criteria']),f"Limits: {task['limits']['seconds']} seconds, {task['limits'].get('provider_requests',8)} provider requests (API workers), {task['limits']['tool_calls']} tool calls per attempt, {task['max_attempts']} attempt(s)."]
+        if 'response_tokens' in task['limits']:
+            lines.append(f"Response allowance: up to {task['limits']['response_tokens']:,} output tokens per provider response. Larger responses can consume more tokens; this is a ceiling, not estimated usage.")
         if task.get('user_gate'):lines.append('Next user decision: '+task['user_gate'])
         if task.get('selection_outputs'):lines.append('Select together: '+' + '.join(task['selection_outputs']))
     lines.append('\nInputs include your exact request, selected guides and named source versions. '+
@@ -1324,6 +1538,66 @@ def rate_limited_plan(state, row):
     # Do not treat a timeout, interrupted send, or arbitrary error as a rejection.
     return bool(call and call['response'] is None and call['error']==row['error'] and
                 row['error']=='Gemini request failed (429)' and row['provider']=='gemini')
+
+
+def recover_uploaded_sources(state, ident, ids):
+    """Explicitly recover missing bindings in an unstarted plan from its upload snapshot.
+
+    Caller selects the exact IDs from saved user context; this never guesses a
+    latest file, accepts outputs, starts workers or edits the failed proposal.
+    """
+    if not state.db.in_transaction:raise ValueError('Upload recovery requires an atomic transaction.')
+    row=state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+    if (not row or row['status']!='needs_input' or row['run'] or row['plan']
+        or row['channel']!=getattr(state,'channel','telegram')):
+        raise ValueError('Only an unexecuted needs-input plan in this channel can receive missing uploads.')
+    payload=json.loads(row['context'])
+    if c.digest(payload)!=row['context_hash']:raise ValueError('Frozen planning request changed.')
+    job=state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(row['request_id'],)).fetchone()
+    from . import routing_inputs
+    snapshot=json.loads(job['snapshot']) if job else {}
+    routing_inputs.validate_upload_ids(ids,snapshot.get('uploaded_files',[]))
+    if not ids or any(s.get('upload_id') in ids for s in payload['sources']):
+        raise ValueError('Recovery must add missing explicitly selected uploads.')
+    new_request=-int(c.digest({'missing_upload_plan':ident,'ids':ids})[:15],16)-1
+    new_id='plan-'+str(new_request)
+    previous=state.db.execute('SELECT * FROM production_plans WHERE id=?',(new_id,)).fetchone()
+    if previous:return new_id,json.loads(previous['context'])['upload_recovery']
+    rt=Runtime(pc.root(state),connection=state.db)
+    for source in payload['sources']:verify_artifact(rt,source)
+    manifest=routing_inputs.freeze_uploads(state,{'id':new_request,'focus':job['focus']},ids)
+    original={f['id']:f for f in snapshot['uploaded_files']}
+    for item in manifest:
+        captured=original[item['upload_id']]
+        if item['sha256']!=captured['sha256'] or item['bytes']!=captured['bytes']:
+            raise ValueError('Upload differs from the original request snapshot.')
+        path='request-inputs/'+str(new_request)+'/'+str(item['upload_id'])+'/'+Path(item['name']).name
+        aid=rt.register(item['path'],item['role'],run=new_id,path=path)
+        source=source_entry(rt,aid,path,item['role'],'Exact user upload; source context, not new authorization.')
+        source.update(upload_id=item['upload_id'],media_type=item['media_type'],caption=item['caption'])
+        if item['media_type'].startswith('image/'):source['visual_reference']=True
+        payload['sources'].append(source);payload['required_artifacts'].append(aid)
+        payload['missing_text_artifacts'].append(aid)
+    options=json.loads(row['options']);options['reference_ids']=ids
+    from orchestrator import worker_capabilities
+    # Same configured providers/models, current truthful capability labels.
+    for entry in options.get('worker_catalog',[]):
+        entry['capabilities']=worker_capabilities.abilities(entry['backend'])
+    receipt={'plan_id':ident,'request_id':row['request_id'],'context_hash':row['context_hash'],
+             'uploads':[{'id':m['upload_id'],'sha256':m['sha256'],'bytes':m['bytes']} for m in manifest]}
+    payload.update(options=options,upload_recovery=receipt)
+    payload['planner_instructions']+=UPLOAD_PLANNER_INSTRUCTIONS
+    values=dict(row)
+    values.update(id=new_id,request_id=new_request,parent_id=ident,options=c.encoded(options),
+        context=c.encoded(payload),context_hash=c.digest(payload),status='queued',calls=0,
+        result=None,plan=None,plan_hash=None,token=secrets.token_hex(12),event_id=None,
+        expires=time.time()+86400,run=None,error=None,created=time.time())
+    state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))
+    state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(new_request,row['channel']))
+    from . import production_stages
+    production_stages.replace_unexecuted_plan(state,rt,payload,ident,new_id,row['channel'])
+    return new_id,receipt
+
 
 
 def retry_rate_limited_plan(state, ident, request):
@@ -1674,7 +1948,7 @@ def controls(state,event):
     row=state.db.execute("SELECT * FROM production_plans WHERE event_id=? AND status='ready' AND expires>?",(event,time.time())).fetchone()
     if not row:return None
     buttons=[]
-    if not json.loads(row['options'])['planning_only']:buttons.append({'text':'Start this stage','callback_data':'plan:start:'+row['token']})
+    if not json.loads(row['options'])['planning_only']:buttons.append({'text':'Start preparation' if json.loads(row['context']).get('review_correction_origin') else 'Start this stage','callback_data':'plan:start:'+row['token']})
     buttons.append({'text':'Discard plan','callback_data':'plan:discard:'+row['token']})
     return {'inline_keyboard':[buttons]}
 
@@ -1702,6 +1976,11 @@ def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followu
         raise ValueError('A reply to this plan is still awaiting interpretation; wait for its result before starting.')
     payload=json.loads(row['context']);plan=json.loads(row['plan'])
     if c.digest(payload)!=row['context_hash'] or c.digest(plan)!=row['plan_hash']:raise ValueError('The saved plan or inputs changed.')
+    if payload.get('review_correction_origin'):
+        from . import production_review_corrections
+        origin=payload['review_correction_origin']
+        if production_review_corrections.snapshot(state,origin['run'])!=origin['baseline']:
+            raise ValueError('The reviewed candidate or recovery state changed; request a new correction plan.')
     if payload.get('reference_pack'):
         from task_relay import reference_packs
         reference_packs.handoff(state,payload['reference_pack']['id'])
@@ -1739,6 +2018,7 @@ def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followu
         if host_code.required(task):
             for suffix in ('script','checks'):
                 if not delivered(row['event_id']+':host-'+suffix+':'+task['id']):raise ValueError('Wait for the complete editing script and checks documents before approving host Python')
+    validate_bound_worker_inputs(rt,plan,payload)
     rt.create(plan)
     if pipeline_grant:
         pipelines.event(state,pipeline_grant,None,'bounded_stage_started',{'plan_id':row['id'],'plan_hash':row['plan_hash']})

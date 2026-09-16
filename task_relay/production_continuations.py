@@ -46,6 +46,62 @@ def enqueue(state, job, parent):
     view = next((v for v in pc.inspect(state) if v['name']==parent),None)
     if not view:
         raise ValueError('Unknown production stage.')
+    if state.db.execute('SELECT 1 FROM production_auto_repairs WHERE preparation=?',(parent,)).fetchone():
+        if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before repair recovery.')
+        from . import production_visual_review
+        return production_visual_review.propose(state,job,parent)
+    blocked=[t for t in view['tasks'] if t['status']=='blocked']
+    if len(blocked)==1 and view['status']=='blocked' and not blocked[0]['review_of']:
+        from orchestrator.runtime import Runtime
+        rt=Runtime(pc.root(state),connection=state.db);task=rt.task(parent,blocked[0]['id'])
+        spec=rt.spec(task)
+        if spec.get('tools')==['files','python']:
+            from .production_stages import code_preparation_failure
+            attempt=state.db.execute('SELECT * FROM production_attempts WHERE id=?',(task['latest'],)).fetchone()
+            failure=code_preparation_failure(attempt) if attempt else None
+            if failure:
+                if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before resuming preparation.')
+                from orchestrator import executors
+                if failure=='generation_limit' or task['attempts']>=spec['max_attempts'] or executors.request_limit(spec)>=min(executors.MAX_EXPLICIT_ROUNDS,spec['limits']['tool_calls']):
+                    from . import production_browser_recovery
+                    ident=production_browser_recovery.prepare_code(state,parent,job['prompt'])
+                    return 'Preparation recovery planned: '+ident+'. Start approves a new bounded attempt; completed work is retained and no attempts were reset.'
+                from . import production_visual_review
+                return production_visual_review.propose(state,job,parent)
+    if len(blocked)==1 and blocked[0]['review_of'] and view['status']=='blocked':
+        from orchestrator.runtime import Runtime
+        rt=Runtime(pc.root(state),connection=state.db)
+        spec=rt.spec(rt.task(parent,blocked[0]['id']))
+        if spec.get('browser') and not spec['browser'].get('visual_inputs'):
+            if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before reviewing the unchanged candidate.')
+            from . import production_visual_review
+            return production_visual_review.propose(state,job,parent)
+    if view['status']=='blocked' and len(blocked)==1 and blocked[0]['review_of'] and blocked[0]['attempts']<blocked[0]['max_attempts']:
+        if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):
+            raise ValueError('Resolve attached guide changes before retrying the unchanged review.')
+        from orchestrator.runtime import Runtime
+        from . import pipelines
+        rt=Runtime(pc.root(state),connection=state.db)
+        stage=state.db.execute("SELECT s.*,p.status AS pipeline_status FROM relay_pipeline_steps s JOIN relay_pipelines p ON p.id=s.pipeline LEFT JOIN production_plans plan ON s.target=plan.id WHERE plan.run=? OR (s.target_kind='production_run' AND s.target=?)",(parent,parent)).fetchone()
+        if stage and (stage['pipeline_status']!='blocked' or stage['error']!='Production blocked; no attempts reset.'):
+            raise ValueError('Workflow pause or another blocker must be resolved first.')
+        rt.retry_review(parent,blocked[0]['id'],job['prompt'],'user_continuation:'+str(job['id']))
+        state.put('production-enabled:'+parent,pc.runtime_digest(rt,parent))
+        state.put('production-control-epoch:'+parent,state.get('production-control-epoch:'+parent,0)+1)
+        if stage:
+            state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(stage['pipeline'],))
+            state.db.execute("UPDATE relay_pipeline_steps SET status='running',error=NULL WHERE pipeline=? AND id=?",(stage['pipeline'],stage['id']))
+            pipelines.event(state,stage['pipeline'],stage['id'],'review_retry_requested',{'run':parent,'request_id':job['id'],'attempts_reset':False})
+        return 'Review recovery scheduled for '+parent+'. The same candidate and remaining attempt allowance are preserved; production is not repeated.'
+    if len(view['tasks'])!=2 and view['status']=='blocked' and state.db.execute(
+            "SELECT 1 FROM production_events e JOIN production_tasks t ON t.run=e.run AND t.id=e.task WHERE e.run=? AND e.kind='revision_limit' AND t.latest=e.attempt AND t.status='blocked'",(parent,)).fetchone():
+        from . import production_review_recovery
+        ident=production_review_recovery.prepare(state,parent,job['prompt'])
+        return 'Review correction planned: '+ident+'. Start approves the saved correction and remaining workflow; no attempts were reset.'
+    if view['status']=='blocked' and not any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):
+        from . import production_browser_recovery
+        ident=production_browser_recovery.prepare_startup(state,parent,job['prompt'])
+        if ident:return 'Browser startup recovery planned: '+ident+'. Use its Start card to resume; completed outputs and reviews are retained.'
     producer = eligible(view)
     if view['research_folder']:
         production_folders.import_research(state,parent)

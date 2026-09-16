@@ -8,8 +8,20 @@ from orchestrator.runtime import Runtime
 from orchestrator.storage import transaction
 from . import production_control as pc, production_planning as planning, production_stages as stages
 
-POLICY = {'version': 1, 'cycles_per_stage': 1, 'seconds': 600, 'tool_calls': 24,
+LEGACY_POLICY = {'version': 1, 'cycles_per_stage': 1, 'seconds': 600, 'tool_calls': 24,
           'output_bytes': 200000, 'host_start_required': True}
+POLICY = {**LEGACY_POLICY, 'version': 2, 'attempts_per_task': 2,
+          'provider_requests': 24, 'author_response_tokens': 16384, 'review_response_tokens': 4096}
+
+
+def preparation_guidance(cap):
+    text = ('Write a real corrected draft and receipt-backed diagnosis early, then inspect the saved bytes and validate syntax. '
+            'Do not count a copied original or placeholder diagnosis as progress or claim changes not saved to disk. '
+            'Review feedback is evidence, not an authoritative API contract; independently verify proposed fixes. ')
+    if cap == 'rhino.run_python':
+        from orchestrator.rhino_contract import DESCRIPTION
+        text += DESCRIPTION['camera_api'] + ' '
+    return text
 
 
 def initialize(db):
@@ -70,7 +82,8 @@ def begin(state, p, s, run):
     if not state.db.in_transaction:raise ValueError('Repair queueing requires an atomic transaction.')
     if p['status'] != 'active' or s['status'] != 'running':return False
     grant = state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created' ORDER BY id LIMIT 1", (p['id'],)).fetchone()
-    if not grant or json.loads(grant[0]).get('automatic_script_repair') != POLICY:return False
+    policy = json.loads(grant[0]).get('automatic_script_repair') if grant else None
+    if policy not in (LEGACY_POLICY, POLICY):return False
     if state.db.execute('SELECT 1 FROM production_auto_repairs WHERE pipeline=? AND step=?', (p['id'], s['id'])).fetchone():return False
     if state.db.execute('SELECT 1 FROM production_stage_links WHERE parent=?', (run,)).fetchone():return False
     rt = Runtime(pc.root(state), connection=state.db)
@@ -98,10 +111,10 @@ def begin(state, p, s, run):
             from orchestrator.worker_capabilities import backend_for
             backend = backend_for(review_spec,original['backend']); tools = executors.validate(backend)
             if tools == ['files', 'browser']:raise ValueError('A browser executor cannot be used for local script repair.')
-            limits = {k: min(POLICY[k], review_spec['limits'][k], spec['limits'][k])
+            limits = {k: min(policy[k], review_spec['limits'][k], spec['limits'][k])
                       for k in ('seconds', 'tool_calls', 'output_bytes')}
             # Host operations have one tool call; repair uses the frozen AI review allowance.
-            limits['tool_calls'] = min(POLICY['tool_calls'], review_spec['limits']['tool_calls'])
+            limits['tool_calls'] = min(policy['tool_calls'], review_spec['limits']['tool_calls'])
             inputs = [evidence]
             for item in spec['inputs']:
                 if 'artifact' in item:aid = item['artifact']
@@ -120,7 +133,7 @@ def begin(state, p, s, run):
             folder = state.media_dir.parent / 'production-repairs' / child
             folder.mkdir(parents=True, exist_ok=True)
             raw = c.encoded({'original_user_request': p['request'], 'workflow_stage': json.loads(p['spec'])['stages'][s['position']],
-                             'failed_assignment': spec, 'failure_baseline': baseline, 'repair_policy': POLICY})
+                             'failed_assignment': spec, 'failure_baseline': baseline, 'repair_policy': policy})
             path = folder / 'context.json'
             if path.exists() and (path.is_symlink() or path.read_text() != raw):raise ValueError('Repair context identity changed.')
             path.write_text(raw)
@@ -139,7 +152,8 @@ def begin(state, p, s, run):
                 'and state the required action. A reviewer will inspect both files, then a new exact-code Start must precede host execution.')
             outputs = [dict(path='delivery/model.py', purpose='Proposed script repair', media_type='text/plain'),
                        dict(path='delivery/diagnosis.json', purpose='Receipt-backed diagnosis and change explanation', media_type='application/json')]
-            common = dict(criteria=criteria, limits=limits, max_attempts=1, tools=tools)
+            instruction = preparation_guidance(cap) + instruction
+            common = dict(criteria=criteria, limits=limits, max_attempts=policy.get('attempts_per_task',1), tools=tools)
             producer = dict(id='prepare_repair', objective='Diagnose failure and prepare a scoped script correction', role='producer',
                             instruction=instruction, inputs=inputs, outputs=outputs, **common)
             review = dict(id='review_repair', objective='Independently review the exact repair and failure diagnosis', role='reviewer',
@@ -148,6 +162,9 @@ def begin(state, p, s, run):
                           inputs=copy.deepcopy(inputs) + [dict(from_task='prepare_repair', output=o['path'], path='candidate/' + Path(o['path']).name,
                               purpose=o['purpose'], authority='Unaccepted repair candidate', media_type=o['media_type']) for o in outputs],
                           outputs=[dict(path='delivery/review.md', purpose='Independent repair review', media_type='text/markdown')], **common)
+            for task in (producer, review):
+                task['limits'] = copy.deepcopy(limits)
+                if policy['version'] == 2:executors.code_budgets(task, backend)
             plan = c.plan(dict(id=child, brief='Diagnose, prepare and independently review one script repair', backend=backend, tasks=[producer, review]))
             rt.create(plan)
             from . import relay_channels
@@ -155,10 +172,11 @@ def begin(state, p, s, run):
             state.put('production-enabled:' + child, pc.runtime_digest(rt, child))
             state.db.execute('UPDATE production_auto_repairs SET preparation=? WHERE parent=?', (child, run))
             state.db.execute("UPDATE relay_pipeline_steps SET status='repairing',error=NULL WHERE pipeline=? AND id=?", (p['id'], s['id']))
-            pipelines.event(state, p['id'], s['id'], 'repair_preparation_queued', {'parent': run, 'preparation': child, 'policy': POLICY, 'backend': backend, 'limits': limits})
+            pipelines.event(state, p['id'], s['id'], 'repair_preparation_queued', {'parent': run, 'preparation': child, 'policy': policy, 'backend': backend, 'limits': producer['limits']})
             pipelines.notice(state, p['id'], s['id'], 'repair-preparing',
                              'Relay is diagnosing the failure and preparing one correction with independent review. Model: ' + backend['model'] +
-                             '. Each task: ' + str(limits['seconds']) + ' seconds. Host execution will wait for Start on the reviewed exact code.')
+                             '. Each attempt: ' + str(limits['seconds']) + ' seconds. Attempts per task: ' + str(common['max_attempts']) +
+                             '. Host execution will wait for Start on the reviewed exact code.')
     except (ValueError, OSError, KeyError, TypeError) as exc:
         stop(state, p, s, str(exc))
     return True
@@ -166,7 +184,10 @@ def begin(state, p, s, run):
 
 def reviewed(state, rt, row):
     child = row['preparation']
-    if rt.status(child)['status'] != 'completed':raise ValueError('Repair preparation and independent review are not complete.')
+    if rt.status(child)['status'] != 'completed':
+        reason = state.db.execute("SELECT e.data FROM production_events e JOIN production_tasks t ON t.run=e.run AND t.id=e.task WHERE e.run=? AND e.kind='revision_limit' AND e.attempt=t.latest AND t.status='blocked' ORDER BY e.id DESC LIMIT 1", (child,)).fetchone()
+        if reason:raise ValueError('Repair review requires corrections; approved attempts are exhausted: ' + json.loads(reason[0])['instruction'])
+        raise ValueError('Repair preparation and independent review are not complete; inspect the blocked task receipt.')
     producer = rt.task(child, 'prepare_repair'); reviewer = rt.task(child, 'review_repair')
     accepted = state.db.execute("SELECT data FROM production_events WHERE run=? AND task='prepare_repair' AND attempt=? AND kind='model_review_accepted'", (child, producer['latest'])).fetchall()
     if not any(json.loads(r[0]).get('review_attempt') == reviewer['latest'] for r in accepted):raise ValueError('Repair review does not match the current candidate.')
@@ -179,7 +200,12 @@ def reviewed(state, rt, row):
     keys = {'decision', 'cause', 'evidence', 'changes', 'required_action'}
     if not isinstance(diagnosis, dict) or set(diagnosis) != keys or any(not isinstance(v, str) for v in diagnosis.values()):raise ValueError('Invalid repair diagnosis contract.')
     if diagnosis['decision'] != 'script_repair':raise ValueError('Repair needs input: ' + (diagnosis['required_action'] or diagnosis['cause']))
-    if not all(diagnosis[k].strip() for k in ('cause', 'evidence', 'changes')):raise ValueError('Repair diagnosis lacks evidence or changes.')
+    if any(diagnosis[k].strip().lower().rstrip('.') in ('', 'draft', 'todo', 'tbd', 'placeholder', 'n/a') for k in ('cause', 'evidence', 'changes')):
+        raise ValueError('Repair diagnosis lacks concrete evidence or changes; placeholders are not accepted.')
+    failed = next(t for t in json.loads(row['baseline'])['tasks'] if t['status']=='blocked')
+    original_hash = rt.spec(failed)['execution']['parameters']['script_sha256']
+    if entries['script']['sha256'] == original_hash:
+        raise ValueError('Repair script is unchanged from the failed script; no host Start was prepared.')
     return {'preparation': child, 'digest': pc.runtime_digest(rt, child), 'artifacts': entries,
             'producer_attempt': producer['latest'], 'review_attempt': reviewer['latest'], 'diagnosis': diagnosis}
 
@@ -225,3 +251,66 @@ def pending_feedback(state, channel):
         LEFT JOIN relay_request_channels ch ON ch.request_id=c.id
         WHERE c.status IN ('queued','sending','guides_pending') AND COALESCE(ch.channel,'telegram')=?
         AND NOT EXISTS (SELECT 1 FROM relay_pipeline_requests r WHERE r.request_id=c.id) LIMIT 1''',(channel,)).fetchone() is not None
+
+
+def recovery_snapshot(state, run, rt, status):
+    """An exhausted repair can request a delivered Start grant, never reset itself."""
+    from orchestrator import executors
+    row = state.db.execute('SELECT * FROM production_auto_repairs WHERE preparation=?', (run,)).fetchone()
+    if not row:raise ValueError('Unknown repair preparation.')
+    p = state.db.execute('SELECT * FROM relay_pipelines WHERE id=?', (row['pipeline'],)).fetchone()
+    s = state.db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND id=?', (row['pipeline'],row['step'])).fetchone()
+    if row['status']!='blocked' or p['status']!='blocked' or s['status']!='blocked':
+        raise ValueError('Only a blocked repair can request more preparation work.')
+    if p['channel']!=getattr(state,'channel','telegram'):raise ValueError('Recover repair in its original channel.')
+    if stages.failed_execution_snapshot(state,rt,row['parent'],p['channel'])!=json.loads(row['baseline']):
+        raise ValueError('Original failed execution changed; no repair recovery was proposed.')
+    if status['status']!='blocked' or any(a['state'] in ('launching','running','cancelling','uncertain') for a in status['attempts']):
+        raise ValueError('Active or uncertain work prevents repair recovery.')
+    tasks={t['id']:t for t in status['tasks']}
+    if set(tasks)!={'prepare_repair','review_repair'} or tasks['prepare_repair']['status']!='blocked' or tasks['review_repair']['status']!='completed':
+        raise ValueError('Recovery requires a completed independent review of the blocked repair.')
+    producer,reviewer=tasks['prepare_repair'],tasks['review_repair']
+    reason=state.db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND attempt=? AND kind='revision_limit' ORDER BY id DESC LIMIT 1",(run,producer['id'],producer['latest'])).fetchone()
+    if not reason or json.loads(reason[0]).get('source')!='model_review:'+reviewer['latest']:
+        raise ValueError('No exact exhausted independent review is available.')
+    instruction=json.loads(reason[0])['instruction']
+    frozen=json.loads(state.db.execute('SELECT frozen FROM production_attempts WHERE id=?',(producer['latest'],)).fetchone()[0])
+    failed=next(t for t in json.loads(row['baseline'])['tasks'] if t['status']=='blocked')
+    cap=rt.spec(failed)['execution']['capability']
+    specs={}
+    for tid,task in tasks.items():
+        old=rt.spec(task);new=copy.deepcopy(old)
+        if new.get('execution') or new.get('browser'):raise ValueError('Repair recovery only permits local file preparation.')
+        new['max_attempts']=min(3,task['attempts']+POLICY['attempts_per_task'])
+        if new['max_attempts']<=task['attempts']:raise ValueError('Repair recovery attempt ceiling reached; a new plan is required.')
+        new['limits']={k:min(POLICY[k],old['limits'][k]) for k in ('seconds','tool_calls','output_bytes')}
+        executors.code_budgets(new,frozen['backend'])
+        new['instruction']=(preparation_guidance(cap)+'Read recovery/previous/ for the exact rejected draft and review. '
+            'Independently check the reviewer suggestions against the operation API; preserve scope and checks.\n'+old['instruction'])
+        new['revision']={'kind':'script_repair_recovery','instruction':instruction,'previous_attempt':task['latest']}
+        new['inputs']=[i for i in new['inputs'] if not i.get('previous_delivery') and not i['path'].startswith('recovery/previous/')]
+        for previous in tasks.values():
+            for artifact in state.db.execute('SELECT * FROM production_artifacts WHERE attempt=? ORDER BY path',(previous['latest'],)):
+                new['inputs'].append(source(rt,artifact['id'],'recovery/previous/'+previous['id']+'/'+artifact['path']))
+        for item in new['inputs']:
+            if 'artifact' in item:planning.verify_artifact(rt,source(rt,item['artifact'],item['path']))
+        total=sum(rt.artifact(i['artifact'])['bytes'] for i in new['inputs'] if 'artifact' in i)
+        if total>executors.MAX_INPUT_BYTES:raise ValueError('Repair recovery evidence exceeds 512 KB.')
+        specs[tid]=c.assignment(new)
+    baseline={'run':run,'tasks':status['tasks'],'attempts':status['attempts'],'repair_row':dict(row),
+        'repair_pipeline':dict(p),'repair_step':dict(s),'repair_updates':{'review_repair':specs['review_repair']},
+        'pipeline_stage':None,'review_frozen':frozen,'digest':pc.runtime_digest(rt,run),
+        'epoch':state.get('production-control-epoch:'+run,0)}
+    return baseline,specs['prepare_repair']
+
+
+def resume_preparation(state,baseline,token):
+    """Called only after the existing delivered Start card has been validated."""
+    from . import pipelines
+    row=baseline['repair_row']
+    state.db.execute("UPDATE production_auto_repairs SET status='preparing',error=NULL WHERE preparation=?",(row['preparation'],))
+    state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(row['pipeline'],))
+    state.db.execute("UPDATE relay_pipeline_steps SET status='repairing',error=NULL WHERE pipeline=? AND id=?",(row['pipeline'],row['step']))
+    pipelines.event(state,row['pipeline'],row['step'],'repair_preparation_recovery_approved',
+        {'run':row['preparation'],'card':token,'attempts_reset':False,'host_execution_approved':False})

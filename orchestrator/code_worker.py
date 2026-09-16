@@ -11,7 +11,7 @@ from .workers import atomic
 
 def definitions():
     return [{'name':'python_run','description':'Run Python in the approved native sandbox. Read exact inputs below os.environ["RELAY_INPUTS"], write declared outputs below os.environ["RELAY_OUTPUTS"]. No network, subprocesses or native apps. Each call is fresh; only declared written outputs persist.',
-             'parameters':{'type':'object','properties':{'code':{'type':'string'},'seconds':{'type':'integer'}},'required':['code','seconds']}}]
+             'parameters':{'type':'object','properties':{'code':{'type':'string','description':'One compact incremental edit, at most 6000 UTF-8 bytes. Load and transform existing data instead of retyping it. Save progress in declared output paths.'},'seconds':{'type':'integer'}},'required':['code','seconds']}}]
 
 
 class CodeFiles(Files):

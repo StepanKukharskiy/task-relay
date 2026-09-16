@@ -18,6 +18,10 @@ from tests import test_task_routing as fixtures
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
+        # Planning fixtures must not discover the developer's installed providers.
+        from orchestrator import worker_capabilities
+        discovery=patch.object(worker_capabilities,'capture',side_effect=lambda state,backend,locked=False:[worker_capabilities.entry(backend)])
+        discovery.start();self.addCleanup(discovery.stop)
         with self.state.db:
             self.state.put('production-planner-policy',{'backend':pair()['backend']})
         self.factory=FakeFactory()
@@ -61,6 +65,29 @@ class Tests(unittest.TestCase):
 
     def start(self,row):
         self.bridge.flush(False);self.click(row['token'])
+
+    def test_new_plan_corrects_draft_once_without_another_start(self):
+        row=self.ready();self.assertIn('2 attempt(s)',planning.preview(row))
+        self.start(row)
+        worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+        first=self.rt.task('production-1','produce')['latest']
+        self.factory.finish(first);worker.tick()
+        review=self.rt.task('production-1','review')['latest']
+        self.factory.finish(review,decision='revise');worker.tick();worker.tick()
+        second=self.rt.task('production-1','produce')['latest']
+        self.assertNotEqual(first,second)
+        self.assertEqual(self.rt.task('production-1','produce')['attempts'],2)
+        self.assertTrue(any(i.get('previous_delivery') for i in self.factory.sessions[second]['frozen']['inputs']))
+        self.factory.finish(second);worker.tick()
+        self.factory.finish(self.rt.task('production-1','review')['latest'],decision='accept');worker.tick()
+        self.assertEqual(self.rt.status('production-1')['status'],'awaiting_user')
+        self.assertEqual(len(self.factory.calls),4)
+
+    def test_saved_one_attempt_plan_does_not_gain_a_revision(self):
+        row=dict(self.queue());payload=json.loads(row['context']);payload['options']['max_attempts']=1
+        row['context']=json.dumps(payload);row['options']=json.dumps(payload['options'])
+        _,plan=planning.validate_result(json.dumps(self.response()),row)
+        self.assertEqual([t['max_attempts'] for t in plan['tasks']],[1,1])
 
     def test_request_to_review_delivery_once(self):
         row=self.ready()
@@ -193,7 +220,7 @@ class Tests(unittest.TestCase):
         bad=self.response();bad['plan']['tasks'][1]['inputs']=[];cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['dependencies']=['review'];cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['inputs']=[dict(artifact='unknown',path='x',purpose='x',authority='x')];cases.append(bad)
-        bad=self.response();bad['plan']['tasks'][0]['max_attempts']=2;cases.append(bad)
+        bad=self.response();bad['plan']['tasks'][0]['max_attempts']=3;cases.append(bad)
         for value in cases:
             with self.subTest(value=value),self.assertRaises((ValueError,KeyError)):
                 planning.validate_result(json.dumps(value),row)

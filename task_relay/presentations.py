@@ -12,13 +12,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('schema', help='Show the supported slide specification')
+    commands.add_parser('templates', help='Show reusable slide layouts and their content slots')
     create = commands.add_parser('create')
     create.add_argument('specification', type=Path)
     create.add_argument('--image', action='append', default=[], help='Declared relative image path, resolved beside the specification; repeat as needed')
+    create.add_argument('--image-bundle', action='append', default=[], help='Exact images.collect ZIP beside the specification; repeat as needed')
     create.add_argument('--output-dir', type=Path, required=True, help='New directory; existing output directories are never overwritten')
     args = parser.parse_args(argv)
     if args.command == 'schema':
         print(pptx_document.DESCRIPTION)
+        return 0
+    if args.command == 'templates':
+        from orchestrator.slide_templates import CATALOG, COLLECTION_LAYOUTS, STYLES
+        print(json.dumps(dict(layouts=CATALOG,collections=COLLECTION_LAYOUTS,styles=STYLES),indent=2))
         return 0
     try:
         if args.specification.is_symlink():
@@ -27,18 +33,20 @@ def main(argv=None):
             raise ValueError('Slide specification exceeds 2 MB.')
         source = args.specification.read_bytes()
         inputs = [{'path': args.specification.name, 'sha256': hashlib.sha256(source).hexdigest()}]
-        images = {}
+        images = {};bundles={}
         total = len(source)
-        if len(args.image) > 49 or len(args.image) != len(set(args.image)):
+        names=args.image+args.image_bundle
+        if len(names) > 49 or len(names) != len(set(names)):
             raise ValueError('Use at most 49 unique declared images.')
-        for name in args.image:
+        for name in names:
             path = safe_file(args.specification.resolve().parent, name)
             total += path.stat().st_size
             if total > 50000000:
                 raise ValueError('Presentation inputs exceed 50 MB.')
-            images[name] = path.read_bytes()
-            inputs.append({'path': name, 'sha256': hashlib.sha256(images[name]).hexdigest()})
-        data, evidence = pptx_document.create(pptx_document.load(source.decode('utf-8')), images)
+            raw=path.read_bytes()
+            (bundles if name in args.image_bundle else images)[name]=raw
+            inputs.append({'path': name, 'sha256': hashlib.sha256(raw).hexdigest()})
+        data, evidence = pptx_document.create(pptx_document.load(source.decode('utf-8')), images,bundles=bundles)
         # Reserve one candidate directory. Failure never replaces an earlier run.
         args.output_dir.mkdir(parents=True, exist_ok=False)
         target = args.output_dir / 'presentation.pptx'

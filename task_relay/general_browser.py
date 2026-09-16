@@ -236,6 +236,15 @@ class PlaywrightDriver:
 def browser(data,policy,*,headless=False):
     validate(policy)
     from .browser_sites import PROFILE
+    if policy.get('session_source')=='settings':
+        from .managed_browser import context as managed_context
+        from .perplexity_browser import profile_lock as managed_lock
+        # Settings sign-in and standalone jobs use this same lock/profile.
+        with managed_lock(data),managed_context(data) as context:
+            driver=PlaywrightDriver(context,policy,attached=True)
+            try:yield driver
+            finally:driver.detach()
+        return
     if policy['profile']==PROFILE:
         from .host_browser_accounts import browser as accounts_browser
         with accounts_browser(data,policy,headless) as driver:yield driver

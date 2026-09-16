@@ -41,7 +41,8 @@ class Scripted:
         self.calls.append(copy.deepcopy(payload));n=len(self.calls)
         if self.mode=='uncertain':raise gemini.ProviderError('Disconnected',uncertain=True)
         if self.mode=='wait' and n==2:time.sleep(30)
-        if self.mode=='loop':name,args='file_list',{}
+        if self.mode=='finish-only':name,args='finish',report(self.frozen)
+        elif self.mode=='loop':name,args='file_list',{}
         elif n==1 and self.frozen['inputs']:
             name,args='file_read',dict(path=self.frozen['inputs'][0]['path'],offset=0,limit=24000)
         elif n==(2 if self.frozen['inputs'] else 1):
@@ -82,6 +83,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(result['decision'],'delivered')
         self.assertEqual((self.ws/'output.txt').read_text(),'bounded fixture output')
         self.assertEqual(len(list(self.control.glob('api-*.response.json'))),2)
+
+    def test_review_finish_saves_exact_judgment_without_duplicate_write_call(self):
+        self.frozen['review_of']='producer';self.frozen['outputs']=[{'path':'findings.md','purpose':'Independent findings'}]
+        result,client=self.run_script('finish-only')
+        self.assertEqual(result['decision'],'accept');self.assertEqual(len(client.calls),1)
+        text=(self.ws/'findings.md').read_text()
+        self.assertIn(result['summary'],text)
+        self.assertTrue(all(check['evidence'] in text for check in result['checks']))
+
+    def test_producer_finish_does_not_fabricate_missing_outputs(self):
+        with self.assertRaisesRegex(ValueError,'request budget'):self.run_script('finish-only')
+        self.assertFalse((self.ws/'output.txt').exists())
 
     def test_files_reject_undeclared_reads_writes_and_symlink_parents(self):
         files=Files(self.frozen)
@@ -124,6 +137,22 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(list(self.control.glob('api-*.request.json'))),8)
         self.assertFalse((self.ws/'.relay/result.json').exists())
 
+    def test_file_workers_reserve_final_request_and_enforce_allowed_tools(self):
+        with self.assertRaisesRegex(ValueError,'request budget'):self.run_script('loop')
+        last=json.loads((self.control/'api-08.request.json').read_text())['payload']
+        self.assertEqual([t['name'] for t in last['tools'][0]['functionDeclarations']],['finish'])
+        self.assertIn('request 8 of 8',last['systemInstruction']['parts'][0]['text'])
+        self.assertIn('Tool unavailable',json.loads((self.control/'tool-08-00.json').read_text())['result']['error'])
+
+    def test_failed_agent_reason_survives_the_supervisor_receipt(self):
+        from orchestrator.workers import CodexFactory
+        atomic(self.control/'agent-result.json',{'outcome':'failed','reason':'Provider request budget exhausted'})
+        session={'control':str(self.control),'backend':BACKEND}
+        with patch.object(CodexFactory,'inspect',return_value={'status':'finished','exit_code':1,'reason':None}):
+            receipt=GeminiFactory().inspect(session)
+        self.assertEqual(receipt['reason'],'Provider request budget exhausted')
+        self.assertEqual(receipt['external_outcome'],'no_pending_response')
+
     def test_tool_limit_prevents_a_second_write(self):
         self.frozen['limits']['tool_calls']=1
         with self.assertRaisesRegex(ValueError,'Tool budget'):self.run_script()
@@ -150,13 +179,17 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'fallback'):c.plan(p)
         with self.assertRaisesRegex(ValueError,'fallback'):ExecutionFactory().adapter({'adapter':'unknown'})
 
-    def test_eligibility_is_credential_bound_expires_and_failed_probe_invalidates(self):
+    def test_file_eligibility_persists_but_credential_changes_and_failed_probe_invalidate(self):
         with patch.object(executors,'receipt_path',return_value=self.control/'verification.json'),patch.object(executors,'configured',return_value=(CONFIG,BACKEND)):
             with patch.object(gemini.Client,'request',return_value={'name':'models/fixture-model','supportedGenerationMethods':['generateContent']}):
                 result=executors.probe();self.assertNotIn('fingerprint',result);executors.available(BACKEND)
             with patch.object(executors,'configured',return_value=({'api_key':'changed'},BACKEND)):
                 with self.assertRaisesRegex(ValueError,'stale'):executors.available(BACKEND)
-            with patch.object(executors.time,'time',return_value=time.time()+1000):
+            with patch.object(executors.time,'time',return_value=time.time()+86400):
+                executors.available(BACKEND)
+                receipt=json.loads((self.control/'verification.json').read_text())
+                self.assertTrue(executors.verification_current(receipt,CONFIG,BACKEND))
+            with patch.object(executors.time,'time',return_value=1):
                 with self.assertRaisesRegex(ValueError,'stale'):executors.available(BACKEND)
             with patch.object(gemini.Client,'request',side_effect=gemini.ProviderError('Rejected')):
                 with self.assertRaises(gemini.ProviderError):executors.probe()

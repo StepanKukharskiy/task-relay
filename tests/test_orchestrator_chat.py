@@ -210,6 +210,18 @@ class Tests(unittest.TestCase):
         self.assertEqual([c[0] for c in calls],[1,2])
         self.assertEqual(calls[1][1]['history'][0]['prompt'],'why?')
 
+    def test_interpreted_typo_is_disclosed_and_original_request_retained(self):
+        original='сщтештгу щгк игддруфв сшен зкуыутефешщт'
+        self.message(original)
+        result=dict(answer='A recovery proposal.',action=self.action(),
+                    interpreted_request='continue our bullhead city presentation')
+        chat.Worker(self.state,lambda *_:json.dumps(result)).tick()
+        row=self.state.db.execute('SELECT prompt,answer,response FROM orchestrator_chats').fetchone()
+        self.assertEqual(row['prompt'],original)
+        self.assertIn('Interpreted your message as: continue our bullhead city presentation',row['answer'])
+        self.assertIn('tap the button',row['answer'])
+        self.assertEqual(json.loads(row['response'])['interpreted_request'],result['interpreted_request'])
+
     def test_input_parser_rejects_duplicate_keys_and_unsupported_actions(self):
         snap=chat.snapshot(self.state,None)
         for raw in ('{"answer":"a","answer":"b","action":null}', self.result(dict(self.action(),kind='shell')),

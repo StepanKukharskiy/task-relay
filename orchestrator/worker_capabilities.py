@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 from . import executors
 
 CAPABILITIES = {
+    'images.view': 'Visually inspect declared local image pixels, not just metadata or Python statistics.',
     'files.text': 'Read declared text and write text deliverables.',
     'files.binary': 'Inspect or produce binary files using local file/code tools; format libraries must be checked separately.',
     'code.execute': 'Execute local code within the selected adapter boundaries (Codex shell or isolated Python); native registered operations remain separate.',
@@ -24,6 +25,7 @@ def abilities(backend):
     tools = executors.validate(backend)
     result = ['files.text']
     if 'shell' in tools or 'python' in tools:result += ['files.binary', 'code.execute']
+    if backend['type']=='codex-cli':result += ['images.view']
     if 'browser' in tools:result += ['browser.use','browser.capture']
     return result
 
@@ -69,6 +71,7 @@ def has_binary(task):
 
 def matches(task, required, backend):
     caps = set(abilities(backend))
+    if any(i.get('visual_reference') for i in task.get('inputs',[])) and 'images.view' not in caps:return False
     # Never grant website access merely to satisfy a text-only role.
     if ('browser.use' in caps) != ('browser.use' in required):return False
     if any(i['path'].startswith('operation-support/') and i['path'].endswith('/validate.py')
@@ -97,9 +100,12 @@ def resolve(task, catalog, default):
                   and matches(task, required, x['backend'])]
     if not candidates:
         raise ValueError('No eligible worker for '+', '.join(required)+'. Check required file formats and available executors; no fallback or installation.')
-    # Preserve the selected default when it fits; otherwise use a stable catalog
-    # order. A different backend must be disclosed and approved before dispatch.
-    candidates.sort(key=lambda x: (x['backend'] != default, len(x['capabilities']), x['id']))
+    # Automatic composition uses the narrowest suitable adapter, preferring
+    # bounded API file/Python workers over a general shell. Named executors are
+    # filtered above; locked catalogs contain only the user's chosen profile.
+    # Model names are configured, never invented or ranked by guessed cost.
+    candidates.sort(key=lambda x: (len(x['capabilities']), x['id']=='codex-cli',
+                                   x['backend'] != default, x['id']))
     chosen = candidates[0]
     expected = executors.validate(chosen['backend'])
     if 'tools' in task and task['tools'] != expected:

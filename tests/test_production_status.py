@@ -96,6 +96,38 @@ class Tests(unittest.TestCase):
         self.assertIn('Current continuation of demo',text)
         self.assertIn('attempt 0/1',text)
 
+    def test_blocker_reason_and_task_spacing_in_status_and_terminal_cards(self):
+        self.click(self.stage_card()['token']);worker=self.worker();worker.tick()
+        aid=self.rt.task('demo','produce')['latest']
+        self.factory.sessions[aid]['status']={'status':'finished','exit_code':1,
+            'external_outcome':'no_pending_response','pending_requests':[],
+            'reason':'ValueError: Provider response rejected: MALFORMED_FUNCTION_CALL; bounded recovery exhausted.'}
+        worker.tick()
+        _,current=status.current(self.state,'demo')
+        terminal=self.state.db.execute("SELECT text FROM outbox WHERE id LIKE 'production:demo:result:%' ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+        for text in (current,terminal):
+            self.assertIn('Why blocked: The AI returned an invalid tool call',text)
+            self.assertIn('Technical detail:',text)
+            self.assertIn('MALFORMED_FUNCTION_CALL',text)
+            self.assertIn('\n\nproduce:',text)
+            self.assertIn('\n\nreview:',text)
+        self.assertIn('Waiting for produce (blocked)',current)
+
+    def test_legacy_generic_failure_uses_saved_reason_without_changing_receipt(self):
+        _,aid=self.blocked_revision()
+        control=self.rt.root/'legacy-response';control.mkdir()
+        (control/'api-16.request.json').write_text('{}')
+        (control/'api-16.response.json').write_text(json.dumps({'candidates':[{
+            'finishReason':'MALFORMED_FUNCTION_CALL','finishMessage':'private generated code omitted'}]}))
+        with self.state.db:
+            self.state.db.execute('UPDATE production_attempts SET error=?,session=? WHERE id=?',
+                ('ValueError: Incomplete provider response; retained without retry.',json.dumps({'control':str(control)}),aid))
+        before=dict(self.state.db.execute('SELECT * FROM production_attempts WHERE id=?',(aid,)).fetchone())
+        _,text=status.current(self.state,'demo')
+        self.assertIn('Why blocked: The AI returned an invalid tool call',text)
+        self.assertNotIn('private generated code',text)
+        self.assertEqual(dict(self.state.db.execute('SELECT * FROM production_attempts WHERE id=?',(aid,)).fetchone()),before)
+
     def test_status_button_preserves_action_buttons_and_review_gate(self):
         row=self.stage_card()
         markup=chat.controls(self.state,'orchestrator:'+str(row['job_id']))

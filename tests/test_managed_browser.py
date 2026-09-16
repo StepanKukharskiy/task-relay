@@ -67,6 +67,42 @@ class SetupTests(unittest.TestCase):
                 self.assertIs(driver.page, page)
         self.assertEqual(seen, [self.paths.data])
 
+    def test_general_worker_uses_settings_context_and_shared_job_lock(self):
+        from task_relay import general_browser,perplexity_browser
+        from tests.test_general_browser import policy
+        context=Mock();driver=Mock();events=[]
+        @contextmanager
+        def lock(data):
+            events.append('locked');yield;events.append('unlocked')
+        @contextmanager
+        def saved(data):
+            self.assertEqual(events,['locked']);yield context
+        with patch.object(perplexity_browser,'profile_lock',lock),patch.object(browser,'context',saved),patch.object(general_browser,'PlaywrightDriver',return_value=driver) as factory:
+            with general_browser.browser(self.paths.data,policy(profile='managed',session_source='settings')) as actual:
+                self.assertIs(actual,driver)
+            factory.assert_called_once_with(context,policy(profile='managed',session_source='settings'),attached=True)
+            driver.detach.assert_called_once()
+        self.assertEqual(events,['locked','unlocked'])
+
+    def test_legacy_managed_profile_does_not_switch_to_settings_session(self):
+        from task_relay import general_browser
+        from tests.test_general_browser import policy
+        with patch.object(general_browser,'profile_lock',side_effect=ValueError('Legacy profile')),patch.object(browser,'context') as saved:
+            with self.assertRaisesRegex(ValueError,'Legacy profile'):
+                with general_browser.browser(self.paths.data,policy(profile='managed')):pass
+            saved.assert_not_called()
+
+    def test_general_managed_browser_respects_off_and_manual_signin(self):
+        from task_relay.general_browser import browser as general
+        from tests.test_general_browser import policy
+        for saved,message in [({'version':1,'enabled':False},'off'),
+                              ({'version':1,'enabled':True,'manual_sign_in':True},'Complete sign-in')]:
+            credentials.save(self.paths.data/'browser-use.json',saved)
+            with patch.object(chrome,'ensure') as launch:
+                with self.assertRaisesRegex(ValueError,message):
+                    with general(self.paths.data,policy(profile='managed',session_source='settings')):pass
+                launch.assert_not_called()
+
     def test_profile_link_is_rejected_without_launch(self):
         with chrome.setup_lock(self.paths.data) as root:
             (root/'chrome-profile').symlink_to(self.paths.workspaces, target_is_directory=True)
@@ -108,6 +144,34 @@ class SetupTests(unittest.TestCase):
             self.assertIn('--remote-debugging-port=0', command)
             self.assertIn('--remote-debugging-address=127.0.0.1', command)
             self.assertEqual(credentials.private_json(root/'chrome-process.json')['pid'], 23456)
+
+    def test_slow_chrome_start_reuses_one_launch_and_keeps_profile(self):
+        clock=[0.0]
+        def sleep(seconds):clock[0]+=seconds
+        socket='ws://127.0.0.1:9223/devtools/browser/slow'
+        with chrome.setup_lock(self.paths.data) as root:
+            profile=root/'chrome-profile';profile.mkdir();marker=profile/'saved-session';marker.write_text('retained')
+            host=Mock(spec=Host);host.process_matches.return_value=False
+            host.spawn.return_value.pid=23456;host.spawn.return_value.poll.return_value=None
+            with patch.object(chrome,'chrome_path',return_value=Path('/fixture/Chrome')), \
+                 patch.object(chrome,'live_socket',side_effect=lambda _:socket if clock[0]>=10 else None), \
+                 patch.object(chrome.time,'monotonic',side_effect=lambda:clock[0]),patch.object(chrome.time,'sleep',sleep):
+                self.assertEqual(chrome.ensure(root,host=host),socket)
+            host.spawn.assert_called_once();self.assertGreaterEqual(clock[0],10)
+            self.assertEqual(host.spawn.call_args.args[0][-1],'chrome://newtab/')
+            self.assertEqual(marker.read_text(),'retained')
+
+    def test_startup_remains_bounded_without_relaunch_or_termination(self):
+        clock=[0.0]
+        with chrome.setup_lock(self.paths.data) as root:
+            host=Mock(spec=Host);host.process_matches.return_value=True
+            with patch.object(chrome,'chrome_path',return_value=Path('/fixture/Chrome')), \
+                 patch.object(chrome,'live_socket',return_value=None),patch.object(chrome.os,'kill') as kill, \
+                 patch.object(chrome.time,'monotonic',side_effect=lambda:clock[0]), \
+                 patch.object(chrome.time,'sleep',side_effect=lambda seconds:clock.__setitem__(0,clock[0]+seconds)):
+                with self.assertRaisesRegex(ValueError,'startup limit'):chrome.ensure(root,host=host)
+            host.spawn.assert_not_called();kill.assert_not_called()
+            self.assertGreaterEqual(clock[0],30);self.assertLess(clock[0],31)
 
     def test_manual_sign_in_prevents_worker_attachment_until_explicit_done(self):
         with patch.object(browser.HOST, 'browser_python', return_value='/fixture/python'), patch.object(chrome, 'open_manual'):

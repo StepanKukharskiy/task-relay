@@ -59,6 +59,13 @@ class GeminiFactory(CodexFactory):
         elif session['backend']['type'] in executors.BROWSER_TYPES:
             unknown.append('missing_browser_receipt')
         result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
+        agent_result=control/'agent-result.json'
+        if result.get('exit_code') and not result.get('reason') and agent_result.is_file() and not agent_result.is_symlink() and agent_result.stat().st_size<=200000:
+            try:
+                detail=json.loads(agent_result.read_text())
+                if detail.get('outcome')=='failed' and isinstance(detail.get('reason'),str):
+                    result['reason']=detail['reason'][:1800]
+            except (ValueError,OSError,AttributeError):pass
         if unknown and not (control/'cancel.json').exists():
             result.update(status='uncertain',local_terminal=True,reason='Provider, browser or code outcome is unknown; stopped locally, never replayed or switched providers.')
         return result

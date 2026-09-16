@@ -12,6 +12,29 @@ from tests import test_orchestrator_files as file_fixtures
 
 
 class ContextTests(unittest.TestCase):
+    def test_current_workers_survive_large_context_after_historical_blocker(self):
+        payload=self.payload()
+        catalog=[{'id':'worker-'+str(i),'backend':{'type':'fixture','model':'fixture'},
+                  'available':False,'capabilities':['files.text'],'permissions':'Long permission '*1000} for i in range(15)]
+        catalog[-1]={'id':'gemini-browser','backend':{'type':'gemini-browser','model':'fixture'},
+                     'available':True,'capabilities':['files.text','browser.use','browser.capture']}
+        payload['snapshot']['capabilities']={'graph_executors':catalog,
+            'graph_operations':[{'id':'pptx.create','available':True,'schema':'Details '*20000}]}
+        payload['snapshot']['production_plans']=[{'status':'blocked','options':{'worker_catalog':catalog[:3]},
+            'result':{'message':'No browser was available when this old plan was captured.'}}]
+        original=copy.deepcopy(payload)
+        for budget in (160000,35000):
+            with self.subTest(budget=budget),patch.object(context,'MAX_OVERVIEW',budget):
+                small=context.overview(payload)
+                current=small['current_execution_availability']
+                self.assertTrue(current['complete'])
+                browser=current['executors'][-1]
+                self.assertTrue(browser['available']);self.assertIn('browser.capture',browser['capabilities'])
+                full=context.Evidence(payload).execute({'arguments':json.dumps({'pointer':browser['catalog_pointer'],'offset':0,'limit':16000})})
+                self.assertEqual(json.loads(full['text']),catalog[-1])
+                self.assertLessEqual(len(context.encoded(small).encode()),budget)
+        self.assertEqual(payload,original)
+
     def test_short_choice_keeps_latest_exchange_with_original_history_pointer(self):
         payload = self.payload()
         payload['user_message'] = 'concept 1'

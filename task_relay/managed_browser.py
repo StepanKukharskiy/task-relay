@@ -99,7 +99,7 @@ def sign_in_lock(paths):
 
 
 @contextmanager
-def page(data):
+def context(data):
     with chrome.setup_lock(data) as root:
         saved = preference(data)
         if not saved or not saved['enabled']:
@@ -112,7 +112,13 @@ def page(data):
     with sync_playwright() as runtime:
         remote = attach(runtime, socket)
         try:
-            # Each job owns its new tab; its receipt controls any submission.
-            yield remote.contexts[0].new_page()
+            yield remote.contexts[0]
         finally:
             remote.close()
+
+
+@contextmanager
+def page(data):
+    with context(data) as browser:
+        # The caller holds the shared browser-job lock.
+        yield browser.new_page()

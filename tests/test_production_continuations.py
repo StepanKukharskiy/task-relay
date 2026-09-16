@@ -20,6 +20,25 @@ class Tests(unittest.TestCase):
     finish_stage=fixtures.Tests.finish_stage
     blocked_revision=fixtures.Tests.blocked_revision
 
+    def test_continue_retries_only_failed_api_review_within_approved_budget(self):
+        from tests.test_orchestrator import pair
+        from orchestrator import executors
+        value=pair(max_attempts=2);value['id']='api-review';value['backend']={'type':'gemini-agent','model':'fixture'}
+        for task in value['tasks']:task.update(tools=['files'],limits=executors.GEMINI_LIMITS.copy())
+        self.rt.create(value);self.rt.tick('api-review')
+        producer=self.rt.task('api-review','produce')['latest'];self.factory.finish(producer);self.rt.tick('api-review')
+        first=self.rt.task('api-review','review')['latest']
+        self.factory.sessions[first]['status']={'status':'finished','exit_code':1,'external_outcome':'no_pending_response','pending_requests':[]}
+        self.rt.tick('api-review')
+        with self.rt.transaction():text=cont.enqueue(self.state,{'id':799,'prompt':'Continue the same independent review.'},'api-review')
+        self.assertIn('Review recovery scheduled',text)
+        self.assertEqual(self.rt.task('api-review','produce')['latest'],producer)
+        self.rt.tick('api-review');second=self.rt.task('api-review','review')['latest']
+        self.assertNotEqual(first,second);self.assertEqual(self.rt.task('api-review','review')['attempts'],2)
+        self.factory.finish(second,decision='accept');self.rt.tick('api-review')
+        self.assertEqual(self.rt.status('api-review')['status'],'completed')
+        self.assertEqual(len(self.factory.calls),3)
+
     def queue(self, ident=700, text='Continue the script using the supplied research.', parent='demo'):
         self.message('/orchestrator '+text,ident)
         action={'kind':'continue_production','workflow':parent,'items':None,'direction':'Update using research'}
