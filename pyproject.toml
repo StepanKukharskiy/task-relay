@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.13.54"
+version = "0.13.60"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"

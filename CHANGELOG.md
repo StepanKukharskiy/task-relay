@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.60 — first-run workflow planning
+
+- Let fresh installations plan with a verified configured file worker without a
+  saved production default or previous run, preferring the conversation provider.
+- Preserve exact models, explicit executor choices, saved assignments and Start
+  approval. Missing workers point to Check worker connection.
+- Add eight controlled first-run admission and failure/recovery regressions.
+
 ## 0.13.54 — native inspection and release downloads
 
 - Resolve website download links and version labels from the newest complete

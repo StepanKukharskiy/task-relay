@@ -12,7 +12,24 @@ Planning-only requests expose no Start button. A later explicit execution reques
 
 The default scope is exactly two dependent workers, one attempt each, at most **600 seconds / 60 observed tool calls / 100 MB outputs per worker**. O06 adds explicit `step_capabilities` for [mixed text graphs](mixed-execution.md) of 2–6 steps with smaller registered-operation limits. Complete selected reference bundles travel to all steps; **150 MB total distinct selected inputs** is the overall limit, and each operation enforces its smaller input bound. Oversized bundles stop rather than silently dropping dependencies. Separate selected research, guides, conversation and exact current request are required inputs as well. These bounds do not establish a token or dollar cap for agent execution.
 
-The planner uses the conversation's configured provider/model. The worker backend comes from `production-planner-policy.backend`, or the most recently registered production backend; it is frozen at enqueue and must be `codex-cli`. No worker model is invented when neither exists. Planning permits **two calls maximum**, the second only for structural correction, with 10,000 output tokens per call and a 400,000-character request bound including correction. Existing provider transport timeouts are at most 180 seconds. Provider failures or interrupted submissions are retained without automatic retries.
+The planner uses the conversation's configured provider/model. Existing stages and
+clarifications retain their frozen worker backend; an explicit executor choice takes
+precedence and locks the worker catalog. Otherwise the worker backend comes from
+`production-planner-policy.backend`, or the most recently registered production
+backend. For a fresh installation with neither, Relay selects an available verified
+file worker, preferring the conversation provider, then a stable executor-ID order
+before Codex. Browser and code profiles remain task-specific choices, not bootstrap
+defaults. Models come from verified configuration and are frozen at enqueue; no
+model is invented. If no worker is ready, connect a provider and select its text
+model, then use **Apps and tools → Code and document tools → Worker provider →
+Check worker connection**. Explicit or saved assignments that become unavailable
+fail rather than silently switching providers. A proposed plan still requires its
+existing execution approval; selecting a planning default does not start a worker.
+
+Planning permits **two calls maximum**, the second only for structural correction,
+with 10,000 output tokens per call and a 400,000-character request bound including
+correction. Existing provider transport timeouts are at most 180 seconds. Provider
+failures or interrupted submissions are retained without automatic retries.
 
 Generated, known-template and adapted-template plans use the same validator. Template snapshots and actual modifications are retained; reusable templates are unchanged. O05 adds `previous_run` for a completed stage with recorded selections: exact selected versions, prior instructions and original job identity become required inputs to both workers. One successor is retained per stage; clarification uses `parent_id` on its saved proposal. See [stage control and progress](production-selections.md). Telegram transport and approval paths have controlled tests; they do not establish deployed Telegram delivery.
 

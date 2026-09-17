@@ -1,46 +1,42 @@
-# Task Relay 0.13.54
+# Task Relay 0.13.60
 
-Mac beta refresh for workflow continuity, presentation creation and native model recovery.
+Fixes workflow planning on a fresh installation. This focused update builds on
+published 0.13.54 and retains its existing capabilities.
 
-## What changed since 0.13.26
+## What changed
 
-- More reliable artifact handoffs across research, native models, image work and
-  presentations. Uploaded reference images retain their exact versions and reach
-  capable workers; native inspectors receive only the explicitly selected model.
-- Clearer blocked-stage explanations and progress cards, including provider request
-  budgets, token usage and separate task sections. Saved, unexecuted plans can be
-  recovered without repeating completed work or losing their failure receipts.
-- Focused, independently reviewed Rhino/Blender script corrections preserve prior
-  results and require a separate Start before executing changed native code.
-- Reusable presentation layouts, image grids, authentic image sourcing and bounded
-  correction paths improve editable PPTX assembly. Optional missing plant photos
-  can be omitted when the request permits it.
-- Browser capture and review improvements, explicit source contracts, workflow
-  output folders and clearer result handoff.
-- Website downloads now discover complete published GitHub releases, including
-  betas, without a website edit for each app release. Version labels, Mac downloads,
-  CLI source and checksums come from the same release.
+- New installations can plan with an already configured and verified file worker,
+  without needing a saved production policy or an earlier workflow. Relay prefers
+  the conversation provider and freezes the exact configured model.
+- Explicit worker choices and saved assignments remain fixed. If no worker is
+  ready, Relay points to Check worker connection instead of an internal policy key.
+- Planning still presents the existing approval boundary before production starts.
+  Historical failed requests and responses remain saved and are not replayed.
 
 ## Install or upgrade
 
-Download Task-Relay-0.13.54-arm64.dmg for Apple Silicon and macOS 14 or later.
-Quit Task Relay, open the DMG, replace Task Relay in Applications, and reopen it.
-Keep your existing data folder. If Settings offers Review service handoff, complete
-it for existing Telegram and Messages services.
+For Apple Silicon Macs running macOS 14 or later, download
+Task-Relay-0.13.60-arm64.dmg. Quit Task Relay, replace the app in Applications,
+and reopen it. Keep the same saved data folder.
 
-Compatible apps from 0.13.26 onward can use Settings → App updates → Download
-update → Install and restart. Enable Include beta releases to see this package.
-Earlier apps need the manual DMG installation because their service commands differ.
+Apps from 0.13.26 onward can use Settings → App updates. Enable Include beta
+releases, click Check for updates, Download update, then Install and restart.
+Earlier apps need the manual DMG installation and any offered service handoff.
 The matching CLI source includes install.sh; a Python wheel does not update the app.
 
-This remains a beta: locally signed, without Apple Developer ID or notarization.
-macOS may require Privacy & Security → Open Anyway and refreshed permissions.
-Windows 10+ support is under development; no Windows installer is included.
+If worker setup is still needed, connect a provider and select its text model,
+then use Apps and tools → Code and document tools → Worker provider → Check worker
+connection. Ask Relay to continue the saved request after updating; the update
+itself does not replay failed work.
+
+This remains a locally signed beta without Apple Developer ID or notarization.
+The signing identity is retained for compatible in-app updates. No Windows or
+Intel Mac installer is included.
 
 ## Validation scope
 
-Targeted controlled tests accompany the individual workflow fixes. Release checks
-cover updater compatibility, publication and website discovery/download behavior.
-The built app matches the locally installed 0.13.54 runtime. Native geometry quality,
-paid providers, clean-host installation and Windows execution were not requalified
-as part of this packaging release.
+Controlled first-run planning, provider/model preservation, workflow recovery,
+desktop planning and updater checks use synthetic data. Packaging checks verify
+bundled dependencies, matching app/runtime versions, code signatures and asset
+checksums. No live provider job, Rhino modeling or clean-host installation is
+claimed for this release.

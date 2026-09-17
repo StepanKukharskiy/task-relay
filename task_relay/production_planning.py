@@ -291,7 +291,18 @@ def enqueue(state,job,action,snap):
     if backend is None:
         row=state.db.execute('SELECT plan FROM production_runs ORDER BY rowid DESC LIMIT 1').fetchone()
         if row:backend=json.loads(row['plan'])['backend']
-    if not backend:raise ValueError('Configure a production-planner-policy backend before planning; no worker model was guessed.')
+    if backend is None:
+        from orchestrator import executors
+        # Bootstrap only new, unassigned work from verified configuration. Browser
+        # and code profiles remain task-specific choices in the frozen catalog.
+        candidates=[x for x in executors.catalog(state) if x['available']
+                    and x['id'] in (*executors.FILE_TYPES,'codex-cli')]
+        candidates.sort(key=lambda x:(x['id']!=job['provider']+'-agent',
+                                      x['id']=='codex-cli',x['id']))
+        if candidates:backend=copy.deepcopy(candidates[0]['backend'])
+    if not backend:
+        raise ValueError('No verified production worker is available. In Relay, connect a provider, '
+                         'select its text model, then select its Worker provider and click Check worker connection')
     from orchestrator import executors
     tools=executors.validate(backend)
     executors.available(backend)

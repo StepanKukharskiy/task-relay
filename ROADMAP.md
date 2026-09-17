@@ -5,6 +5,18 @@ requests, artifact versions and human decisions. Telegram is the initial common
 interface. The implementation is in active development; implemented scope does not
 mean every provider, platform or delivery path has live qualification.
 
+### First-run workflow planning — 0.13.60
+
+Implemented: fresh installations select a verified file worker when no saved
+production default or prior run exists, preferring the conversation provider.
+Existing assignments and explicit choices remain fixed. Missing-worker guidance
+points to Check worker connection; planning does not start production workers.
+Eight controlled fresh-state regressions cover admission, readiness, failure
+receipts, later setup recovery and provider/model preservation. This release
+builds on the published 0.13.54 baseline. Packaging and updater validation are
+recorded separately under `outputs/release-0.13.60/`; clean-host native modeling
+and live provider execution are not established by these checks.
+
 ## Jobs, pipelines and capabilities — design requirements
 
 - **Job:** the user's intended outcome, references, scope and recorded decisions.

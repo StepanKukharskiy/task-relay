@@ -1,7 +1,7 @@
 [package]
 name = "task-relay-desktop"
 license = "Apache-2.0"
-version = "0.13.54"
+version = "0.13.60"
 description = "Task Relay desktop setup window"
 authors = ["Task Relay contributors"]
 edition = "2021"
