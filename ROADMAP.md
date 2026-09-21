@@ -7,12 +7,21 @@ mean every provider, platform or delivery path has live qualification.
 
 ### Accumulated public beta — 0.13.89
 
-Release candidate includes all implemented updates through 0.13.89, the previously
+Published beta includes all implemented updates through 0.13.89, the previously
 published first-run planning fix, contract diagnostics, standalone 3DM operations
 and SketchUp adapter source. Public source documentation and release notes now
 cover the accumulated scope. Host qualification and human execution/selection
-boundaries remain unchanged. Release preparation and validation evidence is kept
-under `outputs/release-0.13.89/`; publication is recorded there after verification.
+boundaries remain unchanged. Release and validation evidence is kept under
+`outputs/release-0.13.89/`. The Mac installer, updater ZIP/manifest, matching CLI
+source and Python packages are published. All 237 bundled runtime files match the
+tagged source; package versions, retained signing identity and remote asset hashes
+are verified. The website and beta updater both resolve 0.13.89.
+
+738 affected Python tests and 11 updater/website tests passed. CI exposed one
+outdated synthetic-image fixture, corrected in a test-only follow-up with 15 tests
+passing. PR workflows pass on Linux, macOS and Windows; runtime bytes remain
+identical to the release tag. This remains a locally signed, unnotarized Mac beta;
+no clean-host installation, live provider job or user-content rendering is claimed.
 
 ### Ordinary reel requests — 0.13.89
 
