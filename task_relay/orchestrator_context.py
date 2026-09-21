@@ -74,6 +74,10 @@ def execution_availability(payload):
             if row.get('blocker'):item['blocker']=str(row['blocker'])[:300]
             item['catalog_pointer']='/snapshot/capabilities/'+field+'/'+str(index)
             result[kind].append(item)
+    if 'image_sourcing' in catalog:
+        result['image_sourcing']=copy.deepcopy(catalog['image_sourcing'])
+    if 'local_video' in catalog:
+        result['local_video']=copy.deepcopy(catalog['local_video'])
     if 'managed_browser' in catalog:
         result['managed_browser']={k:catalog['managed_browser'].get(k) for k in ('enabled','available','manual_sign_in','error')}
     while len(encoded(result).encode())>24_000:

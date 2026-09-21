@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import unittest
@@ -45,6 +46,62 @@ class Tests(unittest.TestCase):
 
     def result(self,text='Exact source-backed result.',choices=None):
         return dict(kind='pipeline_result',result=text,choices=choices or [])
+
+    def attach_handoff(self):
+        raw=b'Use the current revision: two hours, complete screenshots.'
+        path=self.state.media_dir.parent/'production-guides/123/handoff.md'
+        path.parent.mkdir(parents=True);path.write_bytes(raw)
+        self.state.db.execute('''INSERT INTO production_uploads
+            (id,run,file_id,filename,caption,declared_size,status,path,sha256,bytes)
+            VALUES (123,'@orchestrator','fixture','handoff.md','',?,'ready',?,?,?)''',
+            (len(raw),str(path),hashlib.sha256(raw).hexdigest(),len(raw)))
+        self.state.put('orchestrator-attachments:1',[123]);self.state.db.commit()
+        return path,raw
+
+    def test_request_upload_is_frozen_for_first_and_later_workflow_stages(self):
+        upload,raw=self.attach_handoff();p=self.create();pipe.tick(self.state)
+        first=self.step(p,'outline')
+        sources=pipe.request_context(self.state,first['request_id'])['inputs']['sources']
+        self.assertEqual(len(sources),1)
+        self.assertEqual(Path(sources[0]['path']).read_bytes(),raw)
+        # Later uploads and edits of the original cannot replace this request's
+        # frozen input. A new version needs an explicit new request.
+        upload.write_bytes(b'later unselected changes')
+        self.state.put('orchestrator-attachments:1',[]);self.state.db.commit()
+        self.answer(self.result());pipe.tick(self.state)
+        second=self.step(p,'finish');ctx=pipe.request_context(self.state,second['request_id'])
+        self.assertEqual(ctx['inputs']['sources'],sources)
+        job=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(second['request_id'],)).fetchone()
+        records=pipe.frozen_sources(self.state,job)
+        self.assertEqual(Path(records[0]['path']).read_bytes(),raw)
+
+    def test_changed_frozen_workflow_upload_blocks_before_stage_dispatch(self):
+        self.attach_handoff();p=self.create(planning_only=True)
+        created=self.state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created'",(p['id'],)).fetchone()
+        source=json.loads(created[0])['input_sources'][0]
+        path=Path(source['path']);path.chmod(0o600);path.write_bytes(b'corrupted frozen input')
+        with transaction(self.state.db):pipe.control(self.state,p['id'],'resume')
+        pipe.tick(self.state)
+        self.assertIsNone(self.step(p,'outline')['request_id'])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM relay_pipeline_requests').fetchone()[0],0)
+
+    def test_text_expansion_plan_retains_upload_and_waits_for_approval(self):
+        from tests.test_contract_builders import WorkflowTests
+        _,raw=self.attach_handoff();action=WorkflowTests().action()
+        action['stage_details'][0].update(route='production',gate='selection')
+        for stage in action['stage_details']:stage['capabilities']=['files.text']
+        self.request(action,'Plan only. Preserve the attached corrections. Wait for approval.',1)
+        pipe.tick(self.state)
+        row=self.state.db.execute('SELECT * FROM relay_pipelines').fetchone()
+        self.assertIsNotNone(row);self.assertEqual(row['status'],'planned')
+        spec=json.loads(row['spec'])
+        self.assertEqual([s['capabilities'] for s in spec['stages']],[[],[]])
+        self.assertEqual([s['gate'] for s in spec['stages']],['selection','selection'])
+        created=json.loads(self.state.db.execute("SELECT detail FROM relay_pipeline_events WHERE kind='created'").fetchone()[0])
+        self.assertEqual(Path(created['input_sources'][0]['path']).read_bytes(),raw)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM relay_pipeline_requests').fetchone()[0],0)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
+        self.assertEqual(self.factory.calls,[])
 
     def test_request_extraction_drives_different_stage_orders_without_templates(self):
         p=self.create([self.stage('compare',gate='choice'),self.stage('explain')])
@@ -161,7 +218,11 @@ class Tests(unittest.TestCase):
     def test_correction_policy_cannot_expand_external_or_unrelated_attempts(self):
         from tests.test_corrections import graph
         from orchestrator.contracts import plan as validate_plan
-        p=self.create([self.stage('deck','production',caps=['pptx.create','images.collect']),self.stage('finish')]);s=self.step(p,'deck')
+        deck=self.stage('deck','production',caps=['pptx.create','images.collect'])
+        deck['deliverables']['photos']='Exact sourced photo bundle'
+        deck['handoff']['outputs']['photos']={'media_type':'application/zip'}
+        deck['handoff']['outputs']['deck']={'media_type':'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
+        p=self.create([deck,self.stage('finish')]);s=self.step(p,'deck')
         plan=validate_plan(graph())
         extra={'id':'extra','max_attempts':3,'limits':{'seconds':600,'tool_calls':24}}
         plan['tasks'].append(extra)
@@ -183,8 +244,10 @@ class Tests(unittest.TestCase):
         stage.update(route='production',capabilities=['gemini.image'])
         with self.assertRaisesRegex(pipe.PipelineValidationError,'image sourcing'):pipe.validate(action(stage),snap)
         stage.update(capabilities=['images.collect'],visual_intent='reference')
+        stage['handoff']['outputs']['photos']['media_type']='application/zip'
         pipe.validate(action(stage),snap)
         stage.update(capabilities=['gemini.image'],visual_intent='synthetic')
+        stage['handoff']['outputs']['photos']['media_type']='image/png'
         pipe.validate(action(stage),snap) # Requested concepts/renders are still supported.
 
     def prepared_host_plan(self):
@@ -674,6 +737,37 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(self.factory.calls),2)
         self.assertEqual(self.state.db.execute("SELECT count(*) FROM relay_pipeline_events WHERE kind='production_recovery_reconciled'").fetchone()[0],1)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM relay_pipeline_requests WHERE step=?',('summary',)).fetchone()[0],1)
+
+    def test_resolved_uncertainty_updates_reason_once_without_dispatch(self):
+        p,row,_,_=self.recovered_selected_stage(select=False)
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET error='Production uncertain; no attempts reset.' WHERE pipeline=? AND id='report'",(p['id'],))
+        before=[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts ORDER BY id')]
+        with patch.object(Runtime,'status',return_value={'status':'uncertain'}):pipe.reconcile_completed_production(self.state)
+        self.assertEqual(self.step(p,'report')['error'],'Production uncertain; no attempts reset.')
+        with patch.object(Runtime,'status',return_value={'status':'blocked'}),patch.object(pc,'inspect',return_value=[{'name':row['run'],'tasks':[{'id':'produce','status':'blocked','error':'Model service unavailable (HTTP 503)'}]}]):
+            pipe.reconcile_completed_production(self.state);pipe.reconcile_completed_production(self.state)
+        self.assertEqual(self.step(p,'report')['error'],'Production blocked; no attempts reset.')
+        self.assertEqual(self.step(p,'report')['status'],'blocked')
+        self.assertEqual(before,[tuple(r) for r in self.state.db.execute('SELECT * FROM production_attempts ORDER BY id')])
+        self.assertEqual(self.state.db.execute("SELECT count(*) FROM relay_pipeline_events WHERE kind='production_uncertainty_resolved'").fetchone()[0],1)
+        self.assertIsNone(self.step(p,'summary')['request_id'])
+
+    def test_production_pause_excludes_unrelated_recent_failures(self):
+        views=[
+            {'name':'unrelated','tasks':[{'id':'execute_rhino_model','status':'blocked','error':'Unrelated native failure'}]},
+            {'name':'article','tasks':[{'id':'draft_medium_article','status':'blocked','error':'ImportError: worker startup failed'}]},
+        ]
+        step={'target_kind':'production_run','target':'article'}
+        with patch.object(pc,'inspect',return_value=views):
+            text=pipe.production_pause_text(self.state,step,'Production blocked; no attempts reset.')
+        self.assertIn('draft_medium_article',text)
+        self.assertIn('worker startup failed',text)
+        self.assertNotIn('rhino',text)
+        self.assertNotIn('Unrelated',text)
+        with patch.object(pc,'inspect',return_value=views[:1]):
+            self.assertEqual(pipe.production_pause_text(self.state,step,'Production blocked; no attempts reset.'),
+                             'Workflow paused: Production blocked; no attempts reset.')
 
     def test_recovered_run_still_waits_for_user_selection(self):
         p,row,card,mid=self.recovered_selected_stage(select=False)

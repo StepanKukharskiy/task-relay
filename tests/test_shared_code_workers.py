@@ -90,6 +90,39 @@ class Tests(unittest.TestCase):
         return CodeFiles(self.frozen,self.control)
 
     @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
+    def test_every_code_provider_can_write_text_and_finish(self):
+        for provider in executors.PROVIDERS:
+            with self.subTest(provider=provider),tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                control=Path(temporary);backend=self.backend(provider,True)
+                frozen={**self.frozen,'backend':backend,'tools':['files','python']}
+                config={'api_key':'fixture-only'};atomic(control/'launch.json',{'credential_fingerprint':executors.fingerprint(config,backend)})
+                transport=Transport(provider,frozen)
+                with patch.object(code_runtime,'available',return_value=RECEIPT):
+                    result=execute(frozen,control,transport,lambda:(config,backend))
+                self.assertEqual(result['decision'],'delivered')
+                self.assertEqual((self.ws/'output.txt').read_text(),'exact fixture')
+
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
+    def test_code_review_finalization_saves_exact_report_without_browser_authority(self):
+        from orchestrator.gemini_worker import save_review_report
+        self.frozen.update(review_of='producer',outputs=[{'path':'review.md','purpose':'Independent review','media_type':'text/markdown'}])
+        # A code worker must not inherit browser privileges from stray metadata.
+        self.frozen['browser']={'image_sources':[{'path':'review.md','subjects':[{'id':'sample'}]}],'screenshots':['review.md']}
+        files=self.files()
+        result={'decision':'revise','summary':'Boundary geometry differs from the source.',
+                'checks':[{'criterion':1,'passed':False,'evidence':'Three vertices missing.'}],
+                'instruction':'Restore the missing source vertices.'}
+        save_review_report(files,self.frozen,result)
+        text=(self.ws/'review.md').read_text()
+        for exact in ('Decision: revise',result['summary'],result['checks'][0]['evidence'],result['instruction']):
+            self.assertIn(exact,text)
+        self.assertEqual(set(files.written),{'review.md'})
+        with self.assertRaisesRegex(ValueError,'No exact image-source'):
+            files.image_source_ready('review.md','sample')
+        with self.assertRaisesRegex(ValueError,'No declared screenshot'):
+            files.capture_ready('review.md')
+
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_code_input_hash_and_binary_metadata_grants(self):
         (self.ws/'source.bin').write_bytes(b'\xff\x00fixture')
         self.frozen['inputs']=[{'path':'source.bin','sha256':hashlib.sha256(b'\xff\x00fixture').hexdigest()}]
@@ -154,6 +187,8 @@ class Tests(unittest.TestCase):
         # provider request parsing, tool IDs, response continuation or receipts.
         class FixtureFiles:
             def __init__(self,frozen):self.outputs={'output.txt'};self.written={}
+            def source_pack(self):return {'files':[],'text_bytes':0}
+            def validate_text_delivery(self,result):pass  # File evidence is tested with the real adapter separately.
             def call(self,name,args):
                 if name!='file_write' or args!={'path':'output.txt','text':'exact fixture'}:raise AssertionError('Unexpected provider call')
                 self.written['output.txt']=13

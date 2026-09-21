@@ -3,11 +3,34 @@ import hashlib
 import json
 from pathlib import Path
 import os
+import stat
 import time
 
 from orchestrator.runtime import safe_file, file_hash
 
 MAX_BYTES=2_000_000
+MAX_PROJECT_BYTES=100_000_000
+
+
+def validate_project_files(paths, project):
+    """Explicit bounded file choices, never a directory crawl or inferred path."""
+    if (not isinstance(paths,list) or len(paths)>10
+        or any(not isinstance(p,str) for p in paths) or len(set(paths))!=len(paths)):
+        raise ValueError('Select up to ten distinct project_files paths.')
+    if paths and not project:raise ValueError('project_files requires a selected known project.')
+    from .file_tools import Workspace
+    for path in paths:
+        from orchestrator.contracts import relative
+        relative(path)
+        Workspace(Path(project)).parts(path)
+
+
+def freeze_project_files(state, job, project, paths):
+    validate_project_files(paths,project)
+    records=capture(state,job,[(Path(project)/p,p,'project source',project,None) for p in paths],
+                    section='project-files',max_bytes=MAX_PROJECT_BYTES)
+    for record in records:record['project_file']=record['name']
+    return records
 
 class MissingSourceSelection(ValueError):
     """A valid routing action omitted a source decision; ask the model once."""
@@ -111,7 +134,7 @@ def freeze_uploads(state,job,ids):
     selected=[];metadata=[]
     for ident in ids:
         row=state.db.execute('SELECT * FROM production_uploads WHERE id=?',(ident,)).fetchone()
-        path=safe_file(pc.root(state).parent/'production-guides',str(ident)+'/'+row['filename'])
+        path=pc.upload_path(state,row)
         if str(path.resolve())!=row['path'] or path.stat().st_size!=row['bytes'] or file_hash(path)!=row['sha256']:
             raise ValueError('The selected uploaded reference changed; no planning request was queued.')
         if not 0<row['bytes']<=codex_inputs.MAX_FILE:
@@ -151,7 +174,7 @@ def freeze(state,job,candidates,research_ids=None,artifact_ids=None):
         validate_ids(ids,documents)
         for ident in ids:
             row=state.db.execute('SELECT * FROM production_uploads WHERE id=?',(ident,)).fetchone()
-            path=safe_file(pc.root(state).parent/'production-guides',str(ident)+'/'+row['filename'])
+            path=pc.upload_path(state,row)
             if str(path)!=row['path'] or file_hash(path)!=row['sha256'] or path.stat().st_size!=row['bytes']:
                 raise ValueError('A registered research document changed before routing.')
             selected.append((path,row['filename'],'research',None,row['sha256']))
@@ -169,8 +192,9 @@ def capture(state,job,selected,section='sources',max_bytes=MAX_BYTES):
             raise ValueError('Routed research and guides exceed the handoff byte limit.')
         if project:
             from task_relay.file_tools import Workspace
-            with Workspace(Path(project)).open(name) as fd:
+            with Workspace(Path(project),protected=(state.media_dir,)).open(name) as fd:
                 before=os.fstat(fd)
+                if not stat.S_ISREG(before.st_mode):raise ValueError('Project source must be a regular file.')
                 with os.fdopen(os.dup(fd),'rb') as stream:data=stream.read(max_bytes+1)
                 after=os.fstat(fd)
         else:

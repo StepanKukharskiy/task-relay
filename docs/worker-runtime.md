@@ -1,8 +1,55 @@
 # Local worker factory and workflow scheduler
 
+Reel rendering can use the shared [provider-independent `media.compose` operation](reels.md).
+The selected model authors scene data; the local renderer owns HyperFrames and
+FFmpeg execution. Text and isolated Python workers do not need shell access to
+participate. Same-provider code review can inspect delivery bytes and receipts;
+human visual selection remains separate.
+
+API text workers receive a source pack containing up to 96,000 bytes of exact
+hash-verified input text, with the candidate and current request prioritized.
+Omitted portions carry character offsets for the existing file-read tool; all
+original source files and grants remain available. The pack is recorded with the
+worker receipts. Complete candidate text must have been supplied before a review
+can accept or request revisions. Placeholder-only outputs cannot substantiate a
+successful delivery, and a placeholder-only candidate cannot be accepted. These
+are procedural checks; source exposure does not prove sound editorial judgment.
+
+Long text can be written in substantive sections: `file_write` creates the first,
+then `file_append` requires the byte count from the latest confirmed write receipt.
+A stale count fails without appending. Confirmed truncated or malformed generations
+can recover once per failure kind within existing request/tool/time limits for
+local text and code workers. Every call in the incomplete response is discarded;
+recovery starts from the last confirmed tool results. Transport uncertainty and
+safety stops do not qualify for this recovery.
+
+An explicit continuation after a definitively finished, exhausted API text review
+failure can create one new producer/reviewer stage under the original scope and
+provider. It retains the failed review receipt and all parent attempts. It does
+not reinterpret an invalid review report, reset attempts, or replay uncertain
+requests. Existing recovery for a completed review of an older candidate remains
+separate.
+
 Task Relay can now create execution workers, give each an isolated workspace, register their delivered files, and advance a bounded dependency graph. Start with `python3 -m orchestrator --help` from the project folder. The main runtime shares `private/state.sqlite` with the relay, using namespaced production tables. Artifact files and worker workspaces remain under `private/orchestrator/`. It does not alter or activate existing Telegram `/workflow` links. See [shared storage](shared-storage.md).
 
 The implementation carries forward the durable dispatch and bounded revision approach in [linked workflows](linked-workflows.md). The `orchestrator/` package owns worker creation instead of requiring two pre-existing desktop tasks. The agent adapter is the installed Codex CLI with file and shell capabilities. [Registered text procedure/API steps](mixed-execution.md) can now share its graph and recovery records. Text-only API connections remain distinct from agent execution with tools.
+
+## Assignment-specific report forms
+
+New agent assignments freeze a `report_contract`: workers fill named criterion
+slots, decisions and evidence; Relay supplies assignment identity and criterion
+numbers. Source-fidelity evidence can be a typed object with observed hashes and
+measurements. Raw responses and canonical reports remain separate, and acceptance
+still requires domain validation and any human selection. Codex and shared API
+agents use the same form. See [typed contract builders](typed-contract-builders.md).
+
+## Result disposition
+
+All workers share the [result policy](result-policy.md). Usable outputs with typed
+quality findings pause for explicit user acceptance or correction feedback. An AI
+review cannot substitute for that decision. Technical failures and uncertainty
+keep their existing recovery boundaries; quality does not override procedural
+file validation or native authorization.
 
 ## First verified loop
 
@@ -118,3 +165,48 @@ with text artifacts; media rendering and browser checks are job-specific.
 - Uncertain launch or process-inspection results retain their identity and resource lock. No automatic retry or inferred recovery from a model's “done” message occurs. An intact completion receipt can later reconcile the same attempt.
 - Plans can be authored through JSON/templates or proposed by the bounded planner. Telegram supports exact-plan approval, registered-stage starts, bounded revisions, reference collection, output delivery, [selection, pause/resume/cancel and next-stage planning](production-selections.md). Next-stage planning carries exact selections and prior instructions into another bounded producer/reviewer pair. Arbitrary multi-stage graphs, branching successors and additional execution backends remain separate work. Selection/cancellation and explicit future-assignment changes also exist in the local CLI.
 - The current replay tests routing and receipts. Human listening acceptance, additional real carousel/competition stages, model-requested revision on actual production, and measured coordination burden remain to validate.
+
+
+## Unassigned Telegram albums
+
+An upload sent to the orchestrator without a production target is saved locally.
+Album members share one folder with upload-ID-prefixed filenames, so four Telegram
+photos named photo.jpg remain four distinct files. The receiving notice is grouped;
+a final receipt lists the saved folder and actual names. Legacy upload locations
+remain readable and are not moved.
+
+After all received members finish downloading and three seconds pass without a
+new member, one nonempty caption is queued verbatim as an orchestrator request,
+with the exact upload IDs. Captionless groups only receive a save receipt; different
+captions or failed members do not dispatch partial instructions. A late member is
+saved and reported but never added silently to a request already queued. A new
+instruction can select it. This is a bounded quiet-window heuristic: Telegram
+provides individual album updates without a final-member marker.
+
+Groups allow ten files and 50 MB, with 20 MB per file and a 50 MB pending-download
+reservation limit. Previously saved groups do not exhaust the next group's quota.
+The caption follows normal routing and approval checks; it is not approval of host
+scripts or production candidates. Uploads replying to production documents remain
+guides and retain the separate revision flow above.
+
+
+### Shared native recovery policy
+
+`orchestrator/recovery.py` decides from trusted adapter evidence, not an LLM's
+interpretation of error wording. `orchestrator/native_recovery.py` translates
+registered native phase receipts. Recovery never itself authorizes dispatch.
+
+| Evidence | Next action |
+| --- | --- |
+| Confirmed stopped before the selected script ran | Check host readiness and propose unchanged inputs/limits with a fresh Start |
+| Confirmed terminal script or verification failure | Prepare a scoped correction under the existing allowance, review it, then request exact-code Start |
+| Completed work | Retain the result; do not execute it again |
+| Unknown, contradictory or potentially live execution | Inspect and reconcile before considering a retry |
+| Known failure without a supported repair | Resolve the environment or request the missing input |
+
+The production integration verifies the latest assignment, artifact identity and
+receipt hash, preserves old attempts, and commits a successor plan before external
+dispatch. Completed dependencies are reused as exact artifact references. This
+iteration wires Rhino and Blender native scripts; other recovery paths retain
+their existing policies. A new adapter needs reliable execution/effect evidence
+and bounded recovery integration, not a list of error-message strings.

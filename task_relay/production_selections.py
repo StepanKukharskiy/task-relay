@@ -33,10 +33,10 @@ def controls(state,event):
         active=state.db.execute("SELECT 1 FROM production_runs WHERE id=? AND status='active'",(run,)).fetchone()
         if not active:return []
         for task in state.db.execute("SELECT * FROM production_tasks WHERE run=? AND status='awaiting_user' ORDER BY id",(run,)).fetchall():
-            purpose=rt.spec(task).get('user_gate')
+            purpose=rt.decision_purpose(task)
             if not purpose:continue
             artifacts=state.db.execute('SELECT * FROM production_artifacts WHERE attempt=? AND task=? ORDER BY path',(task['latest'],task['id'])).fetchall()
-            selected=rt.spec(task).get('selection_outputs')
+            selected=rt.selection_paths(task)
             if selected:
                 by_path={a['path']:a for a in artifacts}
                 if not set(selected)<=set(by_path):continue
@@ -51,6 +51,7 @@ def controls(state,event):
                 card=state.db.execute('SELECT * FROM production_selection_cards WHERE event_id=? AND artifact=?',(event,artifact['id'])).fetchone()
                 if card['status']=='pending':
                     label='Select set: '+' + '.join(a['path'] for a in group) if selected else 'Select '+task['id']+'/'+artifact['path']
+                    if rt.quality_review(task):label='Accept these outputs with noted concerns'
                     buttons.append([{'text':label, 'callback_data':'prodselect:'+card['token']}])
                     if len(buttons)==30:return buttons
     return buttons

@@ -26,6 +26,7 @@ class LocalInstallTests(unittest.TestCase):
         for app in (self.installed, self.candidate):
             (app / 'Contents').mkdir(parents=True)
             (app / 'Contents/fixture').write_text(app.name)
+            (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.13.61' if app == self.installed else '0.13.62'}))
         self.data = self.root / 'data'
         self.data.mkdir()
         with sqlite3.connect(self.data / 'state.sqlite') as db:
@@ -45,6 +46,26 @@ class LocalInstallTests(unittest.TestCase):
     def prepare(self):
         with patch('sys.argv', ['install', '--prepare', str(self.recovery), '--candidate', str(self.candidate), '--installed', str(self.installed)]):
             local.main()
+
+    def test_downgrade_is_rejected_before_prepare_mutates_anything(self):
+        (self.candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.13.60'}))
+        with self.assertRaisesRegex(ValueError, 'downgrade from 0.13.61 to 0.13.60'):
+            self.prepare()
+        self.assertFalse(self.recovery.exists())
+        self.assertEqual(self.before, [p.read_bytes() for p in self.plists])
+
+    def test_legacy_downgrade_manifest_cannot_stop_services(self):
+        self.prepare()
+        path = self.recovery / 'install-manifest.json'
+        value = json.loads(path.read_text())
+        (self.candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '0.13.60'}))
+        value['candidate_digest'] = local.digest(self.candidate)
+        path.write_text(json.dumps(value))
+        with patch('sys.argv', ['install', '--apply', str(path)]), patch.object(local, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'downgrade'):
+                local.main()
+        run.assert_not_called()
+        self.assertEqual(self.before, [p.read_bytes() for p in self.plists])
 
     def test_preparation_records_main_app_migration_without_mutating_services(self):
         self.prepare()

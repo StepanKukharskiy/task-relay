@@ -9,7 +9,7 @@ from unittest.mock import patch
 from orchestrator import contracts as c, execution, host_code
 from orchestrator.runtime import Runtime, file_hash
 from orchestrator.step_runner import execute
-from orchestrator.rhino_contract import compare, validate_checks, MEDIA
+from orchestrator.rhino_contract import compare, dimension_warnings, validate_checks, MEDIA
 from tests.test_blender_operations import operation
 from tests.test_orchestrator import FakeFactory, plan
 
@@ -44,6 +44,64 @@ def inputs(rt, root, source=None, script=CREATE_SCRIPT, contract=None):
 
 
 class Tests(unittest.TestCase):
+    def test_dimension_difference_is_advisory_with_expected_measured_and_tolerance(self):
+        contract=checks()
+        after=dict(objects={'one':dict(name='Tower',dimensions=[1.9,3,4],valid=True)},units='Meters',tolerance=.001,named_views={})
+        self.assertEqual(compare({'objects':{}},after,contract),[])
+        warnings=dimension_warnings(after,contract)
+        self.assertEqual(len(warnings),1)
+        for detail in ('Tower','expected XYZ=[2, 3, 4]','measured XYZ=[1.9, 3, 4]','tolerance XYZ=','Meters'):
+            self.assertIn(detail,warnings[0])
+        self.assertEqual(contract['expected_dimensions']['Tower'],[2,3,4])
+        after['objects']['one']['dimensions']=[2.0005,3,4]
+        self.assertEqual(compare({'objects':{}},after,contract),[])
+        self.assertEqual(dimension_warnings(after,contract),[])
+
+    def test_worker_keeps_preview_on_size_warning_but_blocks_invalid_geometry(self):
+        from types import SimpleNamespace as NS
+        from orchestrator import rhino_worker, rhino_contract
+        out=self.root/'verify';out.mkdir()
+        (out/'candidate.3dm').write_bytes(b'native fixture')
+        baseline=self.root/'baseline.json';baseline.write_text('{"objects":{}}')
+        contract=self.root/'verify-input.json';contract.write_text(json.dumps(checks()))
+        doc=NS(Dispose=lambda:None)
+        rhino=NS(RhinoApp=NS(Version=NS(Major=8)),RhinoDoc=NS(OpenHeadless=lambda _:doc))
+        after=dict(objects={'one':dict(name='Tower',dimensions=[1.9,3,4],valid=True)},units='Meters',tolerance=.001,named_views={},dependencies=[])
+        request=dict(mode='verify',out=str(out),baseline=str(baseline),checks=str(contract),source=None,rhino_major=8)
+        with patch.dict('sys.modules',{'Rhino':rhino,'scriptcontext':NS(),'rhinoscriptsyntax':NS(),'rhino_contract':rhino_contract}),patch.object(rhino_worker,'snapshot',return_value=after),patch.object(rhino_worker,'preview') as preview:
+            result=rhino_worker.perform(request)
+            preview.assert_called_once()
+            self.assertEqual(result['candidate_sha256'],file_hash(out/'candidate.3dm'))
+            report=json.loads((out/'checks.json').read_text())
+            self.assertTrue(report['passed']);self.assertEqual(report['errors'],[]);self.assertEqual(len(report['warnings']),1)
+            (out/'checks.json').unlink();preview.reset_mock();after['objects']['one']['valid']=False
+            with self.assertRaisesRegex(ValueError,'invalid geometry'):rhino_worker.perform(request)
+            preview.assert_not_called()
+            self.assertFalse(json.loads((out/'checks.json').read_text())['passed'])
+
+    def test_usable_model_reports_quality_findings_for_user_review(self):
+        from task_relay.production_activity import snapshot, lines
+        frozen,control=self.frozen()
+        warning='Dimensions differ: Tower; expected XYZ=[2, 3, 4], measured XYZ=[1.9, 3, 4] Meters'
+        def native(*args):
+            result=self.fake_run(*args)
+            request=json.loads(Path(args[2]).read_text())
+            if request['mode']=='verify':
+                (Path(request['out'])/'checks.json').write_text(json.dumps(dict(passed=True,warnings=[warning])))
+            return result
+        with patch('task_relay.rhino_host.run',side_effect=native):result=execute(frozen,control)
+        self.assertEqual(result['outcome'],'completed');self.assertEqual(result['warnings'],[warning])
+        report=json.loads((Path(frozen['workspace'])/'.relay/result.json').read_text())
+        self.assertEqual(report['decision'],'delivered')
+        from orchestrator.outcomes import disposition
+        self.assertEqual(disposition(report['findings']),'user_review')
+        self.assertIn('user review required',report['summary'])
+        receipt=json.loads((Path(frozen['workspace'])/'delivery/execution.json').read_text())
+        self.assertTrue(receipt['passed']);self.assertEqual(receipt['warnings'],[warning])
+        attempt=dict(id=frozen['assignment_id'],frozen=json.dumps(frozen),receipt=json.dumps(dict(status='finished',operation=result)),state='completed')
+        activity=snapshot(self.rt.root,attempt,self.op,frozen['backend'])
+        self.assertIn('Warning: '+warning,lines(dict(status='completed',activity=activity,latest_attempt=attempt['id'])))
+
     def test_snapshot_checks_hidden_and_locked_geometry_and_hidden_references(self):
         import types
         from orchestrator.rhino_worker import snapshot
@@ -302,7 +360,7 @@ class Tests(unittest.TestCase):
         after=copy.deepcopy(before);self.assertEqual(compare(before,after,contract),[])
         after['objects']['object']['geometry_sha256']='new';after['objects']['object']['dimensions']=[2,3,6];after['layers']={'unexpected':'layer'}
         errors=compare(before,after,contract)
-        self.assertTrue(any('Untouched' in e for e in errors));self.assertTrue(any('dimensions' in e for e in errors));self.assertTrue(any('layers' in e for e in errors))
+        self.assertTrue(any('Untouched' in e for e in errors));self.assertTrue(dimension_warnings(after,contract));self.assertTrue(any('layers' in e for e in errors))
 
     def test_invalid_bounds_rejected(self):
         contract=checks();contract['expected_dimensions']['Tower'][0]=float('nan')
@@ -460,15 +518,14 @@ class AdapterTests(unittest.TestCase):
                 self.assertNotIn('start_new_session',spawn.call_args.kwargs)
                 self.assertTrue(result['timeout']);self.assertFalse(result['passed'])
 
-    def test_existing_selected_rhino_prevents_launch_without_touching_process(self):
+    def test_existing_unconnected_rhino_prevents_launch_without_touching_process(self):
         from task_relay.rhino_host import run
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'request.json';p.write_text(json.dumps(dict(token='test',mode='before')))
             with patch('task_relay.rhino_host.running_instances',return_value=[42]),patch('task_relay.rhino_host.subprocess.Popen') as spawn:
-                result=run('/rhino',Path(tmp)/'script.py',p,600,'darwin')
-        self.assertEqual(result['error_code'],'rhino_already_running')
-        self.assertFalse(result['launched']);spawn.assert_not_called()
-        self.assertIn('Save your work',result['error'])
+                with self.assertRaisesRegex(ValueError,'script connection'):
+                    run('/Applications/Unavailable.app/Contents/MacOS/Rhinoceros',Path(tmp)/'script.py',p,600,'darwin')
+                spawn.assert_not_called()
 
     def test_startup_timeout_is_separate_and_only_stops_owned_process(self):
         from task_relay.rhino_host import run

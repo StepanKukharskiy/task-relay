@@ -16,15 +16,35 @@ class Tests(unittest.TestCase):
     worker=status_fixtures.Tests.worker
     stage_card=status_fixtures.Tests.stage_card
 
-    def ready(self):
+    def ready(self,quality=False):
         self.click(self.stage_card()['token']);worker=self.worker();worker.tick()
-        self.factory.finish(self.rt.task('demo','produce')['latest']);worker.tick()
+        aid=self.rt.task('demo','produce')['latest'];self.factory.finish(aid)
+        if quality:
+            from orchestrator.outcomes import quality as finding
+            path=self.factory.sessions[aid]['workspace']/'.relay/result.json';value=json.loads(path.read_text())
+            value['findings']=[finding('layout','Image crops the subject','output.txt: preview evidence')]
+            path.write_text(json.dumps(value))
+        worker.tick()
         self.factory.finish(self.rt.task('demo','review')['latest'],decision='accept');worker.tick()
         self.bridge.flush(False)
         card=self.state.db.execute('SELECT * FROM production_selection_cards').fetchone()
         self.assertIsNotNone(card)
         mid=self.state.db.execute('SELECT message_id FROM production_selection_messages WHERE token=?',(card['token'],)).fetchone()[0]
         return card,mid
+
+    def test_quality_card_requires_explicit_delivered_output_acceptance_and_clears_waiting_text(self):
+        from orchestrator.outcomes import GATE
+        from task_relay.production_activity import lines
+        card,mid=self.ready(quality=True)
+        self.assertEqual(card['purpose'],GATE)
+        self.choose(card,mid)
+        self.assertEqual(self.rt.task('demo','produce')['status'],'awaiting_user')
+        self.bridge.flush_media();self.choose(card,mid)
+        self.assertEqual(self.rt.task('demo','produce')['status'],'completed')
+        task=next(t for t in pc.inspect(self.state,'demo')[0]['tasks'] if t['id']=='produce')
+        text='\n'.join(lines(task))
+        self.assertIn('Accepted with quality concerns',text)
+        self.assertNotIn('waits for your decision',text)
 
     def choose(self,card,mid,user=7):
         self.bridge.process({'update_id':999,'callback_query':{'id':'choice','data':'prodselect:'+card['token'],

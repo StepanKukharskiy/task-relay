@@ -105,13 +105,48 @@ def snapshot(doc):
                             'Grasshopper is not invoked.'])
 
 
-def preview(candidate, destination, resolution, named_view=None):
+def open_visible(path, owned=None):
+    import Rhino
+    if owned is not None:
+        for existing in Rhino.RhinoDoc.OpenDocuments():
+            if existing.Path and os.path.realpath(existing.Path)==os.path.realpath(path):
+                raise ValueError('The exact worker file is already open; Relay will not change that document')
+    opened=Rhino.RhinoDoc.Open(str(path))
+    doc=opened[0] if isinstance(opened,tuple) else opened
+    if doc is None:raise ValueError('Cannot open worker document')
+    if owned is not None:owned.append(doc)
+    return doc
+
+
+def shared_perform(request):
+    """Use task documents and restore the UI context without exiting the host."""
+    import Rhino
+    import scriptcontext
+    original=Rhino.RhinoDoc.ActiveDoc
+    context=scriptcontext.doc
+    owned=[]
+    request['_owned_visible_docs']=owned
+    try:return perform(request)
+    finally:
+        try:
+            for doc in reversed(owned):
+                # Only files opened by this phase are eligible for closure.
+                path=doc.Path
+                if not path or any(c in path for c in ('"','\n','\r')):
+                    raise ValueError('Worker document cannot be closed safely; Rhino was left open')
+                doc.Modified=False
+                if not Rhino.RhinoApp.RunScript(doc.RuntimeSerialNumber,'_-Close "'+path+'" _Enter',False):
+                    raise ValueError('Could not close the Relay preview document; Rhino was left open')
+        finally:
+            scriptcontext.doc=context
+            if original is not None:Rhino.RhinoDoc.ActiveDoc=original
+            request.pop('_owned_visible_docs',None)
+
+
+def preview(candidate, destination, resolution, named_view=None, owned=None):
     import Rhino
     import System.Drawing
-    # Open the saved file in the owned process, never an existing user's document.
-    opened = Rhino.RhinoDoc.Open(str(candidate))
-    doc = opened[0] if isinstance(opened, tuple) else opened
-    if doc is None:raise ValueError('Cannot open saved candidate for viewport capture')
+    doc = open_visible(candidate, owned)
     # macOS does not reliably capture a newly added synthetic view. Use a native
     # document layout and its existing Perspective view instead.
     doc.Views.FourViewLayout(True)
@@ -158,9 +193,7 @@ def render(request):
     try:
         if snapshot(inspected)['dependencies']:raise ValueError('Render requires a self-contained source model')
     finally:inspected.Dispose()
-    opened = Rhino.RhinoDoc.Open(request['source'])
-    doc = opened[0] if isinstance(opened, tuple) else opened
-    if doc is None:raise ValueError('Cannot open selected render model')
+    doc = open_visible(request['source'], request.get('_owned_visible_docs'))
     index = doc.NamedViews.FindByName(manifest['named_view'])
     if index < 0:raise ValueError('Selected render named view does not exist')
     doc.Views.FourViewLayout(True)
@@ -199,7 +232,7 @@ def perform(request):
     import Rhino
     import scriptcontext
     import rhinoscriptsyntax
-    from rhino_contract import validate_checks, compare
+    from rhino_contract import validate_checks, compare, dimension_warnings
     mode, out = request['mode'], request['out']
     if int(Rhino.RhinoApp.Version.Major) != request['rhino_major']:
         raise ValueError('Rhino runtime version differs from the frozen application')
@@ -257,9 +290,10 @@ def perform(request):
         before = json.loads(read_text(request['baseline']))
         errors = compare(before, after, checks)
         if after['dependencies']:errors.append('Candidate has unsupported dependencies')
-        write(os.path.join(out, 'checks.json'), dict(before=before, after=after, errors=errors, passed=not errors))
+        warnings=dimension_warnings(after, checks)
+        write(os.path.join(out, 'checks.json'), dict(before=before, after=after, errors=errors, warnings=warnings, passed=not errors))
         if errors:raise ValueError('; '.join(errors))
-        preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'], checks['preview'].get('named_view'))
+        preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'], checks['preview'].get('named_view'), request.get('_owned_visible_docs'))
         return {'candidate_sha256':file_hash(candidate)}
     raise ValueError('Unknown Rhino worker phase')
 
@@ -274,17 +308,20 @@ def main(request_path, exit_process=None):
     while not os.path.exists(owner_path) and time.time() < deadline:time.sleep(.02)
     owner = json.loads(read_text(owner_path))
     # Do not even exit a process if the launch was forwarded to an existing Rhino.
-    if owner != {'pid':pid, 'token':request['token']}:
+    if (owner.get('pid')!=pid or owner.get('token')!=request['token']
+            or set(owner) not in ({'pid','token'},{'pid','token','shared'})
+            or ('shared' in owner and owner['shared'] is not True)):
         raise ValueError('Rhino startup was not received by the owned process')
     # Confirm owned startup before potentially lengthy modeling or rendering.
     write(os.path.splitext(request_path)[0]+'.started.json',
           dict(pid=pid, token=request['token'], mode=request['mode']), 200000)
     result = dict(pid=pid, token=request['token'], mode=request['mode'], passed=False)
     try:
-        result['details'] = perform(request)
+        if owner.get('shared') and request.get('rhino_major')!=8:raise ValueError('Shared session requires Rhino 8')
+        result['details'] = shared_perform(request) if owner.get('shared') else perform(request)
         result['passed'] = True
     except BaseException:
         result['error'] = traceback.format_exc()[-16000:]
     write(os.path.splitext(request_path)[0]+'.result.json', result, 200000)
     # This is only the process whose PID was committed by our launch adapter.
-    (exit_process or System.Environment.Exit)(0 if result['passed'] else 1)
+    if not owner.get('shared'):(exit_process or System.Environment.Exit)(0 if result['passed'] else 1)

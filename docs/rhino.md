@@ -1,9 +1,181 @@
-# Direct Rhino integration
+# Rhino files and native Rhino integration
+
+## Full standalone library API
+
+`rhino3dm.run_python` runs the exact reviewed Python script against the full
+installed `rhino3dm` Python API. Relay does not whitelist geometry classes or
+modeling methods. Scripts can create or edit NURBS curves/surfaces, BReps,
+extrusions, meshes, annotations, blocks, document tables and any other feature
+exposed by the pinned library. This is library access, not every command or plugin
+available inside the Rhino application.
+
+The script receives `rhino3dm`, `model` (a new `File3dm` or the selected primary
+source file), `input_paths` (declared relative paths mapped to staged absolute
+paths), and `workspace`. Modify `model` or replace it with another `File3dm`.
+Relay saves it after the script returns. For example:
+
+```python
+r = rhino3dm
+model.Settings.ModelUnitSystem = r.UnitSystem.Meters
+attributes = r.ObjectAttributes()
+attributes.Name = "Sphere"
+model.Objects.Add(r.Sphere(r.Point3d(0, 0, 0), 2).ToBrep(), attributes)
+model.Strings["purpose"] = "Standalone library model"
+```
+
+Its selected checks can request Rhino 7 format:
+
+```json
+{
+  "version": 1,
+  "mode": "create",
+  "file_version": 7,
+  "expected_units": "Meters",
+  "expected_object_count": 1,
+  "required_objects": ["Sphere"],
+  "preserve_objects": [],
+  "expected_dimensions": {"Sphere": [4, 4, 4]}
+}
+```
+
+`file_version: 7` writes a Rhino 7 archive; `8` writes a Rhino 8 archive. Supported
+explicit targets are 2 through 8, as provided by this library. The installed
+library version (`8.35.0`) is distinct from the target file version. Rhino 7-format
+writing does not require Rhino 7 to be installed and does not run its IronPython
+interpreter. McNeel documents [target file versions](https://mcneel.github.io/rhino3dm/python/api/File3dmWriteOptions.html)
+and the [standalone library API](https://developer.rhino3d.com/guides/opennurbs/what-is-rhino3dmio/).
+Objects/features that change when saved to an earlier version are not silently
+accepted: object serialization differences require explicit user review, while
+missing/invalid geometry or failed declared preservation blocks the result.
+
+Preparation copies the catalog contract and a dependency-free syntax/schema
+validator under `operation-support/rhino3dm.run_python/`. Independently review and
+select `model.py` and input checks together; a separate Start approves those exact
+registered versions, optional primary source `.3dm`, all other inputs, runtime
+identity and limits. Unknown future scripts cannot be executed under a preparation
+approval. Additional binary assets or models use `application/octet-stream`;
+the single `application/vnd.rhino` input identifies the primary edit source.
+Source-derived work retains the existing source-fidelity review policy.
+
+Approved Python has normal host filesystem/network permissions, not an OS sandbox.
+The runner does not launch Rhino; script authors/reviewers must preserve the approved
+scope. External services, native app actions and paid work require their own scope.
+The Python executable, library version/package bytes and Relay implementation are
+bound to approval, and fresh phase workers recheck that runtime identity.
+
+Relay uses separate processes for source inventory, script execution and candidate
+reopening. Verification checks geometry/attributes, archive version, declared
+object counts/names, preserved source UUIDs, units/tolerance and document strings.
+Geometry/attribute serialization differences and dimension deviations are quality
+findings requiring user review. Other document tables, opaque plugin data and
+external dependencies need task-specific review; a valid file does not prove
+semantic or visual equivalence. Library checks never claim native Rhino verification.
+
+Outputs are `delivery/candidate.3dm`, `delivery/model.py`, `delivery/checks.json`
+and `delivery/execution.json`. Receipts record `execution_mode: standalone_library`,
+`native_application_execution: false`, `native_rhino_verified: false`, the file
+version and runtime identity. `host_execution: true` describes the script's normal
+host permissions, not a Rhino application launch. Failures retain exact scripts,
+inputs and diagnostic artifacts; confirmed failures can propose reviewed repairs,
+with a new exact-code Start. Timeouts/missing execution receipts require
+reconciliation and never authorize automatic replay.
+
+Controlled fixtures have written and reopened Rhino 7/8 archives using the library.
+Opening those fixtures in the native Rhino 7/8 applications is not claimed.
+
+## Standalone convenience builder
+
+`rhino3dm.create` is a separate local procedure that creates a new `.3dm` using
+McNeel's `rhino3dm` library, without opening or connecting to Rhino. Use it for
+points, polylines and triangle/quad meshes (including terrain), with named objects,
+layers, RGB layer colors, units and document tolerance. It accepts bounded geometry
+JSON, never arbitrary Python or an existing model. NURBS construction, Rhino
+commands, booleans, plugins, previews and renders remain outside this operation.
+Use `rhino3dm.run_python` for the full library API, including NURBS and edits.
+Do not substitute a mesh when the request specifically requires NURBS.
+
+The worker requires `rhino3dm==8.35.0`. Source installations can install
+`task-relay[rhino3dm]`; the desktop runtime dependency manifest includes the pinned
+wheel for future builds. Missing or mismatched dependencies block this operation
+without launching Rhino or installing packages from a worker task.
+
+Select `rhino3dm.create` in the planning scope. The planner receives the catalog's
+`geometry_schema` and copied dependency-free validation files under
+`operation-support/rhino3dm.create/`. Prepare and independently review geometry
+JSON before the procedure runs. The actual model and its receipts also need an
+independent review and explicit user selection. A format-only `.3dm` request can
+use this route if its supported geometry meets the request. Explicit native Rhino
+execution or verification retains the native route. Changing an existing approved
+`rhino.*` stage requires a new reviewed plan and Start; there is no fallback.
+
+For example, a tiny terrain specification is:
+
+```json
+{
+  "version": 1,
+  "units": "Meters",
+  "tolerance": 0.001,
+  "layers": [{"name": "Terrain", "color": [70, 120, 65]}],
+  "objects": [{
+    "type": "mesh", "name": "Ground", "layer": "Terrain",
+    "vertices": [[0, 0, 0], [10, 0, 1], [10, 10, 2], [0, 10, 0]],
+    "faces": [[0, 1, 2], [0, 2, 3]]
+  }]
+}
+```
+
+Declared outputs are `delivery/candidate.3dm`, `delivery/checks.json` and
+`delivery/execution.json`. The saved version-8 model is reopened with `rhino3dm`;
+the verifier compares every point/vertex, face index, object name/layer, layer
+color, unit and tolerance to the input data, and checks geometry validity. Meshes
+use double-precision vertices. Coordinate comparison allows only numerical
+round-off (`1e-12` relative, `1e-9` absolute), independently of document tolerance.
+Receipts preserve input hashes, library version, implementation hashes, candidate
+hash and `execution_mode: standalone_library`, with `native_rhino_verified: false`.
+
+These checks establish library generation and reopening only. They do not establish
+survey fidelity, design quality, visual acceptance or a successful Rhino session.
+Add explicitly approved `rhino.inspect` or native modeling/rendering stages when
+needed. Failure keeps diagnostic files and receipts, never accepts a partial
+candidate, overwrites an earlier attempt or automatically retries.
+
+## Native Rhino execution
 
 Relay registers `rhino.startup`, `rhino.inspect`, `rhino.run_python` and `rhino.render` through the
 existing production planner, exact artifact selection, review and delivery paths.
 Grasshopper definitions, scripts, component execution and graph authoring are
 paused. They have no registered operation.
+
+## Verification failures and correction
+
+A model can be saved successfully and still have quality concerns. Bounding-box
+differences complete model/preview generation, then enter the shared **user review**
+gate. Relay shows expected/measured XYZ, tolerance and units, and waits for explicit
+acceptance of those exact outputs or correction feedback. A clean independent AI
+review cannot waive that gate. The same policy applies to visual/design concerns
+and independently measured source-geometry discrepancies. Invalid geometry,
+missing required objects, incorrect units, preservation violations and missing or
+invalid verification evidence remain failures. Execution errors do not become
+quality warnings. See [shared result policy](result-policy.md).
+
+The saved output `checks.json` is a measurement report, not the selected input
+checks. A missing preview after failed execution does not mean modeling never ran.
+
+For an old dimension-only failure, **Continue** can propose unchanged inputs with
+the updated runtime and a fresh execution Start. The original failure stays saved.
+
+For other confirmed terminal failures, **Plan correction** or **Continue** proposes
+bounded preparation using exact source files, input checks, script and failure
+outputs. This works before an independent native review has run. The proposal
+cannot execute Rhino. Start preparation approves diagnosis and independent review;
+selection and a separate exact-code Start approve execution of revised files.
+Original artifacts and attempts remain unchanged. Uncertain submissions must be
+reconciled first and never enter this path.
+
+A correction may propose evidence-backed changes to mistaken input expectations,
+but must not relax checks merely to accept a defective model. The original geometry
+basis and source-fidelity metrics remain part of the review contract. A failed
+candidate is diagnostic evidence, not a replacement survey or design source.
 
 ## Host setup
 
@@ -24,19 +196,34 @@ the worker loaded the integration; host discovery separately checks installation
 availability. A standalone catalog check does not establish what the running
 service loaded. Existing responses retain their original capability snapshots.
 
-Rhino 7 may block a second instance with a modal warning. Save and quit an existing
-Rhino 7 session before automated host work. Relay does not close that session or
-send modeling commands to it. A blocked startup times out and records failure.
+When Rhino 8.11+ is open, Relay uses its bundled `rhinocode` connection and
+runs modeling/inspection in separate headless documents. The script server must be
+active (`StartScriptServer` in Rhino); if unavailable, Start explains the missing
+connection without spending an execution attempt. It selects the exact application's
+PID, never an arbitrary Rhino. Rhino 7 retains the exclusive-process path and must
+be closed before Relay starts it. Windows coexistence is not qualified.
 
-The host adapter launches the Rhino executable directly with its documented
-`-runscript` option with `_-RunPythonScript` on 7 or `_-ScriptEditor _Run` on 8. Each phase receives a fresh process
-and a PID/token handshake. A command received by a different process is rejected
-before modeling or process exit. No persistent listener or plugin is installed.
-The process remains in Relay's supervised process group for cancellation.
-After the ownership check, Rhino 7 and 8 exit through a macOS adapter using native
-process exit, only after closing artifact files and the result receipt. This
-avoids Mono/C++ finalizer crashes and Rhino's save-changes dialogs. Both a successful
-worker receipt and a clean exit code are required; failed operations remain failed.
+Shared-session previews/rendering open only task workspace copies, close only those
+owned windows, and restore the Python document context. Your existing documents
+stay open. Rhino's interface can be busy during execution; this is document separation,
+not a separate process or a security sandbox. Approved scripts must use assigned
+`doc`/`scriptcontext.doc`, not global documents or application exit commands.
+
+RhinoCode returns its submission acknowledgement before the script finishes. Relay
+waits for a matching PID/token/phase result. Shared operations are serialized, and
+an unresolved submission prevents another dispatch. Cancellation/timeouts stop only
+the command-line client, never the existing Rhino; the script may still be running.
+An identity-bound terminal receipt is required to release an uncertain session.
+No resubmission, application shutdown, or automatic acceptance occurs.
+
+When Rhino is closed, the adapter launches its executable with `-runscript`:
+`_-RunPythonScript` on 7 or `_-ScriptEditor _Run` on 8. Each phase gets an owned
+process and PID/token handshake. A forwarded command cannot model or exit another
+process. Only these owned workers exit via the macOS native-exit adapter after
+closing their artifacts and receipt. No additional plugin is installed.
+
+The connection uses McNeel's [RhinoCode CLI](https://developer.rhino3d.com/guides/scripting/advanced-cli/)
+and [headless documents](https://developer.rhino3d.com/api/rhinocommon/rhino.rhinodoc/createheadless).
 
 These operations use normal host permissions. Native file dependencies/plugins
 may access the host when a file opens. Approved Python has filesystem and network

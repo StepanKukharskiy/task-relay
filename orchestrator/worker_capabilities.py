@@ -17,8 +17,8 @@ CAPABILITIES = {
     'browser.use': 'Use browser tools with an explicit origin, action and transfer contract.',
     'browser.capture': 'Save explicitly granted viewport PNG screenshots and provenance; inspect PNG metadata, not visual content.',
 }
-TEXT_TYPES = {'text/plain', 'text/markdown', 'text/x-python', 'application/json', 'text/csv'}
-TEXT_SUFFIXES = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.html', '.css', '.xml', '.yaml', '.yml'}
+TEXT_TYPES = {'text/plain', 'text/markdown', 'text/x-python', 'text/x-ruby', 'application/json', 'text/csv'}
+TEXT_SUFFIXES = {'.txt', '.md', '.json', '.csv', '.py', '.rb', '.js', '.html', '.css', '.xml', '.yaml', '.yml'}
 
 
 def abilities(backend):
@@ -99,17 +99,24 @@ def resolve(task, catalog, default):
     candidates = [x for x in catalog if (preferred is None or x['id']==preferred)
                   and matches(task, required, x['backend'])]
     if not candidates:
-        raise ValueError('No eligible worker for '+', '.join(required)+'. Check required file formats and available executors; no fallback or installation.')
+        detail=''
+        if any(i['path'].startswith('operation-support/') and i['path'].endswith('/validate.py')
+               for i in task.get('inputs',[])):
+            detail=' Bound operation validator inputs require code.execute; a text-only worker cannot run validation.'
+        offered='; '.join(x['id']+': '+', '.join(x['capabilities']) for x in catalog
+                          if preferred is None or x['id']==preferred)
+        raise ValueError('No eligible worker for '+', '.join(required)+'.'+detail+
+                         ' Frozen profiles: '+offered+'. Check required file formats and available executors; no fallback or installation.')
     # Automatic composition uses the narrowest suitable adapter, preferring
     # bounded API file/Python workers over a general shell. Named executors are
     # filtered above; locked catalogs contain only the user's chosen profile.
     # Model names are configured, never invented or ranked by guessed cost.
-    candidates.sort(key=lambda x: (len(x['capabilities']), x['id']=='codex-cli',
+    candidates.sort(key=lambda x: (len(x['capabilities']), x['backend']['type'].split('-')[0]!=default['type'].split('-')[0], x['id']=='codex-cli',
                                    x['backend'] != default, x['id']))
     chosen = candidates[0]
     expected = executors.validate(chosen['backend'])
     if 'tools' in task and task['tools'] != expected:
-        raise ValueError('Worker tools conflict with the resolved executor; omit tools when using worker requirements.')
+        raise ValueError('Worker tools conflict with the resolved executor/provider; omit tools when using worker requirements.')
     task['tools'] = expected
     task['worker'] = dict(version=1, requires=list(required), executor=chosen['id'], backend=copy.deepcopy(chosen['backend']))
     validate(task)

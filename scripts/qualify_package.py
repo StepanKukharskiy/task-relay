@@ -31,8 +31,9 @@ def main():
     expected = set()
     for package in spec['tool']['setuptools']['packages']:
         expected.update(p.relative_to(ROOT).as_posix() for p in (ROOT/package).glob('*.py'))
-    for pattern in spec['tool']['setuptools']['package-data']['task_relay']:
-        expected.update(p.relative_to(ROOT).as_posix() for p in (ROOT/'task_relay').glob(pattern))
+    for package, patterns in spec['tool']['setuptools']['package-data'].items():
+        for pattern in patterns:
+            expected.update(p.relative_to(ROOT).as_posix() for p in (ROOT/package).glob(pattern))
     with zipfile.ZipFile(args.wheel) as archive:
         runtime = {n for n in archive.namelist() if '.dist-info/' not in n}
         assert runtime == expected, (runtime-expected, expected-runtime)

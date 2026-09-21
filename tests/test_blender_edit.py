@@ -133,6 +133,13 @@ class Tests(unittest.TestCase):
         before=dict(objects={'Roof':{'type':'MESH','mesh_hash':'roof'},'Other':{'type':'MESH','mesh_hash':'original'},'Camera':{'type':'CAMERA','lens':50}},materials={'Material':{'roughness':.5}},camera='Camera',dimensions={'Roof':[2,2,2]},collections={},frame=1)
         after=copy.deepcopy(before);after['objects']['Roof']['mesh_hash']='changed';after['dimensions']['Roof']=[2,2,2.6]
         self.assertEqual(compare(before,after,checks()),[])
+        from orchestrator.blender_snapshot import dimension_warnings
+        after['dimensions']['Roof']=[2,2,2.4]
+        self.assertEqual(compare(before,after,checks()),[])
+        self.assertTrue(dimension_warnings(after,checks()))
+        after['dimensions']['Roof']=[float('nan'),2,2.4]
+        self.assertTrue(any('invalid dimension measurement' in e for e in compare(before,after,checks())))
+        after['dimensions']['Roof']=[2,2,2.6]
         after['objects']['Camera']['lens']=30;after['objects']['Other']['mesh_hash']='lost';after['materials']['Material']['roughness']=1
         errors=compare(before,after,checks());self.assertEqual(len(errors),3)
 

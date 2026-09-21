@@ -80,7 +80,7 @@ class Tests(unittest.TestCase):
     def test_operation_contracts_match_renamed_stages_without_changing_source_identity(self):
         for ident,ids in ((1,('visualization','deck')),(2,('photo','presentation'))):
             self.history(ident,ids=ids,overrides={
-                ids[0]:dict(route='image',gate='selection'),
+                ids[0]:dict(route='image',gate='selection',visual_intent='synthetic'),
                 ids[1]:dict(route='production',gate='selection',capabilities=['pptx.create'])})
         c=next(c for c in self.analyze()['candidates'] if c['kind']=='workflow')
         self.assertEqual(c['summary']['occurrences'],2)

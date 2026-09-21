@@ -33,6 +33,88 @@ def eligible(view):
     return producer
 
 
+def failed_text_review(rt,task):
+    """A stopped same-candidate API review can seed an explicit fresh stage."""
+    from orchestrator import executors
+    spec=rt.spec(task)
+    attempt=rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(task['latest'],)).fetchone()
+    if not attempt or attempt['state']=='completed':return None
+    frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
+    if (task['status']!='blocked' or attempt['state']!='blocked' or spec.get('tools')!=['files']
+            or not spec.get('review_of') or spec.get('browser') or spec.get('execution')
+            or frozen.get('backend',{}).get('type') not in executors.FILE_TYPES
+            or receipt.get('status')!='finished' or not receipt.get('exit_code')
+            or receipt.get('external_outcome')!='no_pending_response' or receipt.get('pending_requests')!=[]):
+        raise ValueError('Confirmed finished text review with no pending response is required; no uncertain replay.')
+    target=rt.task(task['run'],spec['review_of'])
+    if target['status']!='awaiting_review' or target['latest']!=frozen.get('review_target'):
+        raise ValueError('The exact stopped review target changed.')
+    return {'kind':'failed_text_review','attempt':attempt['id'],'review_target':target['latest'],
+            'receipt':receipt,'attempts_reset':False}
+
+
+def rejected_before_drafting(rt, producer, spec):
+    """Prove a first text attempt was rejected before tools or outputs existed."""
+    from orchestrator.runtime import safe_file, file_hash
+    from orchestrator import executors
+    if producer['status']!='blocked' or producer['attempts']!=1 or spec.get('tools')!=['files']:
+        return None
+    attempt=rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(producer['latest'],)).fetchone()
+    if not attempt or attempt['state']!='blocked':return None
+    frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
+    session=json.loads(attempt['session']);ident=attempt['id']
+    if (frozen.get('backend',{}).get('type') not in executors.API_TYPES or frozen.get('tools')!=['files']
+            or frozen.get('browser') or frozen.get('execution')
+            or receipt.get('status')!='finished' or receipt.get('external_outcome')!='no_pending_response'
+            or receipt.get('pending_requests')!=[] or receipt.get('tool_calls')!=0
+            or receipt.get('api_requests')!=1 or not receipt.get('exit_code')):return None
+    control=rt.root/'workers'/ident
+    if session.get('id')!=ident or session.get('control')!=str(control):return None
+    if (len(list(control.glob('api-*.request.json')))!=1 or list(control.glob('api-*.response.json'))
+            or list(control.glob('tool-*')) or list(control.glob('code-*'))):return None
+    records={};hashes={}
+    try:
+        for name in ('api-01.request.json','api-01.outcome.json','done.json'):
+            path=safe_file(rt.root,'workers/'+ident+'/'+name)
+            if path.stat().st_size>1000000:return None
+            records[name]=json.loads(path.read_text());hashes[name]=file_hash(path)
+            if not isinstance(records[name],dict):return None
+    except (OSError,ValueError):return None
+    outcome=records['api-01.outcome.json'];done=records['done.json'];request=records['api-01.request.json']
+    if (outcome.get('outcome')!='rejected' or outcome.get('http_status')!=400
+            or done.get('token')!=ident or done.get('tool_calls')!=0 or not done.get('exit_code')
+            or request.get('model')!=frozen['backend']['model']
+            or request.get('provider')!=executors.provider_for(frozen['backend'])):return None
+    if rt.db.execute('SELECT 1 FROM production_artifacts WHERE run=? AND attempt IS NOT NULL',(producer['run'],)).fetchone():return None
+    if rt.db.execute('SELECT 1 FROM production_tasks WHERE run=? AND id<>? AND attempts>0',(producer['run'],producer['id'])).fetchone():return None
+    return {'kind':'rejected_before_drafting','attempt':ident,'http_status':400,'receipt_sha256':hashes,
+            'tools_executed':0,'attempts_reset':False}
+
+
+def recover_setup(state, ident, authorization):
+    """Explicit recovery of a failed local setup; preserve its full failure receipt."""
+    from . import production_control as pc
+    from orchestrator.runtime import Runtime
+    if not state.db.in_transaction or not isinstance(authorization,str) or not authorization.strip():
+        raise ValueError('Setup recovery requires an explicit request and atomic transaction.')
+    row=state.db.execute('SELECT * FROM production_continuations WHERE id=?',(ident,)).fetchone()
+    if not row or row['status']!='failed' or row['error']!='No registered producer drafts are available to continue.':
+        raise ValueError('Only the confirmed no-draft setup failure can be recovered here.')
+    if state.db.execute('SELECT 1 FROM production_runs WHERE id=?',(row['child'],)).fetchone():
+        raise ValueError('The successor already exists; inspect it instead of retrying.')
+    rt=Runtime(pc.root(state),connection=state.db)
+    view=next(v for v in pc.inspect(state) if v['name']==row['parent']);producer=eligible(view)
+    expected=json.loads(row['baseline'])
+    if view['task_state']!=expected['tasks'] or view['contract_digest']!=expected['contract_digest']:
+        raise ValueError('The saved continuation baseline changed.')
+    task=rt.task(row['parent'],producer['id']);proof=rejected_before_drafting(rt,task,rt.spec(task))
+    if not proof:raise ValueError('The attempt is not a confirmed rejection before drafting; no recovery queued.')
+    rt.event(row['parent'],producer['id'],task['latest'],'continuation_setup_recovered',
+             {'previous_record':dict(row),'authorization':authorization,'evidence':proof})
+    state.db.execute("UPDATE production_continuations SET status='queued',error=NULL WHERE id=? AND status='failed'",(ident,))
+    return row['child']
+
+
 def enqueue(state, job, parent):
     """Called in the chat transaction. No model-generated plan or rewritten request."""
     from task_relay import production_control as pc
@@ -41,6 +123,10 @@ def enqueue(state, job, parent):
         raise ValueError('Continuation queueing requires a transaction.')
     existing = state.db.execute('SELECT * FROM production_continuations WHERE parent=?', (parent,)).fetchone()
     if existing:
+        if (existing['status']=='failed' and existing['error']=='No registered producer drafts are available to continue.'
+                and job['prompt'].strip()==existing['request'].strip()):
+            child=recover_setup(state,existing['id'],job['prompt'])
+            return 'Saved continuation setup recovered: '+child+'. The same request and bounded scope are retained; no attempts were reset.'
         return ('Continuation already '+existing['status']+': '+existing['child']+
                 ('. '+existing['error'] if existing['error'] else '')+'. No duplicate stage was created.')
     view = next((v for v in pc.inspect(state) if v['name']==parent),None)
@@ -50,7 +136,17 @@ def enqueue(state, job, parent):
         if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before repair recovery.')
         from . import production_visual_review
         return production_visual_review.propose(state,job,parent)
-    blocked=[t for t in view['tasks'] if t['status']=='blocked']
+    blocked=[t for t in view['tasks'] if t['status']=='blocked'];review_failure=None
+    if view['status']=='blocked':
+        from . import production_planning
+        recovered=production_planning.prepare_host_launch_recovery(state,parent,job['prompt'])
+        if recovered:return 'Native execution recovery ready: '+recovered+'. The original script and checks are unchanged. Review the files and use Start; nothing has run yet.'
+        from . import production_review_corrections
+        correction=production_review_corrections.details(state,parent)
+        if correction and correction['kind']=='execution_failure':
+            if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before native correction preparation.')
+            ident=production_review_corrections.propose(state,parent)
+            return 'Native correction preparation ready: '+ident+'. Start preparation approves diagnosis, corrected files and independent review. Original attempts remain preserved. Native execution waits for a separate Start on the reviewed script and checks.'
     if len(blocked)==1 and view['status']=='blocked' and not blocked[0]['review_of']:
         from orchestrator.runtime import Runtime
         rt=Runtime(pc.root(state),connection=state.db);task=rt.task(parent,blocked[0]['id'])
@@ -62,7 +158,7 @@ def enqueue(state, job, parent):
             if failure:
                 if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before resuming preparation.')
                 from orchestrator import executors
-                if failure=='generation_limit' or task['attempts']>=spec['max_attempts'] or executors.request_limit(spec)>=min(executors.MAX_EXPLICIT_ROUNDS,spec['limits']['tool_calls']):
+                if failure in ('generation_limit','provider_unavailable') or task['attempts']>=spec['max_attempts'] or executors.request_limit(spec)>=min(executors.MAX_EXPLICIT_ROUNDS,spec['limits']['tool_calls']):
                     from . import production_browser_recovery
                     ident=production_browser_recovery.prepare_code(state,parent,job['prompt'])
                     return 'Preparation recovery planned: '+ident+'. Start approves a new bounded attempt; completed work is retained and no attempts were reset.'
@@ -72,6 +168,12 @@ def enqueue(state, job, parent):
         from orchestrator.runtime import Runtime
         rt=Runtime(pc.root(state),connection=state.db)
         spec=rt.spec(rt.task(parent,blocked[0]['id']))
+        if not spec.get('browser') and not spec.get('execution') and blocked[0]['attempts']>=spec['max_attempts']:
+            if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before reviewing the current candidate.')
+            review_failure=failed_text_review(rt,rt.task(parent,blocked[0]['id']))
+            if not review_failure:
+                from . import production_visual_review
+                return production_visual_review.propose(state,job,parent)
         if spec.get('browser') and not spec['browser'].get('visual_inputs'):
             if any(f['status'] in ('pending','ready','failed') for f in view['feedback_files']):raise ValueError('Resolve attached guide changes before reviewing the unchanged candidate.')
             from . import production_visual_review
@@ -115,7 +217,7 @@ def enqueue(state, job, parent):
     from task_relay import relay_channels
     relay_channels.bind(state, 'production', child, relay_channels.request_channel(state, job['id']))
     state.db.execute('INSERT INTO production_continuations(id,parent,child,request,baseline,files) VALUES (?,?,?,?,?,?)',
-        (job['id'],parent,child,job['prompt'],json.dumps({'tasks':view['task_state'],'contract_digest':view['contract_digest'],'user_feedback':user_feedback}),json.dumps(files)))
+        (job['id'],parent,child,job['prompt'],json.dumps({'tasks':view['task_state'],'contract_digest':view['contract_digest'],'user_feedback':user_feedback,'review_failure':review_failure}),json.dumps(files)))
     limits = producer['limits']
     return (f'Continuation queued: {child}\nYour exact request, previous drafts, registered guides and current research will be carried forward. '
             f'One preparation attempt and one independent review; existing output scope and user decision gate stay in place. '
@@ -135,6 +237,10 @@ def build(rt, row, state):
     tasks = [dict(t) for t in rt.db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY id',(parent,))]
     if tasks != expected['tasks'] or pc.runtime_digest(rt,parent)!=expected['contract_digest']:
         raise ValueError('The parent production changed before continuation. No successor was started.')
+    if expected.get('review_failure'):
+        prior=rt.db.execute('SELECT task FROM production_attempts WHERE id=?',(expected['review_failure']['attempt'],)).fetchone()
+        if not prior or failed_text_review(rt,rt.task(parent,prior['task']))!=expected['review_failure']:
+            raise ValueError('The stopped review receipt changed; no successor was started.')
     original_plan = json.loads(rt.db.execute('SELECT plan FROM production_runs WHERE id=?',(parent,)).fetchone()[0])
     specs = [rt.spec(t) for t in tasks]
     producers = [(t,a) for t,a in zip(tasks,specs) if not a.get('review_of')]
@@ -159,8 +265,10 @@ def build(rt, row, state):
         aid=copy_artifact(artifact['id'],path)
         extras.append(dict(artifact=aid,path=path,
             purpose='Previous candidate draft to update',authority='Unaccepted previous draft; not evidence of current review or verified facts'))
+    recovery=None
     if not extras:
-        raise ValueError('No registered producer drafts are available to continue.')
+        recovery=rejected_before_drafting(rt,producer,producer_spec)
+        if not recovery:raise ValueError('No registered producer drafts are available to continue.')
     files=json.loads(row['files'])
     for f in files:
         source=safe_file(pc.root(state).parent/'production-guides',str(f['id'])+'/'+f['filename'])
@@ -217,11 +325,13 @@ def build(rt, row, state):
         spec['limits']['seconds']=min(spec['limits']['seconds'],600)
         spec['limits']['tool_calls']=min(spec['limits']['tool_calls'],60)
         spec['instruction']+='\n\nThis is one explicitly requested continuation of a previous preparation stage. Read continuation/REQUEST.txt and all continuation sources completely. '
-        spec['instruction']+='Use previous-stage drafts as candidates to update, not accepted outputs. Current continuation research supersedes older versions of the same research. '
+        if recovery:
+            spec['instruction']+='The previous first request was rejected before any tools ran; no producer draft exists. Produce the original deliverables from the retained inputs, applying the exact current user direction. Do not invent a prior draft or claim to have revised one. '
+        else:spec['instruction']+='Use previous-stage drafts as candidates to update, not accepted outputs. Current continuation research supersedes older versions of the same research. '
         spec['instruction']+='Files under continuation-history/ preserve earlier requests and drafts for context; they do not override the current request or latest drafts. '
         spec['instruction']+='Read continuation/USER_FEEDBACK.json completely, including user notes and prior corrections. Apply the latest explicit editorial direction even when it replaces the framing of the original story or previous drafts. '
-        spec['instruction']+='Previous text is material to revise, not a template that must be preserved. The producer must identify the substantive changes addressing feedback in its brief; the reviewer must compare the new draft against the current request and prior corrections, citing the actual changed passages. '
-        feedback_criterion='The latest explicit user direction and prior relevant corrections in continuation/USER_FEEDBACK.json are addressed substantively; the brief and independent review identify the changed passages rather than merely restating the request.'
+        if not recovery:spec['instruction']+='Previous text is material to revise, not a template that must be preserved. The producer must identify the substantive changes addressing feedback in its brief; the reviewer must compare the new draft against the current request and prior corrections, citing the actual changed passages. '
+        feedback_criterion=('The new draft follows the original assignment and latest explicit direction in continuation/USER_FEEDBACK.json; the independent review cites supporting passages and checks the retained sources.' if recovery else 'The latest explicit user direction and prior relevant corrections in continuation/USER_FEEDBACK.json are addressed substantively; the brief and independent review identify the changed passages rather than merely restating the request.')
         if feedback_criterion not in spec['criteria']:
             spec['criteria'].append(feedback_criterion)
         spec['instruction']+='Keep the declared output scope, criteria and user decision gate. Assess dated sources and disclose remaining unsupported claims; importing research is not fact verification. '
@@ -233,7 +343,9 @@ def build(rt, row, state):
     digest=pc.runtime_digest(rt,child)
     rt.event(child,None,None,'production_continuation_created',{'request_id':row['id'],'parent':parent,
         'parent_attempt':producer['latest'],'contract_digest':digest,'plan_hash':contracts.digest(plan),
-        'source_files':[{'id':f['id'],'sha256':f['sha256']} for f in files]})
+        'source_files':[{'id':f['id'],'sha256':f['sha256']} for f in files],
+        **({'review_failure':expected['review_failure']} if expected.get('review_failure') else {}),
+        **({'no_draft_recovery':recovery} if recovery else {})})
     return digest
 
 

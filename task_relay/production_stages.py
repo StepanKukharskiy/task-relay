@@ -30,6 +30,10 @@ def planning_origin(state,run):
 def code_preparation_failure(attempt):
     """Classify stopped preparation; legacy incomplete receipts need saved evidence."""
     receipt=json.loads(attempt['receipt'] or '{}');reason=str(receipt.get('reason',''))
+    if (reason.startswith('Model service unavailable (HTTP 503)') and receipt.get('status')=='finished' and receipt.get('external_outcome')=='no_pending_response'
+            and not receipt.get('pending_requests') and receipt.get('provider_failures')
+            and all(f.get('kind')=='synchronous_service_unavailable' and f.get('http_status')==503 for f in receipt['provider_failures'])):
+        return 'provider_unavailable'
     if 'Provider request budget exhausted' in reason:return 'budget'
     if not any(s in reason for s in ('Incomplete provider response;', 'Provider generation output limit reached;', 'Provider response rejected: MALFORMED_FUNCTION_CALL;',
                                      'provider returned incomplete or unsupported tool calls.')):return None
@@ -117,7 +121,7 @@ def failed_execution_snapshot(state,rt,run,channel,kind=None):
         spec=REGISTRY.get(capability,{})
         if spec.get('kind')!='procedure' or spec.get('external_requests')!=0:
             raise ValueError('Input recovery is limited to local procedures without external requests.')
-    elif capability not in ('rhino.run_python','blender.run_python'):
+    elif capability not in ('rhino.run_python','blender.run_python','rhino3dm.run_python'):
         raise ValueError('Script repair requires one failed host Python operation.')
     attempt=next(a for a in status['attempts'] if a['id']==failed[0]['latest'])
     receipt=json.loads(attempt['receipt'] or '{}')
@@ -142,7 +146,7 @@ def snapshot(state,rt,run,channel):
     if not decisions:raise ValueError('A next stage requires a recorded exact-output selection.')
     for d in decisions:
         task=rt.task(run,d['task']);a=rt.artifact(d['artifact'])
-        if task['latest']!=a['attempt'] or a['task']!=task['id'] or d['purpose']!=rt.spec(task).get('user_gate'):
+        if task['latest']!=a['attempt'] or a['task']!=task['id'] or d['purpose']!=rt.decision_purpose(task):
             raise ValueError('A selected output is no longer current.')
     if state.db.execute("SELECT 1 FROM production_revisions WHERE run=? AND status='queued'",(run,)).fetchone():
         raise ValueError('A revision is pending for this stage.')

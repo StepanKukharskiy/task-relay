@@ -202,6 +202,20 @@ class Runtime:
     def spec(self, task):
         return json.loads(self.db.execute('SELECT spec FROM production_assignments WHERE id=?', (task['assignment'],)).fetchone()[0])
 
+    def quality_review(self, task):
+        row=self.db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND attempt=? AND kind='quality_review_required' ORDER BY id DESC LIMIT 1",
+            (task['run'],task['id'],task['latest'])).fetchone()
+        return json.loads(row['data']) if row else None
+
+    def decision_purpose(self, task):
+        from .outcomes import GATE
+        return GATE if self.quality_review(task) else self.spec(task).get('user_gate')
+
+    def selection_paths(self, task):
+        spec=self.spec(task)
+        if self.quality_review(task):return [o['path'] for o in spec['outputs']]
+        return spec.get('selection_outputs')
+
     def task(self, run, tid):
         row = self.db.execute('SELECT * FROM production_tasks WHERE run=? AND id=?', (run, tid)).fetchone()
         if row is None:
@@ -329,7 +343,9 @@ class Runtime:
                     continue
                 if task['attempts'] >= spec['max_attempts']:
                     self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?", (run, task['id']))
-                    self.event(run, task['id'], None, 'attempt_limit', {})
+                    self.event(run, task['id'], None, 'attempt_limit',
+                        {'assignment':task['assignment'],'attempts':task['attempts'],'max_attempts':spec['max_attempts'],
+                         'review_target':self.task(run,spec['review_of'])['latest'] if spec.get('review_of') else None})
                     continue
                 if spec.get('execution'):
                     from .execution import available
@@ -377,10 +393,20 @@ class Runtime:
                     frozen['authorized_assignment_digest']=c.digest(spec)
                 frozen.update(assignment_id=attempt, assignment_version=task['assignment'],
                               run=run, workspace=str(workspace), brief=plan['brief'], backend=backend)
+                if not frozen.get('execution'):
+                    from .report_builder import freeze as report_form
+                    frozen['report_contract']=report_form(frozen)
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
-                if frozen.get('execution',{}).get('capability')=='images.collect':
+                if spec.get('execution',{}).get('capability') in ('media.compose','hyperframes.preview','hyperframes.render'):
+                    from task_relay import media_host
+                    frozen['media_runtime']=media_host.available('project' if spec['execution']['capability'].startswith('hyperframes.') else 'template')
+                    frozen['runtime_sources']['task_relay/media_host.py']=file_hash(Path(media_host.__file__))
+                if spec.get('execution',{}).get('capability','').startswith('sketchup.'):
+                    from .sketchup_execution import application_binding
+                    frozen['sketchup_application']=application_binding()
+                if frozen.get('execution',{}).get('capability') in ('images.collect','images.fetch'):
                     from task_relay import orchestrator_web
                     frozen['runtime_sources']['task_relay/orchestrator_web.py']=file_hash(Path(orchestrator_web.__file__))
                 if frozen.get('execution',{}).get('capability') in execution.CLOUD_MEDIA:
@@ -586,12 +612,27 @@ class Runtime:
             reason=blocked_report_text(result)
             if failures:reason+='\nArtifact checks: '+'; '.join(failures)
             self.set_state(attempt, 'blocked', reason); return
+        from .outcomes import disposition
+        findings=result.get('findings',[])
+        action=disposition(findings)
+        if action in ('block','reconcile'):
+            self.set_state(attempt,'uncertain' if action=='reconcile' else 'blocked','; '.join(f['category']+': '+f['message'] for f in findings))
+            self.event(attempt['run'],attempt['task'],attempt['id'],'result_recovery_required',{'disposition':action,'findings':findings,'automatic_dispatch':False})
+            return
+        if action=='user_review':
+            target=self.task(attempt['run'],frozen.get('review_of') or attempt['task'])
+            if frozen.get('review_of') and (target['latest']!=frozen['review_target'] or target['status']!='awaiting_review'):
+                self.set_state(attempt,'blocked','Stale review target');return
+            prior=self.quality_review(target)
+            combined=(prior or {}).get('findings',[])+[f for f in findings if f not in (prior or {}).get('findings',[])]
+            self.event(attempt['run'],target['id'],target['latest'],'quality_review_required',
+                {'policy_version':1,'findings':combined,'reported_by':attempt['id'],'user_approval':False})
         self.set_state(attempt, 'completed')
         if frozen.get('review_of'):
             target = self.task(attempt['run'], frozen['review_of'])
             if target['latest'] != frozen['review_target'] or target['status'] != 'awaiting_review':
                 self.set_state(attempt, 'blocked', 'Stale review target'); return
-            if result['decision'] == 'revise':
+            if result['decision'] == 'revise' and action!='user_review':
                 target_spec=self.spec(target)
                 if target_spec.get('execution') and not target_spec.get('review_correction'):
                     # A review is complete even when its candidate needs correction.
@@ -603,18 +644,20 @@ class Runtime:
                 else:
                     self._revise(attempt['run'], target['id'], result['instruction'], 'model_review:' + attempt['id'])
             else:
-                state = 'awaiting_user' if self.spec(target).get('user_gate') else 'completed'
+                state = 'awaiting_user' if self.decision_purpose(target) else 'completed'
                 self.db.execute('UPDATE production_tasks SET status=? WHERE run=? AND id=?', (state, attempt['run'], target['id']))
-                self.event(attempt['run'], target['id'], target['latest'], 'model_review_accepted',
+                self.event(attempt['run'], target['id'], target['latest'], 'quality_review_completed' if result['decision']=='revise' else 'model_review_accepted',
                            {'review_attempt': attempt['id'], 'user_approval': False})
         else:
-            state = 'awaiting_review' if self.reviewer(attempt['run'], attempt['task']) else ('awaiting_user' if frozen.get('user_gate') else 'completed')
+            state = 'awaiting_review' if self.reviewer(attempt['run'], attempt['task']) else ('awaiting_user' if self.decision_purpose(self.task(attempt['run'],attempt['task'])) else 'completed')
             self.db.execute('UPDATE production_tasks SET status=? WHERE run=? AND id=?', (state, attempt['run'], attempt['task']))
 
     def tick(self, run, dispatch=True):
         if self.db.in_transaction:
             raise ValueError('Commit pending database changes before running the scheduler.')
         for attempt in self.db.execute("SELECT * FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')", (run,)).fetchall():
+            if attempt['state']=='uncertain' and self.db.execute("SELECT 1 FROM production_events WHERE attempt=? AND kind='result_recovery_required' AND json_extract(data,'$.disposition')='reconcile'",(attempt['id'],)).fetchone():
+                continue  # A retained ambiguous result requires explicit reconciliation.
             if attempt['state'] == 'cancelling':
                 # Intent survives a crash before the adapter receives cancellation.
                 self.factory.cancel(json.loads(attempt['session']))
@@ -693,10 +736,10 @@ class Runtime:
             if not row or row['status']!='active':
                 raise ValueError('A cancelled or inactive workflow cannot accept a selection')
             task = self.task(run, tid); spec = self.spec(task); a = self.artifact(artifact)
-            if task['status'] != 'awaiting_user' or a['attempt'] != task['latest'] or purpose != spec.get('user_gate'):
+            if task['status'] != 'awaiting_user' or a['attempt'] != task['latest'] or purpose != self.decision_purpose(task):
                 raise ValueError('Selection must match the current delivered artifact and exact decision purpose')
             members=[self.artifact(i) for i in (artifacts if artifacts is not None else [artifact])]
-            expected=spec.get('selection_outputs',[a['path']])
+            expected=self.selection_paths(task) or [a['path']]
             if (not members or artifact not in [m['id'] for m in members]
                 or len(members)!=len(expected) or {m['path'] for m in members}!=set(expected)
                 or any(m['attempt']!=task['latest'] or m['task']!=tid or m['run']!=run for m in members)):
@@ -710,6 +753,7 @@ class Runtime:
                 self.db.execute('INSERT INTO production_decisions VALUES (?,?,?,?,?,?,?)', (uid(), run, tid, member['id'], purpose, note, time.time()))
             self.db.execute("UPDATE production_tasks SET status='completed' WHERE run=? AND id=?", (run, tid))
             self.event(run, tid, task['latest'], 'user_selected', {'artifact': artifact, 'sha256': a['sha256'], 'purpose': purpose, 'note': note,
+                'quality_review':self.quality_review(task),
                 'members':[{'artifact':m['id'],'sha256':m['sha256'],'path':m['path']} for m in members]})
 
     def artifact_lineage(self, artifact, limit=100):

@@ -91,9 +91,33 @@ def operation_path(value):
 
 
 class ProviderError(Exception):
-    def __init__(self, status, uncertain=False):
+    def __init__(self, status, uncertain=False, detail=None):
         self.status, self.uncertain = status, uncertain
-        super().__init__(f'Gemini request failed ({status})')
+        self.detail = detail or {}
+        suffix = ': '+self.detail['message'] if self.detail.get('message') else ''
+        super().__init__(f'Gemini request failed ({status})'+suffix)
+
+
+def error_detail(response, key):
+    """Retain a bounded structured diagnostic, never HTTP headers or raw bodies."""
+    try:
+        raw=response.read(8193)
+        if len(raw)>8192:return {}
+        value=json.loads(raw)
+        error=value.get('error') if isinstance(value,dict) else None
+        if not isinstance(error,dict) or not isinstance(error.get('message'),str):return {}
+        message=error['message']
+        # Redact before truncating, including the URL-encoded configured key.
+        for secret in sorted({key,urllib.parse.quote(key,safe=''),urllib.parse.quote_plus(key)},key=len,reverse=True):
+            if secret:message=message.replace(secret,'[redacted]')
+        message=re.sub(r'https?://[^\s<>"\']+','[redacted URL]',message,flags=re.I)
+        message=re.sub(r'(?i)(?:authorization\s*:\s*bearer|bearer|x-goog-api-key|api[_-]?key|access[_-]?token)\s*[:=]?\s*[^\s,;]+','[redacted credential]',message)
+        message=' '.join(message.split())[:1500]
+        result={'message':message}
+        status=error.get('status')
+        if isinstance(status,str) and re.fullmatch(r'[A-Z_]{1,64}',status):result['status']=status
+        return result
+    except (OSError,ValueError,TypeError):return {}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -126,8 +150,9 @@ class Client:
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:
             code = exc.code
-            exc.close()
-            raise ProviderError(code, uncertain=data is not None and code >= 500) from None
+            try:detail=error_detail(exc,self.key)
+            finally:exc.close()
+            raise ProviderError(code, uncertain=data is not None and code >= 500,detail=detail) from None
         except (OSError, ValueError):
             raise ProviderError('connection-or-response', uncertain=data is not None) from None
 

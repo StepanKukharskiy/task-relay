@@ -202,7 +202,7 @@ class Tests(unittest.TestCase):
             row=self.queue(action=self.action(step_capabilities=['blender.inspect'],artifact_ids=[artifact['id']]),text='Inspect this exact scene; do not edit.')
             context=json.loads(row['context'])
             source=next(i for i in context['sources'] if i['path'].endswith('.blend'))
-            host=self.bounded(operation('blender.inspect',[]))
+            host=self.bounded(operation('blender.inspect',[{k:source[k] for k in ('artifact','path','purpose','authority')}]))
             review=self.response()['plan']['tasks'][1];review['review_of']='app';review['dependencies']=['app'];review['criteria']=host['criteria']
             review['inputs']=[dict(from_task='app',output=o['path'],path='candidate/'+o['path'].split('/')[-1],
                 purpose='Inspect recorded findings',authority='Evidence',media_type=o['media_type']) for o in host['outputs']]

@@ -26,6 +26,14 @@ def run(args, check=True):
 
 digest = bundle_digest
 
+def check_versions(candidate, installed):
+    from task_relay.app_updates import version
+    values = [plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString']
+              for app in (candidate, installed)]
+    if version(values[0]) < version(values[1]):
+        raise ValueError('Refusing app downgrade from ' + values[1] + ' to ' + values[0] + '. Build a newer version.')
+    return {'candidate_version': values[0], 'installed_version': values[1]}
+
 def write(path, value):
     temp = path.with_suffix('.tmp')
     temp.write_text(json.dumps(value, indent=2) + '\n')
@@ -85,6 +93,7 @@ def main():
         if not args.candidate: parser.error('--candidate is required for preparation.')
         CANDIDATE, INSTALLED, HERE = args.candidate.absolute(), args.installed.absolute(), args.prepare.absolute()
         if HERE.exists(): raise ValueError('Use a new recovery directory.')
+        versions = check_versions(CANDIDATE, INSTALLED)
         specs = [plistlib.loads(p.read_bytes()) for p in PLISTS]
         runtime = INSTALLED / 'Contents/Resources/resources/runtime'
         for index, spec in enumerate(specs):
@@ -121,7 +130,7 @@ def main():
             retired.append({'path': str(path), 'digest': digest(path)})
         HERE.mkdir(parents=True, mode=0o700)
         MANIFEST = HERE / 'install-manifest.json'
-        write(MANIFEST, {'candidate': str(CANDIDATE), 'installed': str(INSTALLED), 'data': str(DATA),
+        write(MANIFEST, {**versions, 'candidate': str(CANDIDATE), 'installed': str(INSTALLED), 'data': str(DATA),
                         'candidate_digest': digest(CANDIDATE), 'installed_digest': digest(INSTALLED),
                         'installed_inode': INSTALLED.stat().st_ino, 'retire': retired,
                         'updated_messages_spec': updated,
@@ -140,6 +149,7 @@ def main():
     expected = json.loads(MANIFEST.read_text())
     assert digest(CANDIDATE) == expected['candidate_digest'], 'Candidate changed'
     assert digest(INSTALLED) == expected['installed_digest'], 'Installed app changed'
+    check_versions(CANDIDATE, INSTALLED)
     for i, p in enumerate(PLISTS):
         assert not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest() == expected['plist_hashes'][i]
         spec = plistlib.loads(p.read_bytes())

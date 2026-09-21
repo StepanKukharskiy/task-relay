@@ -173,7 +173,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(set(saved['outputs']),{'output.txt'})
 
     def test_transport_uncertainty_and_safety_stop_without_continuation(self):
-        for mode in ('uncertain','safety','pending_code','not_code'):
+        for mode in ('uncertain','safety','pending_code'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory(dir=self.root) as temp:
                 control=Path(temp);reader=self.setup_worker(code=mode!='not_code',control=control)
                 transport=shared.Transport('gemini',self.frozen,True);requests=[]

@@ -12,4 +12,5 @@ recursive-include task_relay/assets/vendor *.js *.LICENSE *.txt
 include task_relay/assets/requirements-claude*.txt
 include task_relay/assets/macos/*.swift
 include orchestrator/*.py
+include orchestrator/*.rb
 global-exclude *.pyc

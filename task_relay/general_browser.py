@@ -16,13 +16,13 @@ INTERACTIVE={'click','fill','select','press','upload','download'}
 FIELDS="""el => {const secret=el.type==='password'||['one-time-code','current-password','new-password'].includes(el.autocomplete);
  const value=el.value||((el.isContentEditable||el.getAttribute('role')==='textbox')?el.textContent:'')||'';
  return {tag:el.tagName,role:el.getAttribute('role'),
- label:(el.getAttribute('aria-label')||el.labels?.[0]?.innerText||el.innerText||el.getAttribute('placeholder')||'').slice(0,300),
+ label:(el.getAttribute('aria-label')||el.labels?.[0]?.innerText||el.innerText||el.getAttribute('placeholder')||el.getAttribute('alt')||'').slice(0,300),
  type:el.getAttribute('type')||'',autocomplete:el.getAttribute('autocomplete')||'',
  href:el.tagName==='A'?el.href:null,connected:el.isConnected,
  value_present:!!value,_value:secret?null:value,
  options:el.tagName==='SELECT'?Array.from(el.options).slice(0,100).map(o=>({value:o.value,label:o.label})):[],
  options_truncated:el.tagName==='SELECT'&&el.options.length>100};}"""
-CONTROLS='a[href],button,input,textarea,select,[role="button"],[role="textbox"],[contenteditable="true"]'
+CONTROLS='img,a[href],button,input,textarea,select,[role="button"],[role="textbox"],[contenteditable="true"]'
 
 
 def digest(value):return hashlib.sha256(encoded(value).encode()).hexdigest()
@@ -172,9 +172,14 @@ class PlaywrightDriver:
                 descriptor['value_sha256']=hashlib.sha256(value.encode()).hexdigest()
                 descriptor['value_truncated']=len(value)>1000
             handles.append(element);controls.append(descriptor)
+        images=page.locator('img').evaluate_all('''els => els.filter(el => {
+            const r=el.getBoundingClientRect();return r.width>=60 && r.height>=40 && r.bottom>0 && r.top<innerHeight;
+        }).slice(0,40).map(el=>({src:((el.currentSrc||el.src||'').startsWith('https://')?(el.currentSrc||el.src):'').slice(0,4000),
+            href:(el.closest('a[href]')?.href||'').slice(0,4000),alt:(el.alt||'').slice(0,500),
+            width:el.naturalWidth,height:el.naturalHeight}))''')
         text=page.locator('body').inner_text(timeout=5000)
         return {'url':page.url,'title':page.title()[:500],'text':text[:24000],
-                'text_truncated':len(text)>24000,'controls':controls,'dialogs_dismissed':self.dialogs[-3:]},handles
+                'text_truncated':len(text)>24000,'images':images,'controls':controls,'dialogs_dismissed':self.dialogs[-3:]},handles
 
     def navigate(self,tab,url):self.goto(self.managed_page(tab),url)
     def close(self,tab):
@@ -279,6 +284,7 @@ class Session:
         self.observations[tab]={'id':ident,'fingerprint':fingerprint,'raw':raw,'handles':handles}
         result=json.loads(encoded(raw));result['tab']=tab;result['observation']=ident
         for i,element in enumerate(result['controls']):element['ref']=str(i)
+        for i,image in enumerate(result.get('images',[])):image['ref']=str(i)
         self.journal.tab(self.profile,tab,raw['url'])
         return result
 
@@ -312,6 +318,17 @@ class Session:
         if op=='open' and len(self.tabs)>=self.policy['max_tabs']:raise ValueError('Tab budget exhausted')
         if op=='wait' and not 0<=args['seconds']<=5:raise ValueError('Wait must be 0–5 seconds')
         interactive=op in INTERACTIVE
+        if op=='image_source':
+            if self.files is None:raise ValueError('No image-source file grant')
+            self.files.image_source_ready(args['path'],args['subject'])
+            image_observation=self.observed(args)
+            ref=args['ref'];images=image_observation['raw'].get('images',[])
+            if not ref.isdigit() or int(ref)>=len(images):raise ValueError('Unknown observed image ref')
+            from orchestrator.browser_images import observed_image
+            candidate=observed_image(images[int(ref)],image_observation['raw']['url'])
+            candidate.update(subject=args['subject'],observed_url=image_observation['raw']['url'],
+                             observation=args['observation'],action_id=ident)
+            self.files.validate_image_source(args['path'],candidate)
         if op=='screenshot':
             if not args['purpose'].strip():raise ValueError('State the screenshot purpose')
             if args['path'] not in self.policy.get('screenshots',[]) or self.files is None:raise ValueError('No exact screenshot grant')
@@ -330,7 +347,7 @@ class Session:
                 raise ValueError('Unsupported key')
             if op in ('upload','download'):
                 if args['path'] not in self.policy[op+'s'] or self.files is None:raise ValueError('No exact file transfer grant')
-        old=self.journal.claim(self.profile,self.job,ident,name,args,self.policy['max_actions'],interactive or op=='screenshot')
+        old=self.journal.claim(self.profile,self.job,ident,name,args,self.policy['max_actions'],interactive or op in ('screenshot','image_source'))
         if old is not None:return old
         # No external interaction occurs before the committed intent above.
         try:
@@ -343,6 +360,8 @@ class Session:
                 self.journal.tab(self.profile,tab,args['url'],'opening')
                 self.driver.open(tab,args['url']);result=self.inspect(tab)
             elif op=='read':result=self.inspect(tab)
+            elif op=='image_source':
+                result=self.files.write_image_source(args['path'],candidate)
             elif op=='screenshot':
                 from datetime import datetime,timezone
                 raw=self.driver.screenshot(tab)

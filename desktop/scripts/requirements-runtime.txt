@@ -1,5 +1,7 @@
 # macOS arm64 CPython 3.14 wheel; native image validation/conversion.
 # Portable PDF text reader; also required by source installations.
+# Standalone 3DM generation; CPython 3.14 universal macOS wheels (14+/15+).
+rhino3dm==8.35.0 --hash=sha256:78239b0521c4ccf0b2c08dd8b24cf8f61e101980fc89dc2d99104436c3c514e2 --hash=sha256:bec9a98e7ec58bab950b319b5af34ea63c6258a7ffe1919c88c463a0d2424136
 pypdf==6.18.1 --hash=sha256:ee93a2665670ecf57ee81d197a4ca548f3dc15f9cefc56e59b8140866aaa3de5
 Pillow==12.2.0 --hash=sha256:80b2da48193b2f33ed0c32c38140f9d3186583ce7d516526d462645fd98660ae
 # Browser driver only. Relay uses installed Google Chrome, no Chromium download.

@@ -51,6 +51,7 @@ class Tests(unittest.TestCase):
             task['tools']=['files','shell']
             task['limits']={'seconds':600,'tool_calls':60,'output_bytes':100000000}
         return dict(decision='ready',message='One brief and independent review.',
+                    geometry_basis={'mode':'procedural','artifacts':[],'checks':[]},
                     input_basis={'mode':'new','artifacts':[]},plan={k:value[k] for k in ('brief','tasks')})
 
     def ready(self,ident=1,action=None):
@@ -95,7 +96,7 @@ class Tests(unittest.TestCase):
         call=self.state.db.execute('SELECT * FROM production_plan_calls').fetchone()
         self.assertEqual(json.loads(call['usage'])['total_tokens'],123)
         self.assertEqual(json.loads(call['request'])['original_request'],row['request'])
-        self.assertEqual(json.loads(call['request'])['planner_instructions'],planning.PLANNER_SYSTEM)
+        self.assertEqual(json.loads(call['request'])['planner_instructions'],json.loads(row['context'])['planner_instructions'])
         self.start(row);self.click(row['token'])
         controls=chat.controls(self.state,'production:production-1:planner-started')
         self.assertEqual(controls['inline_keyboard'][0][0]['text'],'Check status')

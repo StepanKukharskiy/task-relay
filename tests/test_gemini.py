@@ -590,6 +590,32 @@ class Tests(unittest.TestCase):
         self.assertNotIn('test-secret', str(caught.exception))
         self.assertEqual(client.opener.open.call_count, 1)
 
+    def test_structured_rejection_retains_bounded_redacted_diagnostic_without_retry(self):
+        client=gemini.Client('test-secret/+');client.opener=Mock()
+        body=json.dumps({'error':{'code':400,'status':'INVALID_ARGUMENT','message':
+            'function_declarations[0].parameters: invalid test-secret/+ test-secret%2F%2B '
+            'https://private.example/?key=another-secret Bearer unknown-token'}}).encode()
+        client.opener.open.side_effect=urllib.error.HTTPError('https://private',400,'secret',{},io.BytesIO(body))
+        with self.assertRaises(gemini.ProviderError) as caught:client.request('models/test:generateContent',{})
+        error=caught.exception
+        self.assertFalse(error.uncertain);self.assertEqual(error.status,400)
+        self.assertEqual(error.detail['status'],'INVALID_ARGUMENT')
+        self.assertIn('function_declarations[0].parameters',str(error))
+        for secret in ('test-secret','another-secret','unknown-token','private.example'):
+            self.assertNotIn(secret,json.dumps(error.detail))
+        self.assertEqual(client.opener.open.call_count,1)
+
+    def test_oversized_or_unstructured_error_body_is_not_exposed(self):
+        for body in (b'private raw error',b'x'*8193,b'[]',b'{"error":{"message":123}}'):
+            client=gemini.Client('secret');client.opener=Mock()
+            stream=io.BytesIO(body)
+            client.opener.open.side_effect=urllib.error.HTTPError('https://private',400,'secret',{},stream)
+            with self.subTest(body=body[:20]),self.assertRaises(gemini.ProviderError) as caught:
+                client.request('models/test:generateContent',{})
+            self.assertEqual(caught.exception.detail,{})
+            self.assertEqual(str(caught.exception),'Gemini request failed (400)')
+            self.assertTrue(stream.closed)
+
     def test_audio_multipart_and_document_fallback(self):
         path = self.root / 'speech.mp3'
         path.write_bytes(b'ID3audio')

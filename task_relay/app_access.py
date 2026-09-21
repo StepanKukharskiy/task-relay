@@ -14,7 +14,7 @@ import tempfile
 
 from .relay_paths import PATHS
 
-FAMILIES = ('rhino', 'blender', 'codex', 'claude', 'ffmpeg')
+FAMILIES = ('rhino', 'blender', 'sketchup', 'codex', 'claude', 'ffmpeg')
 
 
 def path(): return PATHS.data/'app-access.json'

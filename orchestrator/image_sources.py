@@ -15,12 +15,18 @@ import zipfile
 from urllib.parse import urlencode, urlsplit, urljoin
 
 MAX_SUBJECTS = 40
+MAX_SUBJECT_REQUESTS = 8
 MAX_IMAGE_BYTES = 3_000_000
 MAX_BUNDLE_BYTES = 45_000_000
 DESCRIPTION = '''parameters={subjects:[{id:"stable-slug",label:"display name",query:"exact subject name"}]}, 1–40 distinct subjects. Optional exclude_titles is an exact list of previously rejected
 Commons File: titles; a revision can exclude them without altering prior receipts.
-Search Wikimedia Commons once per subject, inspect at most five JPEG/PNG candidates,
-and download at most one metadata-matched candidate per subject (no login/key/model).
+Search an exact phrase first, then the same literal words in any order if needed.
+At most two searches, five candidates per search, two distinct candidate downloads,
+and eight HTTP GETs including redirects per subject. Keep at most one image.
+Optional identity is an exact name from the request/research that must appear as a
+phrase in metadata (use botanical name for plants or place/landmark for scenes).
+No transport retry, login, key or model is used. An entirely empty collection fails
+with its diagnostic ZIP retained; partial coverage remains available for review.
 Queries are literal subject names; resolve scientific names/synonyms from supplied
 research, never invent them. The ZIP contains manifest.json and images/<id>.jpg|png.
 Manifest records each subject, exact query, found/missing status, source title/page,
@@ -39,7 +45,7 @@ def validate_subjects(subjects):
         raise ValueError('Image search needs 1–40 subjects.')
     seen=set()
     for s in subjects:
-        if not isinstance(s,dict) or set(s)-{'exclude_titles'}!={'id','label','query'}:
+        if not isinstance(s,dict) or set(s)-{'exclude_titles','identity'}!={'id','label','query'}:
             raise ValueError('Each subject needs id, label and query.')
         if not isinstance(s['id'],str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}',s['id']) or s['id'] in seen:
             raise ValueError('Image subject IDs must be unique safe slugs.')
@@ -47,23 +53,28 @@ def validate_subjects(subjects):
         excluded=s.get('exclude_titles',[])
         if not isinstance(excluded,list) or len(excluded)>20 or any(not isinstance(t,str) or not t.startswith('File:') or len(t)>500 for t in excluded):
             raise ValueError('Excluded image titles must be bounded Commons File: titles.')
-        for key in ('label','query'):
+        for key in ('label','query',*(['identity'] if 'identity' in s else [])):
             if not isinstance(s[key],str) or not 1<=len(s[key].strip())<=200 or any(ord(c)<32 for c in s[key]):
                 raise ValueError('Image subject text must contain 1–200 printable characters.')
-        if any(c in s['query'] for c in '"|{}[]:'):
+        if 'identity' in s and not normalized(s['identity']):
+            raise ValueError('Image identity must contain a literal name.')
+        if not normalized(s['query']) or any(c in s['query'] for c in '"|{}[]:'):
             raise ValueError('Use a literal subject name, not search operators.')
     return subjects
 
 
-def download(url, max_bytes, deadline):
+def download(url, max_bytes, deadline, budget=None, allowed_hosts=None):
     """Pinned public TLS, fixed Wikimedia hosts, no cookies/proxies/auth/retries."""
     from task_relay.orchestrator_web import public_url,public_addresses,PublicHTTPS
     for _ in range(4):
         url=public_url(url);u=urlsplit(url)
-        if u.hostname not in ('commons.wikimedia.org','upload.wikimedia.org','thumb.wikimedia.org'):
-            raise ValueError('Image-source download is outside Wikimedia hosts.')
+        if u.hostname not in (allowed_hosts if allowed_hosts is not None else ('commons.wikimedia.org','upload.wikimedia.org','thumb.wikimedia.org')):
+            raise ValueError('Image-source download is outside permitted source hosts.')
         remaining=deadline-time.monotonic()
         if remaining<=0:raise ValueError('Image-source deadline exceeded.')
+        if budget is not None:
+            if budget['remaining']<=0:raise ValueError('Image subject HTTP request budget exhausted.')
+            budget['remaining']-=1
         ips=public_addresses(u.hostname)
         conn=PublicHTTPS(u.hostname,ips[0],min(20,remaining))
         try:
@@ -119,14 +130,21 @@ def image_check(raw,mime):
     return list(size)
 
 
-def candidate(page,subject):
+def candidate(page,subject,*,keywords=False):
     if page.get('title') in subject.get('exclude_titles',[]):return None
     info=(page.get('imageinfo') or [{}])[0]
     meta=info.get('extmetadata',{})
     field=lambda key:plain(meta.get(key,{}).get('value',''))
     title=plain(page.get('title',''));description=field('ImageDescription')
     needle=normalized(subject['query'])
-    if not needle or (' '+needle+' ') not in (' '+normalized(title+' '+description)+' '):return None
+    haystack=' '+normalized(title+' '+description)+' '
+    phrase=bool(needle) and (' '+needle+' ') in haystack
+    # Short names (including binomial taxa) retain phrase identity. Longer
+    # descriptive queries can vary word order, but never drop a required term.
+    words=needle.split()
+    if not phrase and not (keywords and len(words)>2 and all(' '+w+' ' in haystack for w in words)):return None
+    identity=normalized(subject.get('identity',''))
+    if identity and (' '+identity+' ') not in haystack:return None
     # Commons returns the licence for each file, not the website's text licence.
     licence=field('LicenseShortName');licence_url=field('LicenseUrl')
     if not re.fullmatch(r'CC (?:BY(?:-SA)? (?:1\.0|2\.[05]|3\.0|4\.0)|0)',licence) and licence not in ('CC0','Public domain'):
@@ -143,50 +161,87 @@ def candidate(page,subject):
     if urlsplit(source).hostname!='commons.wikimedia.org':return None
     return dict(title=title,description=description,author=author,license=licence,license_url=licence_url,
                 source_url=source,download_url=url,media_type=info['mime'] if use_original else info.get('thumbmime',info['mime']),
-                match_evidence='Literal query appears in source title/description; subject identity requires review.')
+                match_evidence=('Literal query phrase' if phrase else 'Every literal query word (order independent)')+
+                ' appears in source title/description; subject identity requires review.')
 
 
 def collect(subjects, *, fetch=None, seconds=600, max_bytes=MAX_BUNDLE_BYTES, record=None):
     validate_subjects(subjects)
-    fetch=fetch or download
     deadline=time.monotonic()+seconds;files={};entries=[];total=0
     def journal(value):
         if record:record(value)
     for subject in subjects:
-        entry={**subject,'status':'missing'};entries.append(entry)
-        query='"'+subject['query']+'" filetype:bitmap'
-        url='https://commons.wikimedia.org/w/api.php?'+urlencode(dict(action='query',format='json',
-            generator='search',gsrsearch=query,gsrnamespace=6,gsrlimit=5,prop='imageinfo',
-            iiprop='url|mime|extmetadata|size',iiurlwidth=1000,iiextmetadatalanguage='en'))
+        budget={'remaining':MAX_SUBJECT_REQUESTS}
+        def request(url,limit):
+            if fetch is None:return download(url,limit,deadline,budget)
+            if budget['remaining']<=0:raise ValueError('Image subject HTTP request budget exhausted.')
+            budget['remaining']-=1
+            return fetch(url,limit,deadline)
+        entry={**subject,'status':'missing','searches':[],'download_failures':[]};entries.append(entry)
+        phrase='"'+subject['query']+'" filetype:bitmap'
+        words=' '.join('"'+w+'"' for w in normalized(subject['query']).split())+' filetype:bitmap'
+        attempted=set();page_count=0;eligible_count=0
         try:
-            journal(dict(subject=subject['id'],kind='search',status='requested',url=url))
-            raw,mime,final=fetch(url,1_000_000,deadline)
-            if mime!='application/json':raise ValueError('Image search did not return JSON.')
-            response=json.loads(raw)
-            journal(dict(subject=subject['id'],kind='search',status='responded',url=final,
-                         sha256=hashlib.sha256(raw).hexdigest(),response=response))
-            if 'error' in response:raise ValueError('Commons search error: '+str(response['error'].get('code','unknown')))
-            pages=response.get('query',{}).get('pages',{})
-            candidates=[c for p in sorted(pages.values(),key=lambda p:p.get('index',999)) if (c:=candidate(p,subject))]
-            if not candidates:raise ValueError('No exact metadata match with supported reuse licence and author.')
-            candidates.sort(key=lambda c: normalized(subject['query']) not in normalized(c['title']))
-            chosen=candidates[0]
-            journal(dict(subject=subject['id'],kind='image',status='requested',url=chosen['download_url']))
-            raw,mime,final=fetch(chosen['download_url'],MAX_IMAGE_BYTES,deadline)
-            dimensions=image_check(raw,mime)
-            if mime!=chosen['media_type']:raise ValueError('Downloaded image differs from source media type.')
-            total+=len(raw)
-            if total>min(max_bytes,MAX_BUNDLE_BYTES)-1_000_000:raise ValueError('Image bundle byte limit exceeded.')
-            path='images/'+subject['id']+('.jpg' if mime=='image/jpeg' else '.png')
-            files[path]=raw
-            entry.update(chosen,status='found',path=path,sha256=hashlib.sha256(raw).hexdigest(),
-                         bytes=len(raw),dimensions=dimensions,download_url=final,retrieved_at=time.time())
-            journal(dict(subject=subject['id'],kind='image',status='saved',sha256=entry['sha256'],bytes=len(raw)))
+            for mode,query in [('phrase',phrase),*([('keywords',words)] if words!=phrase else [])]:
+                url='https://commons.wikimedia.org/w/api.php?'+urlencode(dict(action='query',format='json',
+                    generator='search',gsrsearch=query,gsrnamespace=6,gsrlimit=5,prop='imageinfo',
+                    iiprop='url|mime|extmetadata|size',iiurlwidth=1000,iiextmetadatalanguage='en'))
+                journal(dict(subject=subject['id'],kind='search',mode=mode,status='requested',url=url))
+                raw,mime,final=request(url,1_000_000)
+                if mime!='application/json':raise ValueError('Image search did not return JSON.')
+                response=json.loads(raw)
+                journal(dict(subject=subject['id'],kind='search',mode=mode,status='responded',url=final,
+                             sha256=hashlib.sha256(raw).hexdigest(),response=response))
+                if 'error' in response:raise ValueError('Commons search error: '+str(response['error'].get('code','unknown')))
+                pages=response.get('query',{}).get('pages',{})
+                # Bound even a malformed/oversized server inventory.
+                pages=sorted(pages.values(),key=lambda p:p.get('index',999))[:5]
+                candidates=[c for p in pages if (c:=candidate(p,subject,keywords=mode=='keywords'))]
+                page_count+=len(pages);eligible_count+=len(candidates)
+                entry['searches'].append(dict(mode=mode,query=query,pages=len(pages),eligible=len(candidates)))
+                def relevance(c):
+                    title=normalized(c['title']).split();terms=set(normalized(subject['query']).split())
+                    # Prefer focused titles over a long caption mentioning the
+                    # requested words incidentally. This is ranking, not review.
+                    return (normalized(subject['query']) not in ' '.join(title),
+                            -sum(t in terms for t in title)/max(1,len(title)))
+                candidates.sort(key=relevance)
+                for chosen in candidates:
+                    if chosen['download_url'] in attempted:continue
+                    if len(attempted)>=2:break
+                    attempted.add(chosen['download_url'])
+                    journal(dict(subject=subject['id'],kind='image',status='requested',url=chosen['download_url']))
+                    try:
+                        raw,mime,final=request(chosen['download_url'],MAX_IMAGE_BYTES)
+                        dimensions=image_check(raw,mime)
+                        if mime!=chosen['media_type']:raise ValueError('Downloaded image differs from source media type.')
+                    except (ValueError,OSError) as exc:
+                        failure=dict(title=chosen['title'],url=chosen['download_url'],reason=str(exc)[:500])
+                        entry['download_failures'].append(failure)
+                        journal(dict(subject=subject['id'],kind='image',status='failed',**failure))
+                        continue
+                    if total+len(raw)>min(max_bytes,MAX_BUNDLE_BYTES)-1_000_000:raise ValueError('Image bundle byte limit exceeded.')
+                    total+=len(raw)
+                    path='images/'+subject['id']+('.jpg' if mime=='image/jpeg' else '.png')
+                    files[path]=raw
+                    entry.update(chosen,status='found',path=path,sha256=hashlib.sha256(raw).hexdigest(),
+                                 bytes=len(raw),dimensions=dimensions,download_url=final,retrieved_at=time.time())
+                    journal(dict(subject=subject['id'],kind='image',status='saved',sha256=entry['sha256'],bytes=len(raw)))
+                    break
+                if entry['status']=='found' or len(attempted)>=2:break
+            if entry['status']!='found':
+                if not page_count:reason='Commons returned no files for the phrase or same-word search.'
+                elif not eligible_count:reason='Search returned files, but none met subject metadata, photo, exclusion, author and reuse-licence requirements.'
+                else:reason='Matching candidates could not be downloaded or validated: '+'; '.join(f['reason'] for f in entry['download_failures'])
+                raise ValueError(reason)
         except (ValueError,OSError,KeyError,TypeError) as exc:
             entry['reason']=str(exc)[:500]
             journal(dict(subject=subject['id'],kind='failure',reason=entry['reason']))
+        entry['http_requests']=MAX_SUBJECT_REQUESTS-budget['remaining']
+    found=sum(e['status']=='found' for e in entries)
     manifest=dict(version=1,kind='task-relay-sourced-images',provider='wikimedia-commons',
-                  created_at=time.time(),subjects=entries,complete=all(e['status']=='found' for e in entries),
+                  created_at=time.time(),subjects=entries,complete=found==len(entries),
+                  coverage=dict(found=found,missing=len(entries)-found,total=len(entries)),
                   review='Metadata candidates only; visual identity and suitability require independent review.')
     buf=io.BytesIO()
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_STORED) as archive:
@@ -275,7 +330,7 @@ def main(argv=None):
     for path,data in images.items():
         target=args.output_dir/path;target.parent.mkdir(exist_ok=True)
         with target.open('xb') as stream:stream.write(data)
-    result=dict(outcome='completed',complete=manifest['complete'],found=len(images),subjects=len(subjects),
+    result=dict(outcome='completed' if images else 'failed',complete=manifest['complete'],found=len(images),subjects=len(subjects),
                 output_sha256=hashlib.sha256(raw).hexdigest(),output=str(args.output_dir/'images.zip'))
     (args.output_dir/'receipt.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result))

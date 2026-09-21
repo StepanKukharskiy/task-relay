@@ -143,6 +143,9 @@ def assignment(value):
     if 'worker' in a:
         from .worker_capabilities import validate
         validate(a)
+    if 'source_fidelity' in a:
+        from .source_fidelity import validate_assignment
+        validate_assignment(a)
     if len(encoded(a)) > 180000:
         raise ValueError('Assignment exceeds 180,000 characters')
     return a
@@ -241,7 +244,15 @@ def plan(value):
                 raise ValueError('One independent reviewer per producer; no nested review')
             if a['max_attempts'] < tasks[target]['max_attempts']:
                 raise ValueError('Reviewer budget must cover every permitted producer attempt')
-            if a['criteria'] != tasks[target]['criteria']:
+            expected_criteria=tasks[target]['criteria']
+            if a.get('source_fidelity',{}).get('phase')=='comparison':
+                from .source_fidelity import CRITERION
+                from .native_apps import SCRIPT_OPERATIONS
+                if (tasks[target].get('execution',{}).get('capability') not in SCRIPT_OPERATIONS
+                    or a['source_fidelity']['criterion']!=len(expected_criteria)+1):
+                    raise ValueError('Source comparison must strengthen a native producer review.')
+                expected_criteria=expected_criteria+[CRITERION]
+            if a['criteria'] != expected_criteria:
                 raise ValueError('Reviewer must check the producer criteria without weakening them')
             reviewers.add(target)
             for out in tasks[target]['outputs']:
@@ -264,6 +275,7 @@ def plan(value):
 
 
 # The service verifies output files itself. These checks are model reports, not proof.
+from . import outcomes
 REPORT_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'properties': {
@@ -271,18 +283,23 @@ REPORT_SCHEMA = {
         'summary': {'type': 'string'},
         'decision': {'type': 'string', 'enum': ['delivered', 'accept', 'revise', 'blocked']},
         'instruction': {'type': 'string'},
+        'findings': outcomes.SCHEMA,
         'checks': {'type': 'array', 'items': {
             'type': 'object', 'additionalProperties': False,
             'properties': {'criterion': {'type': 'integer'}, 'passed': {'type': 'boolean'},
                            'evidence': {'type': 'string'}},
             'required': ['criterion', 'passed', 'evidence']}},
-    }, 'required': ['assignment_id', 'summary', 'decision', 'instruction', 'checks']}
+    }, 'required': ['assignment_id', 'summary', 'decision', 'instruction', 'checks', 'findings']}
 
 
 def report(value, frozen):
+    if isinstance(value,dict) and isinstance(value.get('checks'),dict):
+        from .report_builder import build
+        value=build(value,frozen)
     if not isinstance(value, dict) or value.get('assignment_id') != frozen['assignment_id']:
         raise ValueError('Result belongs to a different assignment')
     nonempty(value.get('summary'), 'result summary')
+    outcomes.validate(value.get('findings',[]))
     blocked = value.get('decision') == 'blocked'
     allowed = ('accept', 'revise', 'blocked') if frozen.get('review_of') else ('delivered', 'blocked')
     if value.get('decision') not in allowed:
@@ -306,4 +323,6 @@ def report(value, frozen):
         raise ValueError('Delivery/acceptance cannot advance with reported failed criteria')
     if value['decision'] == 'revise':
         nonempty(value.get('instruction'), 'revision instruction')
+    from .source_fidelity import validate_report
+    validate_report(value, frozen)
     return value

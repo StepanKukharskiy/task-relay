@@ -73,6 +73,34 @@ def claude_candidates(which=None):
     return paths
 
 
+def sketchup_candidates(environ=None, platform=None):
+    env=os.environ if environ is None else environ
+    platform=sys.platform if platform is None else platform
+    if env.get('TASK_RELAY_SKETCHUP'):return [Path(env['TASK_RELAY_SKETCHUP']).expanduser()]
+    if platform=='win32':
+        return sorted((Path(env.get('PROGRAMFILES','C:/Program Files'))/'SketchUp').glob('SketchUp */SketchUp.exe'),reverse=True)
+    return [p/'Contents/MacOS/SketchUp' for root in (APPLICATIONS,Path.home()/'Applications')
+            for p in sorted(root.glob('SketchUp*/SketchUp.app'),reverse=True)] + [APPLICATIONS/'SketchUp.app/Contents/MacOS/SketchUp']
+
+
+def sketchup(environ=None, platform=None, respect_access=True):
+    platform=sys.platform if platform is None else platform
+    from .app_access import enabled
+    present=[p.resolve() for p in sketchup_candidates(environ,platform) if p.is_absolute() and p.is_file() and os.access(p,os.X_OK)]
+    selected=next((p for p in present if not respect_access or enabled('sketchup',p)),None)
+    version=bundle_version(selected) if selected else None
+    blocker=('Direct SketchUp requires the macOS desktop adapter.' if platform!='darwin' else
+             'SketchUp is off in Settings → Apps and tools.' if present and selected is None else
+             'Selected SketchUp executable is unavailable; no fallback for an explicit path.' if selected is None else
+             'SketchUp 2025/2026 application bundle required.' if not version or version.split('.')[0] not in ('25','26','2025','2026') else None)
+    return dict(id='sketchup',available=blocker is None,executable=str(selected) if selected else None,version=version,
+        interpreter='Embedded Ruby',blocker=blocker,
+        executor='Registered sketchup.startup / sketchup.inspect / sketchup.run_ruby; exact Ruby/checks approval for modeling',
+        evidence='Executable/bundle presence only; desktop startup, license and Ruby execution require qualification.',
+        outputs=['Editable .skp candidate','Viewport PNG','Ruby source and verification/receipt JSON'],
+        verification='Owned desktop process; saved candidate reopened independently. No existing user session attachment or automatic replay.')
+
+
 def claude_cli():
     from .app_access import enabled
     present=[p for p in claude_candidates() if p.is_absolute() and p.is_file() and os.access(p,os.X_OK)]
@@ -89,7 +117,7 @@ def installed(environ=None, platform=None, which=None):
     platform=sys.platform if platform is None else platform
     which=shutil.which if which is None else which
     candidates=[(f,p) for f,paths in (
-        ('rhino',rhino_candidates(env,platform)),('blender',blender_candidates(env,platform,which)),
+        ('rhino',rhino_candidates(env,platform)),('blender',blender_candidates(env,platform,which)),('sketchup',sketchup_candidates(env,platform)),
         ('codex',codex_candidates(env,platform,which))) for p in paths]
     candidates.extend(('claude',p) for p in claude_candidates(which))
     # The account integration uses this SDK environment; desktop Claude alone
@@ -109,6 +137,7 @@ def installed(environ=None, platform=None, which=None):
         seen.add(ident);version=bundle_version(p)
         desktop_claude=family=='claude' and any(parent.name=='Claude.app' for parent in p.parents)
         supported=not desktop_claude and not (family=='rhino' and (platform!='darwin' or not version or version.split('.')[0] not in ('7','8')))
+        if family=='sketchup':supported=platform=='darwin' and bool(version and version.split('.')[0] in ('25','26','2025','2026'))
         rows.append({'id':ident,'family':family,'name':('Claude desktop' if desktop_claude else 'Claude account worker' if account_runtime else 'Codex worker' if family=='codex' else family.capitalize()),
             'version':version,'executable':str(p),'supported':supported,
             'detail':('Desktop app detected; Relay uses the Claude account SDK, not desktop UI control.' if desktop_claude else
@@ -216,6 +245,7 @@ def launcher_tools(host=None, which=None):
              detail='Executable presence only; account access is unchecked.'),
         dict(name='Blender', available=blender_tool['available'], detail=blender_tool['evidence']),
         dict(name='Rhino 7 / 8', available=rhino(platform=host.platform)['available'], detail=rhino(platform=host.platform)['evidence']),
+        dict(name='SketchUp', available=sketchup(platform=host.platform)['available'], detail=sketchup(platform=host.platform)['evidence']),
         dict(name='FFmpeg + FFprobe', available=video['available'],
              detail='Executable presence only; no media operation was run.'),
     ]
@@ -223,7 +253,7 @@ def launcher_tools(host=None, which=None):
 
 def catalog(state=None):
     # Catalog enrichment must not mutate a detector's reusable result.
-    result=[dict(blender()),dict(rhino())]
+    result=[dict(blender()),dict(rhino()),dict(sketchup())]
     result[1]['installed_versions']=[r for major in ('7','8')
         if (r:=rhino({'TASK_RELAY_RHINO_VERSION':major},respect_access=False))['available']]
     result[1]['selection_note']='The top-level Rhino is selected for new plans, not the only installed version or evidence of a running session. installed_versions lists other detected versions. Change the preferred version in Settings → Apps and tools before preparing version-specific code; existing plans keep their exact runtime approval.'

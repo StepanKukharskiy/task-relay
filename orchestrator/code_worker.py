@@ -16,9 +16,8 @@ def definitions():
 
 class CodeFiles(Files):
     def __init__(self,frozen,control):
-        self.frozen=frozen;self.root=Path(frozen['workspace']);self.control=Path(control)
-        self.inputs={x['path']:x for x in frozen['inputs']};self.outputs={x['path'] for x in frozen['outputs']}
-        self.written={};self.browser=False;self.captures=set();self.capture_outputs=set()
+        self.initialize_files(frozen,browser=False)
+        self.control=Path(control)
         if 'runtime.log' in self.outputs:raise ValueError('runtime.log is reserved by the native runtime.')
         total=0
         for path,item in self.inputs.items():

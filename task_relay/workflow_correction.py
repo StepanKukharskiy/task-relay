@@ -67,6 +67,64 @@ def verify(original, corrected, user_request):
     return changes
 
 
+def bind_registered_outputs(action, user_request):
+    """Derive unambiguous ports from operations, never from filenames or LLM text.
+
+    Multi-output/multi-operation stages still need an explicit producer binding.
+    This edits declarations before execution, never relabels an existing artifact.
+    """
+    corrected=copy.deepcopy(action);bound={}
+    for stage in corrected['stages']:
+        outputs=stage.get('handoff',{}).get('outputs',{})
+        caps=['gemini.image'] if stage['route']=='image' else stage['capabilities']
+        if len(caps)!=1 or len(outputs)!=1:continue
+        spec=operation(caps[0]);media=spec.get('output_type')
+        if not media or spec.get('outputs'):continue
+        ident,out=next(iter(outputs.items()))
+        if out['media_type']==media:continue
+        out['media_type']=media;bound[(stage['id'],ident)]=media
+    for stage in corrected['stages']:
+        for edge in stage.get('handoff',{}).get('inputs',[]):
+            media=bound.get((edge['stage'],edge['deliverable']))
+            if media:edge['media_type']=media
+    if not bound:return corrected,[]
+    return corrected,verify(action,corrected,user_request)
+
+
+def stage_binding_recovery(state, row):
+    """Prepare a type-only successor for the current unexecuted blocked stage.
+
+    No writes here: the caller must first validate a retained proposal and every
+    selected source. Completed stages and all original receipts remain immutable.
+    """
+    from orchestrator import contracts as c
+    from orchestrator.handoff_contracts import compile_workflow
+    step=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE target_kind='plan_production' AND target=?",(row['id'],)).fetchall()
+    if len(step)!=1:return None
+    step=step[0]
+    pipeline=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(step['pipeline'],)).fetchone()
+    if not pipeline or pipeline['status']!='blocked' or step['status']!='blocked' or pipeline['channel']!=row['channel']:return None
+    original=json.loads(pipeline['spec']);context=json.loads(row['context'])
+    if context.get('pipeline_step')!=original['stages'][step['position']]:return None
+    corrected,changes=bind_registered_outputs(original,pipeline['request'])
+    if not changes:return None
+    states={s['id']:s for s in state.db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=?',(pipeline['id'],))}
+    for change in changes:
+        affected=states[change['stage']]
+        if affected['position']==step['position'] and change['port']=='output':continue
+        if (affected['position']>step['position'] and change['port']=='input' and affected['status']=='pending'
+                and affected['request_id'] is None and affected['target'] is None):
+            edge=corrected['stages'][affected['position']]['handoff']['inputs'][change['id']]
+            if edge['stage']==step['id']:continue
+        raise ValueError('Handoff recovery would change another started stage or unrelated output.')
+    compile_workflow(corrected['stages'],required=True)
+    receipt={'pipeline':pipeline['id'],'stage':step['id'],'changes':changes,
+             'previous_spec':original,'previous_spec_sha256':c.digest(original),'spec_sha256':c.digest(corrected)}
+    context['pipeline_step']=corrected['stages'][step['position']]
+    context['stage_type_recovery']=receipt
+    return context,corrected,receipt
+
+
 def recover_saved(state, ident, corrected_raw, snapshot):
     """Apply a reviewed type-only correction to a confirmed undispatched request.
 
