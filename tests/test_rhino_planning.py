@@ -17,6 +17,8 @@ from tests import test_blender_edit_planning as blender_planning
 class Tests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
+        idle=patch('task_relay.rhino_host.running_instances',return_value=[])
+        idle.start();self.addCleanup(idle.stop)
         self.rhino=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.rhino.start()
 
     def tearDown(self):self.rhino.stop();fixture.Tests.tearDown(self)
@@ -97,6 +99,7 @@ class Tests(unittest.TestCase):
         review['inputs']=[dict(from_task='app',output=o['path'],path='candidate/'+Path(o['path']).name,
             purpose='Independent output review',authority='Unaccepted candidate',media_type=o['media_type']) for o in host['outputs']]
         response=dict(decision='ready',message='Approve the exact Rhino script',plan=dict(brief='Rhino candidate creation',tasks=[host,review]))
+        response['geometry_basis']={'mode':'procedural','artifacts':[],'checks':[]}
         self.prepared_response=copy.deepcopy(response)
         planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
         row=self.row();self.assertEqual(row['status'],'ready',row['error'])

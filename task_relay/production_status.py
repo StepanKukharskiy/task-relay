@@ -49,6 +49,13 @@ def plan_execution(state,run):
     if not deferred:raise ValueError('This stage has no pending execution to plan.')
     prior=production_stages.planning_origin(state,run)
     if not prior:raise ValueError('The original planning request is missing; inspect the stage.')
+    linked=state.db.execute('''SELECT p.id,p.status FROM production_stage_links l
+        JOIN production_plans p ON p.id=l.plan_id WHERE l.parent=?''',(run,)).fetchone()
+    if linked and linked['status']!='discarded':
+        if linked['status']=='blocked':
+            recovered,_=planning.recover_validated_response(state,linked['id'])
+            return 'Recovered saved execution plan: '+recovered+'. No provider call repeated; review its files and use Start.'
+        return 'Execution plan already '+linked['status']+': '+linked['id']+'. Use that saved plan; no duplicate was created.'
     options=json.loads(prior['options']);project=options.get('project')
     ident=int(hashlib.sha256(('plan-execution:'+run).encode()).hexdigest()[:15],16)
     action=dict(kind='plan_production',template='custom',project=project,reference_pack_id=None,

@@ -68,6 +68,8 @@ def compile_workflow(stages, catalog=(), required=False):
         if not isinstance(handoff['inputs'],list) or len(handoff['inputs'])>64:raise ContractError('invalid_edges','Use at most 64 explicit handoff edges.')
         if stage['route']=='image' and len(handoff['outputs'])!=1:
             raise ContractError('unsupported_outputs','A managed image stage produces one selected image; use separate stages for separate deliverables.')
+        if set(stage['capabilities'])&{'images.collect','images.fetch'} and not any(o.get('media_type')=='application/zip' for o in handoff['outputs'].values() if isinstance(o,dict)):
+            raise ContractError('incompatible_output','Image sourcing produces an application/zip bundle containing images and manifest.json. Declare that bundle as a handoff output; JSON metadata alone cannot carry the photos to the next stage.')
         if stage['route']=='image' and sum(e.get('media_type','').startswith('image/') for e in handoff['inputs'] if isinstance(e,dict) and isinstance(e.get('media_type'),str))>MANAGED_IMAGE_REFERENCES:
             raise ContractError('input_capacity',f'Managed image generation accepts at most {MANAGED_IMAGE_REFERENCES} image references.')
         available=[]
@@ -76,6 +78,11 @@ def compile_workflow(stages, catalog=(), required=False):
                 raise ContractError('capability_unavailable','Capability is unavailable before workflow start: '+cap)
             spec=operation(cap,saved.get(cap));available.extend(spec.get('outputs',{}).values())
             if spec.get('output_type'):available.append(spec['output_type'])
+        if len(stage['capabilities'])==1 and len(handoff['outputs'])==1:
+            producer=operation(stage['capabilities'][0],saved.get(stage['capabilities'][0]))
+            declared=next(iter(handoff['outputs'].values()))
+            if producer.get('output_type') and not producer.get('outputs') and declared.get('media_type')!=producer['output_type']:
+                raise ContractError('incompatible_output','Registered operation '+stage['capabilities'][0]+' produces '+producer['output_type']+'; bind that output or declare a separate derived deliverable.')
         for ident,out in handoff['outputs'].items():
             descriptor(out)
             if set(out.get('companions',[]))-set(handoff['outputs']) or ident in out.get('companions',[]):
@@ -84,7 +91,7 @@ def compile_workflow(stages, catalog=(), required=False):
             if stage['route'] in ('conversation','browser_research') and media not in TEXT:
                 raise ContractError('incompatible_output','A conversation/research stage cannot promise a native or image file.')
             if stage['route']=='image' and media!='image/png':raise ContractError('incompatible_output','Managed image stages produce image/png.')
-            if stage['route']=='production' and media in ('application/vnd.rhino','application/x-blender',PPTX_MIME) and media not in available:
+            if stage['route']=='production' and media in ('application/vnd.rhino','application/x-blender','application/vnd.sketchup.skp',PPTX_MIME) and media not in available:
                 raise ContractError('missing_producer','No selected native/document capability produces '+media+' for '+stage['id'])
             if out.get('max_bytes') is None:unknown.append(stage['id']+'/'+ident+': byte size unknown; checked when produced')
             if media==PPTX_MIME and out.get('slides') is None:unknown.append(stage['id']+'/'+ident+': slide count unspecified')

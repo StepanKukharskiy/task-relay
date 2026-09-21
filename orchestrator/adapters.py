@@ -38,10 +38,13 @@ class GeminiFactory(CodexFactory):
     def inspect(self,session):
         result=super().inspect(session)
         if result['status']!='finished':return result
-        control=Path(session['control']);unknown=[]
+        control=Path(session['control']);unknown=[];provider_failures=[]
         for request in sorted(control.glob('api-*.request.json')):
             stem=request.name.removesuffix('.request.json');outcome=control/(stem+'.outcome.json')
             detail=json.loads(outcome.read_text()) if outcome.exists() else {}
+            if not (control/(stem+'.response.json')).exists() and executors.synchronous_unavailable(session['backend'],json.loads(request.read_text()),detail):
+                provider_failures.append({'request':stem,'http_status':503,'kind':'synchronous_service_unavailable'})
+                continue
             if not (control/(stem+'.response.json')).exists() and detail.get('outcome')!='rejected':unknown.append(stem)
         for intent in control.glob('code-*/intent.json'):
             if not intent.with_name('outcome.json').exists():unknown.append(intent.parent.name)
@@ -59,6 +62,10 @@ class GeminiFactory(CodexFactory):
         elif session['backend']['type'] in executors.BROWSER_TYPES:
             unknown.append('missing_browser_receipt')
         result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
+        if provider_failures:
+            result['provider_failures']=provider_failures
+            if result.get('exit_code') and not unknown and provider_failures[-1]['request']==stem:
+                result['reason']='Model service unavailable (HTTP 503); no tool response was returned. Saved local work is retained.'
         agent_result=control/'agent-result.json'
         if result.get('exit_code') and not result.get('reason') and agent_result.is_file() and not agent_result.is_symlink() and agent_result.stat().st_size<=200000:
             try:
@@ -67,7 +74,8 @@ class GeminiFactory(CodexFactory):
                     result['reason']=detail['reason'][:1800]
             except (ValueError,OSError,AttributeError):pass
         if unknown and not (control/'cancel.json').exists():
-            result.update(status='uncertain',local_terminal=True,reason='Provider, browser or code outcome is unknown; stopped locally, never replayed or switched providers.')
+            reason=result.get('reason')
+            result.update(status='uncertain',local_terminal=True,reason='Provider, browser or code outcome is unknown; stopped locally, never replayed or switched providers.'+(' '+reason if reason else ''))
         return result
 
 
@@ -90,6 +98,23 @@ class RegisteredFactory(CodexFactory):
         control=Path(session['control']);operation=control/'operation.json'
         details=json.loads(operation.read_text()) if operation.exists() else {}
         result.update(execution=session['execution'],operation=details)
+        if ((session['execution']['capability']=='media.compose' and (control/'media-intent.json').exists()) or
+                (session['execution']['capability'].startswith('hyperframes.') and (control/'hyperframes-intent.json').exists())) and not operation.exists():
+            result.update(external_outcome='unknown',local_terminal=True)
+            if not (control/'cancel.json').exists():
+                result.update(status='uncertain',reason='Local render has no conclusive receipt; reconcile owned processes and partial files before explicit recovery. No automatic replay.')
+        if session['execution']['capability']=='rhino3dm.run_python':
+            uncertain=details.get('outcome')=='uncertain' or ((control/'rhino3dm-script-intent.json').exists() and not operation.exists())
+            if uncertain:
+                result.update(external_outcome='unknown',local_terminal=True)
+                if not (control/'cancel.json').exists():
+                    result.update(status='uncertain',reason='Standalone library script has no conclusive receipt; no automatic replay.')
+        if session['execution']['capability'].startswith('sketchup.'):
+            uncertain=details.get('outcome')=='uncertain' or ((control/'sketchup-intent.json').exists() and not operation.exists())
+            if uncertain:
+                result.update(external_outcome='unknown',local_terminal=True)
+                if not (control/'cancel.json').exists():
+                    result.update(status='uncertain',reason='SketchUp execution has no conclusive receipt; no automatic replay.')
         if execution.REGISTRY[session['execution']['capability']]['kind']=='api':
             sent=(control/'request.json').exists();received=(control/'response.json').exists()
             if received:

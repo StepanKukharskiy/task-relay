@@ -38,7 +38,7 @@ class Tests(unittest.TestCase):
         for task in plan['tasks']:
             self.assertTrue(any(i.get('artifact')==artifact['id'] for i in task['inputs']))
         self.assertIn(source['path'],planning.preview(row))
-        manifest=self.state.media_dir.parent/'production-planning'/row['id']/'sources.json'
+        manifest=Path(self.state.db.execute('SELECT path FROM media_outbox WHERE id=?',(row['event_id']+':sources',)).fetchone()['path'])
         self.assertTrue(any(s['sha256']==artifact['sha256'] for s in json.loads(manifest.read_text())))
         self.start(row);self.rt.tick('production-1')
         frozen=self.factory.sessions[self.rt.task('production-1','produce')['latest']]['frozen']

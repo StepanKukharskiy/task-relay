@@ -17,7 +17,7 @@ def initialize(db):
 def files(state, focus=None):
     scopes=[UPLOAD_SCOPE] + ([focus] if focus else [])
     return [dict(r) for r in state.db.execute(
-        'SELECT id,filename,caption,status,bytes,sha256 FROM production_uploads WHERE run IN ('+
+        'SELECT id,filename,caption,status,bytes,sha256,path FROM production_uploads WHERE run IN ('+
         ','.join('?' for _ in scopes)+") AND status IN ('pending','ready','failed') ORDER BY rowid", scopes)]
 
 
@@ -62,7 +62,7 @@ def queue(state, job, reference_ids, artifact_ids=None, provider='gemini', model
         if ident not in available or available[ident]['status']!='ready':
             raise ValueError('A selected reference is unavailable or still downloading. Wait for “Attached” before asking again.')
         row=state.db.execute('SELECT * FROM production_uploads WHERE id=?',(ident,)).fetchone()
-        path=safe_file(pc.root(state).parent/'production-guides',str(ident)+'/'+row['filename'])
+        path=pc.upload_path(state,row)
         if str(path.resolve())!=row['path'] or path.stat().st_size!=row['bytes'] or file_hash(path)!=row['sha256']:
             raise ValueError('The uploaded reference changed. Please upload it again.')
         mime=gemini.validate_input(path,row['filename'])

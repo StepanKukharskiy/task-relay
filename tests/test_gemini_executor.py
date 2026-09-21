@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 from pathlib import Path
+import runpy
 import sys
 import tempfile
 import time
@@ -48,6 +49,7 @@ class Scripted:
         elif n==(2 if self.frozen['inputs'] else 1):
             name,args='file_write',dict(path=self.frozen['outputs'][0]['path'],text='bounded fixture output')
         else:name,args='finish',report(self.frozen)
+        if name=='finish':args={'report_json':json.dumps(args)}
         return {'responseId':'fixture-'+str(n),'usageMetadata':{'promptTokenCount':3,'candidatesTokenCount':2},
                 'candidates':[{'finishReason':'STOP','content':{'role':'model','parts':[
                     {'thoughtSignature':'opaque-signature','functionCall':{'id':'call-'+str(n),'name':name,'args':args}}]}}]}
@@ -75,6 +77,10 @@ class Tests(unittest.TestCase):
         result=execute(self.frozen,self.control,client,reader or (lambda:(CONFIG,BACKEND)))
         return result,client
 
+    def input(self,path,text,**metadata):
+        target=self.ws/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(text)
+        self.frozen['inputs'].append(dict(path=path,sha256=hashlib.sha256(text.encode()).hexdigest(),**metadata))
+
     def test_loop_preserves_signatures_ids_usage_and_report(self):
         result,client=self.run_script()
         history=client.calls[1]['contents']
@@ -86,11 +92,146 @@ class Tests(unittest.TestCase):
 
     def test_review_finish_saves_exact_judgment_without_duplicate_write_call(self):
         self.frozen['review_of']='producer';self.frozen['outputs']=[{'path':'findings.md','purpose':'Independent findings'}]
+        self.input('candidate.txt','The exact candidate to review.',from_task='producer')
         result,client=self.run_script('finish-only')
         self.assertEqual(result['decision'],'accept');self.assertEqual(len(client.calls),1)
         text=(self.ws/'findings.md').read_text()
         self.assertIn(result['summary'],text)
         self.assertTrue(all(check['evidence'] in text for check in result['checks']))
+        supplied=json.loads(client.calls[0]['contents'][0]['parts'][0]['text'])['source_pack']
+        self.assertEqual(supplied['files'][0]['text'],'The exact candidate to review.')
+
+    def test_placeholder_is_retained_but_cannot_be_delivered(self):
+        scripted=Scripted(self.frozen)
+        class Stub:
+            def request(_,path,payload,**kwargs):
+                response=scripted.request(path,payload,**kwargs)
+                call=response['candidates'][0]['content']['parts'][0]['functionCall']
+                if call['name']=='file_write':call['args']['text']='# Placeholder'
+                return response
+        with self.assertRaisesRegex(ValueError,'request budget'):
+            execute(self.frozen,self.control,Stub(),lambda:(CONFIG,BACKEND))
+        self.assertEqual((self.ws/'output.txt').read_text(),'# Placeholder')
+        self.assertFalse((self.ws/'.relay/result.json').exists())
+        self.assertIn('placeholder-only',json.loads((self.control/'tool-02-00.json').read_text())['result']['error'])
+
+    def test_partial_candidate_cannot_be_approved_until_all_pages_are_supplied(self):
+        self.frozen['review_of']='producer'
+        self.input('guide.txt','guide'*100)
+        self.input('candidate.txt','A'*96001,from_task='producer')
+        files=Files(self.frozen);pack=files.source_pack()
+        self.assertEqual(pack['files'][0]['path'],'candidate.txt')
+        self.assertEqual(pack['files'][0]['next_offset'],96000)
+        with self.assertRaisesRegex(ValueError,'complete exact candidate'):files.validate_text_delivery(report(self.frozen))
+        files.call('file_read',dict(path='candidate.txt',offset=96000,limit=1))
+        files.validate_text_delivery(report(self.frozen))
+        (self.ws/'candidate.txt').write_text('B'*96001)
+        with self.assertRaisesRegex(ValueError,'changed'):files.validate_text_delivery(report(self.frozen))
+
+    def test_candidate_read_gaps_and_absent_candidate_do_not_count_as_review(self):
+        self.frozen['review_of']='producer';files=Files(self.frozen)
+        with self.assertRaisesRegex(ValueError,'No declared candidate'):files.validate_text_delivery(report(self.frozen))
+        self.input('candidate.txt','123456789',from_task='producer');files=Files(self.frozen)
+        for offset in (0,6):files.call('file_read',dict(path='candidate.txt',offset=offset,limit=3))
+        with self.assertRaisesRegex(ValueError,'complete exact candidate'):files.validate_text_delivery(report(self.frozen))
+        files.call('file_read',dict(path='candidate.txt',offset=3,limit=3));files.validate_text_delivery(report(self.frozen))
+
+    def test_source_pack_keeps_unicode_and_explicit_omissions_within_bound(self):
+        self.input('source.txt','я'*10);self.input('omitted.txt','later')
+        pack=Files(self.frozen).source_pack(max_bytes=5)
+        self.assertEqual(pack['text_bytes'],5)
+        self.assertEqual(pack['files'][0]['text'],'яя');self.assertEqual(pack['files'][0]['next_offset'],2)
+        self.assertEqual(pack['files'][1]['text'],'l');self.assertEqual(pack['files'][1]['next_offset'],1)
+
+    def test_placeholder_candidate_requires_correction_even_when_supplied(self):
+        self.frozen['review_of']='producer';self.input('candidate.txt','# Placeholder',from_task='producer')
+        files=Files(self.frozen);files.source_pack();value=report(self.frozen)
+        with self.assertRaisesRegex(ValueError,'placeholder-only candidate'):files.validate_text_delivery(value)
+        value['decision']='revise';files.validate_text_delivery(value)
+        files.call('file_write',dict(path='output.txt',text='# Review in progress'))
+        with self.assertRaisesRegex(ValueError,'placeholder-only output'):files.validate_text_delivery(value)
+        value['decision']='blocked';files.validate_text_delivery(value)
+
+    def test_append_preserves_sections_and_rejects_replay_unknown_paths_and_overflow(self):
+        files=Files(self.frozen)
+        args=dict(path='output.txt',text='next',expected_bytes=0)
+        with self.assertRaisesRegex(ValueError,'already written'):files.call('file_append',args)
+        first=files.call('file_write',dict(path='output.txt',text='я\n'))
+        args.update(expected_bytes=first['bytes'])
+        result=files.call('file_append',args)
+        self.assertEqual((self.ws/'output.txt').read_text(),'я\nnext');self.assertEqual(result['bytes'],7)
+        with self.assertRaisesRegex(ValueError,'size changed'):files.call('file_append',args)
+        self.frozen['limits']['output_bytes']=8;args.update(expected_bytes=7)
+        with self.assertRaisesRegex(ValueError,'budget'):files.call('file_append',args)
+        self.assertEqual((self.ws/'output.txt').read_text(),'я\nnext')
+        args.update(path='../outside')
+        with self.assertRaises(ValueError):files.call('file_append',args)
+
+    def test_text_generation_failure_discards_all_calls_and_resumes_saved_sections(self):
+        from unittest.mock import Mock
+        def response(name,args,reason='STOP'):
+            return {'candidates':[{'finishReason':reason,'content':{'role':'model','parts':[
+                {'functionCall':{'name':name,'args':args}}]}}]}
+        client=Mock();client.request.side_effect=[
+            response('file_write',dict(path='output.txt',text='First section.\n')),
+            response('file_write',dict(path='output.txt',text='MUST NOT EXECUTE'),'MALFORMED_FUNCTION_CALL'),
+            response('file_append',dict(path='output.txt',text='Second section.',expected_bytes=15)),
+            response('finish',{'report_json':json.dumps(report(self.frozen))})]
+        result=execute(self.frozen,self.control,client,lambda:(CONFIG,BACKEND))
+        self.assertEqual(result['decision'],'delivered')
+        self.assertEqual((self.ws/'output.txt').read_text(),'First section.\nSecond section.')
+        self.assertFalse((self.control/'tool-02-00.json').exists())
+        recovery=json.loads((self.control/'api-02.recovery.json').read_text())
+        self.assertTrue(recovery['continued']);self.assertEqual(recovery['executed_calls'],0)
+        third=client.request.call_args_list[2].args[1]
+        self.assertNotIn('MUST NOT EXECUTE',json.dumps(third))
+        self.assertEqual(client.request.call_count,4)
+
+    def test_repeated_malformed_text_response_stops_without_extra_requests_or_tools(self):
+        from unittest.mock import Mock
+        client=Mock();client.request.return_value={'candidates':[{'finishReason':'MALFORMED_FUNCTION_CALL'}]}
+        with self.assertRaisesRegex(ValueError,'MALFORMED_FUNCTION_CALL'):
+            execute(self.frozen,self.control,client,lambda:(CONFIG,BACKEND))
+        self.assertEqual(client.request.call_count,2);self.assertFalse(list(self.control.glob('tool-*')))
+        self.assertFalse(json.loads((self.control/'api-02.recovery.json').read_text())['continued'])
+
+    def test_output_limit_on_final_request_cannot_expand_text_budget(self):
+        from unittest.mock import Mock
+        self.frozen['limits']['provider_requests']=1
+        client=Mock();client.request.return_value={'candidates':[{'finishReason':'MAX_TOKENS'}]}
+        with self.assertRaisesRegex(ValueError,'output limit'):
+            execute(self.frozen,self.control,client,lambda:(CONFIG,BACKEND))
+        self.assertEqual(client.request.call_count,1)
+        self.assertFalse(json.loads((self.control/'api-01.recovery.json').read_text())['continued'])
+
+    def test_gemini_parameterless_wire_form_preserves_shared_schemas(self):
+        from orchestrator.gemini_worker import definitions
+        shared=definitions(self.frozen);original=copy.deepcopy(shared)
+        scripted=Scripted(self.frozen)
+        class StrictTransport:
+            def request(_,path,payload,**kwargs):
+                for tool in payload['tools'][0]['functionDeclarations']:
+                    if tool.get('parameters',{}).get('type')=='object' and not tool['parameters'].get('properties'):
+                        raise gemini.ProviderError(400)
+                return scripted.request(path,payload,**kwargs)
+        result=execute(self.frozen,self.control,StrictTransport(),lambda:(CONFIG,BACKEND))
+        self.assertEqual(result['decision'],'delivered')
+        tools=scripted.calls[0]['tools'][0]['functionDeclarations']
+        self.assertNotIn('parameters',next(t for t in tools if t['name']=='file_list'))
+        self.assertEqual([t for t in tools if t['name'] not in ('file_list','finish')],[t for t in shared if t['name'] not in ('file_list','finish')])
+        self.assertEqual(definitions(self.frozen),original)
+
+    def test_confirmed_rejection_keeps_diagnostic_and_never_retries(self):
+        from unittest.mock import Mock
+        client=Mock();client.request.side_effect=gemini.ProviderError(400,detail={
+            'status':'INVALID_ARGUMENT','message':'Invalid function declaration.'})
+        with self.assertRaises(gemini.ProviderError):
+            execute(self.frozen,self.control,client,lambda:(CONFIG,BACKEND))
+        outcome=json.loads((self.control/'api-01.outcome.json').read_text())
+        self.assertEqual(outcome['outcome'],'rejected')
+        self.assertEqual(outcome['provider_error']['status'],'INVALID_ARGUMENT')
+        self.assertEqual(client.request.call_count,1)
+        self.assertFalse((self.ws/'output.txt').exists())
 
     def test_producer_finish_does_not_fabricate_missing_outputs(self):
         with self.assertRaisesRegex(ValueError,'request budget'):self.run_script('finish-only')
@@ -241,5 +382,12 @@ class Tests(unittest.TestCase):
 if __name__=='__main__':
     if len(sys.argv)>1 and sys.argv[1]=='fixture':
         control,workspace,mode=map(str,sys.argv[2:]);frozen=json.loads((Path(workspace)/'.relay/ASSIGNMENT.json').read_text())
-        execute(frozen,control,Scripted(frozen,mode),lambda:(CONFIG,BACKEND))
+        # Exercise the same script entry point as GeminiFactory, with only the
+        # provider connection/transport replaced. Importing execute as a package
+        # hid script-only relative-import failures before any provider request.
+        script=Path(__file__).resolve().parents[1]/'orchestrator/gemini_worker.py'
+        sys.argv=[str(script),control,workspace]
+        with patch.object(executors,'configured_worker',return_value=(CONFIG,BACKEND)), \
+             patch.object(gemini,'Client',return_value=Scripted(frozen,mode)):
+            runpy.run_path(str(script),run_name='__main__')
     else:unittest.main()

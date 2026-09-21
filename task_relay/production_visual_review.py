@@ -19,6 +19,41 @@ def initialize(db):
       PRIMARY KEY(token,chat_id,message_id));''')
 
 
+def exhausted_review_snapshot(state,run,rt,status,task,stage):
+    """One explicitly approved review of a newer draft, without resetting history."""
+    from orchestrator import executors,worker_capabilities
+    spec=rt.spec(task)
+    if (not spec.get('review_of') or spec.get('browser') or spec.get('execution')
+        or task['attempts']<spec['max_attempts'] or task['attempts']>=3):
+        raise ValueError('A new bounded review stage is required; this review allowance cannot be extended here.')
+    if any(a['state'] in ('launching','running','cancelling','uncertain') for a in status['attempts']):
+        raise ValueError('Active or uncertain work prevents review recovery.')
+    target=rt.task(run,spec['review_of'])
+    attempt=state.db.execute('SELECT * FROM production_attempts WHERE id=?',(task['latest'],)).fetchone()
+    if not attempt:raise ValueError('Previous review receipt is required.')
+    frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
+    if (attempt['state']!='completed' or receipt.get('status')!='finished' or receipt.get('exit_code')!=0
+        or receipt.get('external_outcome')!='no_pending_response' or receipt.get('pending_requests')):
+        raise ValueError('A completed local review with no pending response is required; no uncertain replay.')
+    if target['status']!='awaiting_review' or not target['latest'] or target['latest']==frozen.get('review_target'):
+        raise ValueError('A newer candidate awaiting its own review is required.')
+    if not state.db.execute("SELECT 1 FROM production_events WHERE run=? AND task=? AND kind='attempt_limit'",(run,task['id'])).fetchone():
+        raise ValueError('A recorded review attempt-limit blocker is required.')
+    if any(t['attempts'] and task['id'] in rt.spec(t)['dependencies'] for t in status['tasks']):
+        raise ValueError('Downstream work already started.')
+    plan=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
+    backend=worker_capabilities.backend_for(spec,plan['backend'])
+    if backend['type'] not in (*executors.FILE_TYPES,*executors.CODE_TYPES):raise ValueError('Local API review recovery only.')
+    inputs=rt.checked_inputs(run,spec,backend)
+    baseline={'run':run,'tasks':status['tasks'],'attempts':status['attempts'],
+        'pipeline_stage':dict(stage) if stage else None,'review_frozen':frozen,
+        'review_target':target['latest'],'review_inputs':[{k:i[k] for k in ('path','artifact','sha256')} for i in inputs],
+        'digest':pc.runtime_digest(rt,run),'epoch':state.get('production-control-epoch:'+run,0)}
+    new=copy.deepcopy(spec);new['max_attempts']=task['attempts']+1
+    new['revision']={'kind':'review_budget_recovery','instruction':'Review the current exact candidate. Earlier review findings concern the previous draft, not this version.','previous_attempt':task['latest']}
+    return baseline,c.assignment(new)
+
+
 def snapshot(state,run):
     rt=Runtime(pc.root(state),connection=state.db);status=rt.status(run)
     bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
@@ -32,6 +67,8 @@ def snapshot(state,run):
     failed=[t for t in status['tasks'] if t['status']=='blocked']
     if status['status']!='blocked' or len(failed)!=1:raise ValueError('One stopped blocked task is required.')
     task=failed[0];spec=rt.spec(task)
+    if spec.get('review_of') and not spec.get('browser') and not spec.get('execution'):
+        return exhausted_review_snapshot(state,run,rt,status,task,stage)
     if spec.get('tools')==['files','python'] and not spec.get('review_of'):
         from . import production_budget_recovery
         return production_budget_recovery.snapshot(state,run,rt,status,task,stage)
@@ -70,6 +107,14 @@ def propose(state,job,run):
         (token,event,run,job['prompt'],c.encoded(baseline),c.encoded(spec),'pending',time.time()+86400))
     rt=Runtime(pc.root(state),connection=state.db);task=rt.task(run,spec['id'])
     frozen=baseline['review_frozen']
+    if spec['revision']['kind']=='review_budget_recovery':
+        return ('Review recovery ready for '+run+'\nTask: '+spec['id']+'\nAI: '+frozen['backend']['model']+
+            '\nStart approves ONE additional review of candidate '+baseline['review_target']+'. '+
+            'The current draft is retained; its producer will not rerun. Earlier attempts and reviews remain unchanged. '+
+            'Limits: '+str(spec['limits']['seconds'])+' seconds, '+str(spec['limits']['tool_calls'])+' tool calls, '+
+            str(spec['limits'].get('provider_requests',8))+' provider requests. '+
+            'Approval increases only this reviewer allowance from '+str(task['attempts'])+' to '+str(spec['max_attempts'])+'. '+
+            'A failed review cannot spend additional producer attempts or authorize native execution.')
     if spec['revision']['kind']=='script_repair_recovery':
         return ('Script repair recovery ready for '+run+'\nAI: '+frozen['backend']['model']+
             '\nStart approves '+str(spec['max_attempts']-task['attempts'])+' additional preparation/review attempt(s), including any correction after review. '+
@@ -92,6 +137,7 @@ def controls(state,event):
     row=state.db.execute("SELECT token,spec FROM production_visual_review_cards WHERE event_id=? AND status='pending' AND expires>?",(event,time.time())).fetchone()
     if not row:return None
     label='Start preparation' if json.loads(row['spec'])['revision']['kind'] in ('code_budget_recovery','script_repair_recovery') else 'Start visual review'
+    if json.loads(row['spec'])['revision']['kind']=='review_budget_recovery':label='Start review'
     return {'inline_keyboard':[[{'text':label,'callback_data':'visualreview:start:'+row['token']}]]}
 
 
@@ -115,6 +161,7 @@ def apply(state,token,chat,mid):
     state.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?",(aid,row['run'],spec['id']))
     kind='code_budget_retry_approved' if spec['revision']['kind']=='code_budget_recovery' else 'visual_review_retry_approved'
     if spec['revision']['kind']=='script_repair_recovery':kind='script_repair_recovery_approved'
+    if spec['revision']['kind']=='review_budget_recovery':kind='review_budget_recovery_approved'
     rt.event(row['run'],spec['id'],spec['revision']['previous_attempt'],kind,{'request':row['request'],'card':token,'limits':spec['limits'],'visual_inputs':spec.get('browser',{}).get('visual_inputs',[]),'attempts_reset':False})
     for tid,updated in baseline.get('budget_updates',{}).items():
         assignment=rt.new_assignment(row['run'],updated)
@@ -137,6 +184,7 @@ def apply(state,token,chat,mid):
         pipelines.event(state,stage['pipeline'],stage['id'],kind,{'run':row['run'],'card':token,'attempts_reset':False})
     state.db.execute("UPDATE production_visual_review_cards SET status='started' WHERE token=?",(token,))
     if kind=='script_repair_recovery_approved':return 'Script correction and independent review scheduled. Native execution still waits for exact-code Start.'
+    if kind=='review_budget_recovery_approved':return 'One review of the current candidate scheduled. Producer and previous attempts are retained.'
     return 'Preparation scheduled using its remaining attempt. Completed work is retained.' if kind=='code_budget_retry_approved' else 'Visual review scheduled. The exact candidate and completed photos are retained.'
 
 

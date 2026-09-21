@@ -26,6 +26,8 @@ def artifact_filename(state, artifact):
 def initialize(db):
     from . import result_handoff
     result_handoff.initialize(db)
+    from . import attachment_batches
+    attachment_batches.initialize(db)
     from task_relay import production_folders
     production_folders.initialize(db)
     from task_relay import production_continuations
@@ -61,7 +63,7 @@ def receive(bridge, message, name, update_id):
     with state.db:
         state.db.execute('INSERT INTO incoming VALUES (?,?,NULL)', (update_id, 'handled'))
         rows = state.db.execute("SELECT COALESCE(bytes,declared_size) FROM production_uploads WHERE run=? AND status IN ('pending','ready')", (name,)).fetchall()
-        if len(rows) >= 10 or sum(r[0] for r in rows) + size > MAX_TOTAL:
+        if name != UPLOAD_SCOPE and (len(rows) >= 10 or sum(r[0] for r in rows) + size > MAX_TOTAL):
             raise ValueError('Use at most 10 new production guides and 50 MB total per revision.')
         state.db.execute('INSERT INTO production_uploads(id,run,file_id,filename,caption,declared_size) VALUES (?,?,?,?,?,?)',
             (update_id, name, file_id, filename, message.get('caption', ''), size))
@@ -73,6 +75,10 @@ def receive(bridge, message, name, update_id):
         if message.get('message_id') is not None:
             state.db.execute('INSERT OR REPLACE INTO orchestrator_messages VALUES (?,?,?)',
                 (message['chat']['id'], message['message_id'], None if name == UPLOAD_SCOPE else name))
+        if name == UPLOAD_SCOPE:
+            from . import attachment_batches
+            attachment_batches.receive(state,message,update_id)
+            return
         notice(state, name, 'upload-queued:' + str(update_id),
             ('Downloading attachment: ' + filename + '\nWait for “Attached”, then tell the orchestrator what to do with it. This upload is not assigned to a production.' if name == UPLOAD_SCOPE else
              'Downloading guide: ' + filename + '\nWait for “Guide attached”, then reply with your revision instructions. Uploading saves the caption but does not start work.'))
@@ -107,6 +113,12 @@ def root(state):
     return state.media_dir.parent / 'orchestrator'
 
 
+def upload_path(state, row):
+    from .attachment_batches import relative_path
+    from orchestrator.runtime import safe_file
+    return safe_file(root(state).parent/'production-guides',relative_path(state,row))
+
+
 def inspect(state, focus=None, include_files=True):
     from orchestrator.storage import transaction
     db = state.db
@@ -125,6 +137,12 @@ def inspect(state, focus=None, include_files=True):
                 current = not target or (bool(attempt) and frozen.get('review_target') == target['latest'] and task['status'] == 'completed')
                 error=failure_detail(db,attempt) if attempt else json.loads(unavailable['data'])['reason'] if unavailable else None
                 if task['status']=='blocked':
+                    exhausted=db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND kind='attempt_limit' ORDER BY id DESC LIMIT 1",(row['id'],task['id'])).fetchone()
+                    if (exhausted and task['attempts']>=spec['max_attempts'] and (not attempt or attempt['state']=='completed')
+                        and json.loads(exhausted['data']).get('assignment',task['assignment'])==task['assignment']):
+                        error=('Review' if target else 'Task')+' attempt allowance exhausted ('+str(task['attempts'])+'/'+str(spec['max_attempts'])+'); no new worker was started.'
+                        if target and frozen.get('review_target')!=target['latest']:
+                            error+=' The current candidate has not been reviewed. Continue this production to request one additional review; Start approval is required.'
                     preflight=db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND kind='input_preflight_blocked' AND json_extract(data,'$.assignment')=? ORDER BY id DESC LIMIT 1",
                                          (row['id'],task['id'],task['assignment'])).fetchone()
                     if preflight:error='Input check failed before dispatch: '+json.loads(preflight['data'])['reason']
@@ -139,6 +157,11 @@ def inspect(state, focus=None, include_files=True):
                     'output_is_current':bool(task['latest'] and current)})
                 from . import production_activity
                 progress[-1]['activity']=production_activity.snapshot(root(state),attempt,spec,json.loads(row['plan'])['backend'])
+                concern=db.execute("SELECT data FROM production_events WHERE run=? AND task=? AND attempt=? AND kind='quality_review_required' ORDER BY id DESC LIMIT 1",(row['id'],task['id'],task['latest'])).fetchone()
+                if concern:
+                    from orchestrator.outcomes import GATE
+                    progress[-1]['quality_review']=json.loads(concern[0])
+                    progress[-1]['user_gate']=GATE
             from . import production_review_corrections
             correction=production_review_corrections.details(state,row['id']) if any(t['status']=='blocked' for t in tasks) else None
             if correction:
@@ -264,7 +287,8 @@ def revision_target(view):
     if len(targets) != 1:
         raise ValueError('This run has no single preparation stage awaiting your review. A new bounded stage needs separate setup.')
     target = targets[0]
-    if any(t['attempts'] >= t['max_attempts'] for t in view['tasks'] if t['id'] == target['id'] or t['review_of'] == target['id']):
+    native_quality=target.get('quality_review') and (target.get('execution') or {}).get('capability') in ('rhino.run_python','blender.run_python','rhino3dm.run_python')
+    if not native_quality and any(t['attempts'] >= t['max_attempts'] for t in view['tasks'] if t['id'] == target['id'] or t['review_of'] == target['id']):
         raise ValueError('The preparation/review attempt budget is exhausted. A new bounded stage is needed; existing attempt limits were not reset.')
     if any(p['status'] == 'queued' for p in view['feedback_requests']):
         raise ValueError('A revision is already queued for this production.')
@@ -282,6 +306,10 @@ def queue_revision(state, name, revision, job_id):
     target = revision_target(view)
     job = state.db.execute('SELECT prompt FROM orchestrator_chats WHERE id=?', (job_id,)).fetchone()
     files = [dict(f) for f in state.db.execute("SELECT * FROM production_uploads WHERE run=? AND status='ready' ORDER BY id", (name,))]
+    if target.get('quality_review') and (target.get('execution') or {}).get('capability') in ('rhino.run_python','blender.run_python','rhino3dm.run_python'):
+        if files:raise ValueError('New guides require a scoped plan including those exact files; the current native correction uses its saved sources.')
+        from . import production_review_corrections
+        return production_review_corrections.propose(state,name,feedback=job['prompt'])
     state.db.execute('INSERT INTO production_revisions(id,run,task,request,baseline,files) VALUES (?,?,?,?,?,?)',
         (job_id, name, target['id'], job['prompt'], json.dumps({'tasks':view['task_state'], 'contract_digest':view['contract_digest']}), json.dumps(files)))
 
@@ -396,14 +424,17 @@ class Worker:
         if not row or not self.telegram:
             return
         from task_relay.codex_inputs import MAX_FILE, MAX_TOTAL
-        path = root(self.state).parent / 'production-guides' / str(row['id']) / row['filename']
+        from . import attachment_batches
+        path = root(self.state).parent / 'production-guides' / attachment_batches.relative_path(self.state,row)
         try:
             self.telegram.download_file(row['file_id'], path, MAX_FILE)
             data = path.read_bytes()
             if not data or len(data) > MAX_FILE:
                 raise ValueError('Guide is empty or exceeds 20 MB.')
             with self.state.db:
-                others = self.state.db.execute("SELECT COALESCE(bytes,declared_size) FROM production_uploads WHERE run=? AND id!=? AND status IN ('pending','ready')", (row['run'],row['id'])).fetchall()
+                others = attachment_batches.budget_members(self.state,row['id'])
+                if others is None:
+                    others = self.state.db.execute("SELECT COALESCE(bytes,declared_size) FROM production_uploads WHERE run=? AND id!=? AND status IN ('pending','ready')", (row['run'],row['id'])).fetchall()
                 if len(data) + sum(r[0] for r in others) > MAX_TOTAL:
                     raise ValueError('Guides exceed 50 MB total.')
                 path.chmod(0o400)
@@ -413,11 +444,13 @@ class Worker:
                 from task_relay.orchestrator_images import UPLOAD_SCOPE
                 text = (f"Attached: {row['filename']}\nTell the orchestrator what to do with this file, for example ‘Make a logo based on this drawing’." if row['run']==UPLOAD_SCOPE else
                         f"Guide attached: {row['filename']}\nReply with the changes you want. The revision card will include this guide and its caption.")
-                notice(self.state,row['run'],'upload:'+str(row['id']),text)
+                if not self.state.db.execute('SELECT 1 FROM relay_attachment_members WHERE upload_id=?',(row['id'],)).fetchone():
+                    notice(self.state,row['run'],'upload:'+str(row['id']),text)
         except Exception:
             with self.state.db:
                 self.state.db.execute("UPDATE production_uploads SET status='failed',error='Download failed; please resend this guide.' WHERE id=?", (row['id'],))
-                notice(self.state,row['run'],'upload:'+str(row['id']),f"Could not attach {row['filename']}. Please resend it (up to 20 MB).")
+                if not self.state.db.execute('SELECT 1 FROM relay_attachment_members WHERE upload_id=?',(row['id'],)).fetchone():
+                    notice(self.state,row['run'],'upload:'+str(row['id']),f"Could not attach {row['filename']}. Please resend it (up to 20 MB).")
 
     def apply_revision(self):
         row = self.state.db.execute("SELECT * FROM production_revisions WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
@@ -479,6 +512,8 @@ class Worker:
 
     def tick(self):
         self.download()
+        from . import attachment_batches
+        attachment_batches.finish(self.state)
         from task_relay import production_continuations
         production_continuations.apply(self)
         self.apply_revision()
@@ -536,6 +571,8 @@ class Worker:
                     reason=blocker_lines(task)
                     if reason:line+='\n'+'\n'.join(reason)
                     details.append(line+'\n'+'\n'.join(activity_lines(task)))
+                if any(t.get('quality_review') and t['status']=='awaiting_user' for t in current['tasks']):
+                    details.insert(0,'Quality review needed: inspect the supplied files/previews. Accept these exact outputs as-is or reply with correction feedback. Dependent work is waiting for your decision.')
                 ending = ('\nWorker termination is confirmed. Saved partial outputs follow where available; they are not accepted results.'
                           if result['status']=='cancelled' else
                           '\nCurrent draft outputs follow where available. They are not approved results. A recovery step is needed; waiting will not resolve this blocker.'

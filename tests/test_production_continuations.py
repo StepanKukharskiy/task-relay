@@ -20,6 +20,82 @@ class Tests(unittest.TestCase):
     finish_stage=fixtures.Tests.finish_stage
     blocked_revision=fixtures.Tests.blocked_revision
 
+    def rejected_first_request(self):
+        from tests.test_orchestrator import pair
+        from orchestrator import executors
+        value=pair(gate='Select reviewed draft',max_attempts=2);value['id']='rejected-text'
+        value['backend']={'type':'gemini-agent','model':'fixture'}
+        for task in value['tasks']:task.update(tools=['files'],limits=executors.GEMINI_LIMITS.copy())
+        self.rt.create(value);self.rt.tick(value['id'])
+        ident=self.rt.task(value['id'],'produce')['latest'];session=self.factory.sessions[ident]
+        control=Path(session['session']['control']);control.mkdir(parents=True,exist_ok=True)
+        records={'api-01.request.json':{'provider':'gemini','model':'fixture','payload':{}},
+                 'api-01.outcome.json':{'outcome':'rejected','http_status':400},
+                 'done.json':{'token':ident,'exit_code':1,'tool_calls':0}}
+        for name,record in records.items():(control/name).write_text(json.dumps(record))
+        session['status']={'status':'finished','exit_code':1,'external_outcome':'no_pending_response',
+                           'pending_requests':[],'tool_calls':0,'api_requests':1}
+        self.rt.tick(value['id'])
+        return ident,control
+
+    def test_confirmed_rejection_continues_from_original_inputs_without_draft(self):
+        ident,_=self.rejected_first_request()
+        original=dict(self.rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(ident,)).fetchone())
+        row=self.queue(parent='rejected-text',text='Continue the unchanged writing assignment.')
+        cont.apply(self.worker());child=row['child']
+        self.assertEqual(self.state.db.execute('SELECT status FROM production_continuations').fetchone()[0],'registered')
+        spec=self.rt.spec(self.rt.task(child,'produce'))
+        self.assertIn('no producer draft exists',spec['instruction'])
+        self.assertEqual(spec['outputs'],self.rt.spec(self.rt.task('rejected-text','produce'))['outputs'])
+        self.assertEqual(spec['user_gate'],'Select reviewed draft');self.assertEqual(spec['max_attempts'],1)
+        self.assertFalse(any(i['path'].startswith('previous-stage/') for i in spec['inputs']))
+        receipt=json.loads(self.rt.db.execute("SELECT data FROM production_events WHERE run=? AND kind='production_continuation_created'",(child,)).fetchone()[0])
+        self.assertEqual(receipt['no_draft_recovery']['attempt'],ident)
+        self.assertEqual(dict(self.rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(ident,)).fetchone()),original)
+        self.assertEqual(len(self.factory.calls),1)  # registration alone does not dispatch
+        worker=self.worker();worker.tick();self.factory.finish(self.rt.task(child,'produce')['latest']);worker.tick()
+        self.factory.finish(self.rt.task(child,'review')['latest'],decision='accept');worker.tick()
+        self.assertEqual(self.rt.status(child)['status'],'awaiting_user')
+
+    def test_missing_uncertain_or_executed_receipts_cannot_bypass_missing_draft(self):
+        _,control=self.rejected_first_request();task=self.rt.task('rejected-text','produce');spec=self.rt.spec(task)
+        for name,value in [('api-01.outcome.json',{'outcome':'uncertain','http_status':400}),
+                           ('api-01.outcome.json',[]),
+                           ('done.json',{'token':task['latest'],'exit_code':1,'tool_calls':1}),
+                           ('api-02.request.json',{})]:
+            path=control/name;original=path.read_bytes() if path.exists() else None
+            path.write_text(json.dumps(value))
+            self.assertIsNone(cont.rejected_before_drafting(self.rt,task,spec),name)
+            if original is None:path.unlink()
+            else:path.write_bytes(original)
+        (control/'api-01.outcome.json').unlink()
+        row=self.queue(parent='rejected-text');cont.apply(self.worker())
+        self.assertEqual(self.state.db.execute('SELECT status FROM production_continuations').fetchone()[0],'failed')
+        self.assertIsNone(self.rt.db.execute('SELECT 1 FROM production_runs WHERE id=?',(row['child'],)).fetchone())
+
+    def test_explicit_setup_recovery_preserves_failure_and_is_not_automatic(self):
+        ident,_=self.rejected_first_request();row=self.queue(parent='rejected-text')
+        with patch.object(cont,'rejected_before_drafting',return_value=None):cont.apply(self.worker())
+        failed=dict(self.state.db.execute('SELECT * FROM production_continuations').fetchone())
+        cont.apply(self.worker())
+        self.assertEqual(dict(self.state.db.execute('SELECT * FROM production_continuations').fetchone()),failed)
+        with self.rt.transaction():cont.recover_setup(self.state,row['id'],'Continue the saved request after the transport fix.')
+        event=json.loads(self.rt.db.execute("SELECT data FROM production_events WHERE kind='continuation_setup_recovered'").fetchone()[0])
+        self.assertEqual(event['previous_record'],failed)
+        with self.rt.transaction(),self.assertRaises(ValueError):cont.recover_setup(self.state,row['id'],'Duplicate')
+        cont.apply(self.worker());self.assertEqual(self.rt.task('rejected-text','produce')['latest'],ident)
+
+    def test_repeated_exact_request_recovers_setup_without_discarding_new_direction(self):
+        self.rejected_first_request();row=self.queue(parent='rejected-text')
+        with patch.object(cont,'rejected_before_drafting',return_value=None):cont.apply(self.worker())
+        with self.rt.transaction():
+            cont.enqueue(self.state,{'id':701,'prompt':'Continue and change the output scope.'},'rejected-text')
+        self.assertEqual(self.state.db.execute('SELECT status FROM production_continuations').fetchone()[0],'failed')
+        with self.rt.transaction():
+            text=cont.enqueue(self.state,{'id':702,'prompt':row['request']},'rejected-text')
+        self.assertIn('setup recovered',text)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_continuations').fetchone()[0],1)
+
     def test_continue_retries_only_failed_api_review_within_approved_budget(self):
         from tests.test_orchestrator import pair
         from orchestrator import executors
@@ -44,6 +120,50 @@ class Tests(unittest.TestCase):
         action={'kind':'continue_production','workflow':parent,'items':None,'direction':'Update using research'}
         chat.Worker(self.state,lambda *_:json.dumps({'answer':'Continuing.','action':action})).tick()
         return self.state.db.execute('SELECT * FROM production_continuations WHERE parent=?',(parent,)).fetchone()
+
+    def exhausted_text_review(self):
+        from tests.test_orchestrator import pair
+        from orchestrator import executors
+        value=pair(gate='Select reviewed draft',max_attempts=1);value['id']='exhausted-text'
+        value['backend']={'type':'gemini-agent','model':'fixture'}
+        for task in value['tasks']:task.update(tools=['files'],limits=executors.GEMINI_LIMITS.copy())
+        self.rt.create(value);self.rt.tick(value['id'])
+        self.factory.finish(self.rt.task(value['id'],'produce')['latest']);self.rt.tick(value['id'])
+        review=self.rt.task(value['id'],'review')['latest']
+        self.factory.sessions[review]['status']={'status':'finished','exit_code':1,
+            'reason':'Provider request budget exhausted','external_outcome':'no_pending_response','pending_requests':[]}
+        self.rt.tick(value['id']);return review
+
+    def test_failed_exhausted_review_continues_new_stage_without_rewriting_history(self):
+        review=self.exhausted_text_review()
+        before=[dict(r) for r in self.state.db.execute("SELECT * FROM production_attempts WHERE run='exhausted-text'")]
+        row=self.queue(parent='exhausted-text',text='continue production')
+        self.assertIsNotNone(row);self.assertEqual(json.loads(row['baseline'])['review_failure']['attempt'],review)
+        cont.apply(self.worker());child=row['child']
+        self.assertEqual(before,[dict(r) for r in self.state.db.execute("SELECT * FROM production_attempts WHERE run='exhausted-text'")])
+        for tid in ('produce','review'):
+            old=self.rt.spec(self.rt.task('exhausted-text',tid));new=self.rt.spec(self.rt.task(child,tid))
+            self.assertEqual(dict(old['limits'],seconds=600),new['limits']);self.assertEqual(old.get('worker'),new.get('worker'))
+            self.assertEqual(new['max_attempts'],1)
+        self.assertEqual(self.rt.task(child,'produce')['attempts'],0)
+        plans=[json.loads(self.state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0]) for run in ('exhausted-text',child)]
+        self.assertEqual(plans[0]['backend'],plans[1]['backend'])
+
+    def test_failed_review_with_pending_or_missing_receipt_cannot_continue(self):
+        review=self.exhausted_text_review()
+        original=json.loads(self.state.db.execute('SELECT receipt FROM production_attempts WHERE id=?',(review,)).fetchone()[0])
+        for receipt in ({},dict(original,pending_requests=['api-08']),dict(original,external_outcome='uncertain')):
+            with self.rt.transaction():self.state.db.execute('UPDATE production_attempts SET receipt=? WHERE id=?',(json.dumps(receipt),review))
+            with self.assertRaisesRegex(ValueError,'no uncertain replay'),self.rt.transaction():
+                cont.enqueue(self.state,{'id':779,'prompt':'continue production'},'exhausted-text')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_continuations').fetchone()[0],0)
+
+    def test_changed_failed_review_receipt_blocks_queued_successor(self):
+        review=self.exhausted_text_review();row=self.queue(parent='exhausted-text')
+        with self.rt.transaction():self.state.db.execute("UPDATE production_attempts SET receipt='{}' WHERE id=?",(review,))
+        cont.apply(self.worker())
+        self.assertEqual(self.state.db.execute('SELECT status FROM production_continuations WHERE id=?',(row['id'],)).fetchone()[0],'failed')
+        self.assertIsNone(self.state.db.execute('SELECT id FROM production_runs WHERE id=?',(row['child'],)).fetchone())
 
     def test_three_consecutive_continuations_keep_unique_paths_and_all_versions(self):
         self.blocked_revision()

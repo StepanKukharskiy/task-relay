@@ -2,7 +2,7 @@
   "name": "task-relay-desktop",
   "license": "Apache-2.0",
   "private": true,
-  "version": "0.13.54",
+  "version": "0.13.89",
   "scripts": {
     "sync-ui": "node scripts/sync-ui.mjs",
     "dev": "tauri dev",

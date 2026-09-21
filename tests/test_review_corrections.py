@@ -14,7 +14,7 @@ class Tests(unittest.TestCase):
                  'preparation','prepare','finish_preparation','prepared_files','select','host_response'):
         locals()[name]=getattr(fixture.Tests,name)
 
-    def rejected(self):
+    def rejected(self,quality=False):
         self.prepare(1,self.preparation(),step_capabilities=['rhino.run_python'])
         self.finish_preparation('production-1');self.select('production-1')
         script=self.rt.output('production-1','produce','delivery/model.py')['id']
@@ -36,8 +36,28 @@ class Tests(unittest.TestCase):
         aid=self.rt.task('production-2','review')['latest'];self.factory.finish(aid,decision='revise')
         path=self.factory.sessions[aid]['workspace']/'.relay/result.json';result=json.loads(path.read_text())
         result.update(summary='Model exists; saved camera needs correction.',instruction='Correct only the saved camera target. Preserve geometry and input checks.')
+        if quality:
+            from orchestrator.outcomes import quality as finding
+            result['findings']=[finding('camera_framing','Camera framing crops the model','delivery/preview.png compared to native inventory')]
         path.write_text(json.dumps(result));self.production.tick()
         return 'production-2'
+
+    def test_quality_feedback_prepares_exact_correction_without_replaying_native_work(self):
+        from task_relay import production_control as pc
+        run=self.rejected(quality=True);before=self.rt.status(run);calls=len(self.factory.calls)
+        self.assertEqual(before['status'],'awaiting_user')
+        self.assertEqual(correction.details(self.state,run)['kind'],'quality_feedback')
+        self.assertIn('accept these exact outputs as-is',correction.text(self.state,run))
+        view=next(v for v in pc.inspect(self.state) if v['name']==run)
+        self.assertEqual(pc.revision_target(view)['id'],'app')
+        feedback='Please show the full terrain and keep its current dimensions.'
+        with transaction(self.state.db):ident=correction.propose(self.state,run,feedback=feedback)
+        row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
+        plan=json.loads(row['plan'])
+        self.assertIn(feedback,plan['tasks'][0]['instruction'])
+        self.assertIn(feedback,row['request'])
+        self.assertTrue(all(not t.get('execution') for t in plan['tasks']))
+        self.assertEqual(self.rt.status(run),before);self.assertEqual(len(self.factory.calls),calls)
 
     def test_native_rejection_finishes_review_and_preserves_completed_inspection(self):
         run=self.rejected();before=len(self.factory.calls)

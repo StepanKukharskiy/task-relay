@@ -1,5 +1,10 @@
 # Local application execution
 
+Rhino, Blender and SketchUp share a native application profile for discovery,
+script/checks metadata, exact authorization and dispatch. The initial
+[SketchUp adapter](sketchup.md) adds startup, inspection and approved Ruby
+create/edit operations on macOS. Native qualification is pending SketchUp activation.
+
 Direct Rhino 7/8 support uses the same production/approval paths through
 `rhino.startup`, `rhino.inspect`, `rhino.run_python` and `rhino.render`. See
 [Rhino setup, modeling and qualification](rhino.md). Grasshopper support is paused.

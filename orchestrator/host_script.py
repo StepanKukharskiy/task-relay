@@ -10,7 +10,7 @@ def validate_script_bytes(data):
 
 def validate_prepared(frozen, workspace):
     """Check selected host-code drafts before a reviewer can accept them."""
-    supported = ('blender.run_python', 'rhino.run_python')
+    supported = ('blender.run_python', 'rhino.run_python', 'rhino3dm.run_python', 'sketchup.run_ruby')
     if frozen.get('execution') or frozen.get('review_of'):
         return
     if not any(i['path'] == 'operation-support/' + cap + '/contract.json'
@@ -18,5 +18,5 @@ def validate_prepared(frozen, workspace):
         return
     from .runtime import safe_file
     for name in frozen.get('selection_outputs', []):
-        if name.endswith('.py'):
+        if name.endswith(('.py', '.rb')):
             validate_script_bytes(safe_file(workspace, name).read_bytes())

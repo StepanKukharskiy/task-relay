@@ -18,7 +18,8 @@ class Tests(unittest.TestCase):
     response=fixture.Tests.response
 
     def case(self,kind):
-        suffix,media=('.3dm','application/vnd.rhino') if kind=='rhino' else ('.blend','application/x-blender')
+        from orchestrator.native_apps import APPS
+        suffix,media=APPS[kind].suffix,APPS[kind].media
         row=dict(self.queue())
         payload=json.loads(row['context']);options=json.loads(row['options'])
         options['step_capabilities']=[kind+'.inspect'];payload['options']=options
@@ -54,6 +55,9 @@ class Tests(unittest.TestCase):
 
     def test_blender_upstream_model_excludes_history_but_reviewer_keeps_it(self):
         self.assert_upstream_binding('blender')
+
+    def test_sketchup_upstream_model_excludes_history_but_reviewer_keeps_it(self):
+        self.assert_upstream_binding('sketchup')
 
     def test_explicit_selection_keeps_exact_version(self):
         row,response,sources,media=self.case('rhino');source=sources[0]

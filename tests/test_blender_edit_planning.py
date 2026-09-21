@@ -31,6 +31,8 @@ class Tests(unittest.TestCase):
         review['inputs']=[dict(from_task='app',output=o['path'],path='candidate/'+Path(o['path']).name,
             purpose='Independent output review',authority='Unaccepted candidate',media_type=o['media_type']) for o in host['outputs']]
         response=dict(decision='ready',message='Approve the exact script for host execution',plan=dict(brief='Edit roof candidate',tasks=[host,review]))
+        response['geometry_basis']={'mode':'source_derived','kind':'general','artifacts':[i['artifact'] for i in host['inputs'] if i['path'].endswith('.blend')],
+            'checks':[{'metric':'preserved_geometry_deviation','tolerance':0,'unit':'m'}]}
         planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
         row=self.row();self.assertEqual(row['status'],'ready',row['error'])
         return row

@@ -19,7 +19,7 @@ def support_hashes():
     root=Path(general_browser.__file__).parent
     return {name:hashlib.sha256((root/name).read_bytes()).hexdigest()
             for name in ('general_browser.py','browser_journal.py','browser_sites.py','host_browser_accounts.py','api_providers.py',
-                         'managed_browser.py','host_managed_chrome.py','perplexity_browser.py')}
+                         'managed_browser.py','host_managed_chrome.py','perplexity_browser.py','orchestrator_web.py')}
 
 
 def configured(provider='gemini'):
@@ -34,7 +34,7 @@ def run(frozen,control,db,data,*,client=None,config_reader=None,driver_context=N
         verify_support(frozen)
         launch=json.loads((control/'launch.json').read_text())
         if client is None:
-            for name in ('browser_worker.py','browser_contract.py','gemini_worker.py','executors.py'):
+            for name in ('browser_worker.py','browser_contract.py','browser_images.py','image_sources.py','gemini_worker.py','executors.py'):
                 if hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()!=frozen.get('runtime_sources',{}).get(name):
                     raise ValueError('Browser implementation changed after assignment was frozen')
             if launch.get('browser_support')!=support_hashes():raise ValueError('Browser host implementation changed')

@@ -63,7 +63,7 @@ def execute(frozen, control, documents):
         input_versions=[{k:i[k] for k in ('artifact','sha256','path')} for i in frozen['inputs']],
         runtime_sources={name:frozen['runtime_sources'][name] for name in ('rhino_execution.py','rhino_contract.py','rhino_worker.py')},
         host_adapter_sha256=file_hash(Path(rhino_host.__file__)), runs=[], outputs=frozen['outputs'], limits=frozen['limits'],
-        scope='Owned Rhino 7/8 process with normal OS permissions. No OS isolation. Grasshopper support is paused. Candidate creation is not selection.')
+        scope='Owned Rhino 7/8 process or separate documents in connected Rhino 8, with normal OS permissions. No OS isolation. Grasshopper support is paused. Candidate creation is not selection.')
     if modeling:receipt['authorization'] = frozen['host_code_authorization']
     # Exclusive intent precedes every external process and cannot be replayed.
     with (control/'rhino-intent.json').open('x') as stream:json.dump(receipt, stream)
@@ -104,7 +104,7 @@ def execute(frozen, control, documents):
         atomic(request_path, request)
         script = stage/'launch.py'
         script.write_text(('#! python 2\n' if app.get('major',8)==7 else '#! python 3\n')+
-                          '# -*- coding: utf-8 -*-\nimport sys, os, json, time, traceback, io, System\n'+
+                          '# -*- coding: utf-8 -*-\nimport sys, os, json, time, traceback, io, System, types\n'+
                           rhino_host.shutdown_script(app.get('major',8),sys.platform)+
                           'request_path = '+repr(str(request_path))+'\n'+
                           'owner_path = os.path.splitext(request_path)[0]+".owner.json"\n'+
@@ -113,16 +113,28 @@ def execute(frozen, control, documents):
                           'request=json.loads(io.open(request_path,encoding="utf-8").read())\n'+
                           'owner=json.loads(io.open(owner_path,encoding="utf-8").read())\n'+
                           'pid=int(System.Diagnostics.Process.GetCurrentProcess().Id)\n'+
-                          'if owner!={"pid":pid,"token":request["token"]}: raise ValueError("Startup process mismatch")\n'+
+                          'if owner.get("pid")!=pid or owner.get("token")!=request["token"]: raise ValueError("Startup process mismatch")\n'+
+                          'previous_contract=sys.modules.get("rhino_contract")\n'+
                           'try:\n'+
-                          '    sys.path.insert(0, os.path.dirname(request_path))\n'+
-                          '    import rhino_worker\n    rhino_worker.main(request_path, relay_exit)\n'+
+                          '    modules={}\n'+
+                          '    for name in ("rhino_contract","rhino_worker"):\n'+
+                          '        module=types.ModuleType(name)\n'+
+                          '        path=os.path.join(os.path.dirname(request_path),name+".py")\n'+
+                          '        module.__file__=path\n'+
+                          '        with open(path,"rb") as stream: code=compile(stream.read(),path,"exec")\n'+
+                          '        eval(code,module.__dict__)\n'+
+                          '        modules[name]=module\n'+
+                          '        if name=="rhino_contract": sys.modules[name]=module\n'+
+                          '    modules["rhino_worker"].main(request_path, relay_exit)\n'+
                           'except BaseException:\n'+
                           '    result=dict(pid=pid,token=request["token"],mode=request["mode"],passed=False,error=traceback.format_exc())\n'+
                           '    path=os.path.splitext(request_path)[0]+".result.json"\n'+
                           '    if not os.path.exists(path):\n'+
                           '        with open(path,"wb") as stream: stream.write(json.dumps(result).encode("utf-8"))\n'+
-                          '    relay_exit(1)\n')
+                          '    if not owner.get("shared"): relay_exit(1)\n'+
+                          'finally:\n'+
+                          '    if previous_contract is None: sys.modules.pop("rhino_contract",None)\n'+
+                          '    else: sys.modules["rhino_contract"]=previous_contract\n')
         try:
             run = rhino_host.run(app['executable'], script, request_path, max(.1, deadline-time.monotonic()), sys.platform)
         except (OSError, ValueError, RuntimeError) as exc:
@@ -152,6 +164,10 @@ def execute(frozen, control, documents):
             if passed and mode == 'verify':
                 evidence = json.loads(safe_file(workspace, 'delivery/checks.json').read_text())
                 if evidence.get('passed') is not True:raise ValueError('Independent Rhino checks failed')
+                warnings=evidence.get('warnings',[])
+                if not isinstance(warnings,list) or any(not isinstance(w,str) for w in warnings):
+                    raise ValueError('Invalid Rhino verification warnings')
+                receipt['warnings']=warnings
                 png = safe_file(workspace, 'delivery/preview.png').read_bytes()
                 if png[:8] != b'\x89PNG\r\n\x1a\n':raise ValueError('Invalid Rhino viewport preview')
                 candidate = safe_file(workspace, 'delivery/candidate.3dm')
@@ -179,8 +195,16 @@ def execute(frozen, control, documents):
         cause=failure_detail(receipt)
         if cause:summary='Rhino failed — '+cause+'. '+summary
     details = dict(outcome='completed' if passed or diagnostic else 'failed', execution=frozen['execution'], summary=summary, usage={})
+    if receipt.get('warnings'):
+        details['warnings']=receipt['warnings']
+        summary+='\nQuality concerns — user review required before dependent work:\n'+'\n'.join(receipt['warnings'])
+        details['summary']=summary
+    from .outcomes import quality
+    findings=[quality('dimension_difference',w,'delivery/checks.json; delivery/preview.png') for w in receipt.get('warnings',[])]
+    if findings:details['findings']=findings
     atomic(control/'operation.json', details)
     atomic(workspace/'.relay/result.json', dict(assignment_id=frozen['assignment_id'], summary=summary,
+        findings=findings,
         decision='delivered' if passed or diagnostic else 'blocked', instruction='',
         checks=[dict(criterion=1, passed=passed or diagnostic, evidence='delivery/execution.json: '+summary)]))
     return details

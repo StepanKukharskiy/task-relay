@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.13.54"
+version = "0.13.89"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,6 +13,7 @@ requires-python = ">=3.11"
 dependencies = ["pypdf==6.18.1"]
 
 [project.optional-dependencies]
+rhino3dm = ["rhino3dm==8.35.0"]
 presentations = ["python-pptx==1.0.2"]
 images = ["Pillow==12.2.0"]
 documents = ["python-docx==1.2.0", "openpyxl==3.1.5", "python-pptx==1.0.2", "reportlab==5.0.0", "Pillow==12.2.0"]
@@ -27,4 +28,5 @@ packages = ["task_relay", "orchestrator"]
 include-package-data = false
 
 [tool.setuptools.package-data]
+orchestrator = ["*.rb"]
 task_relay = ["assets/*.png", "assets/*.html", "assets/*.css", "assets/*.js", "assets/vendor/*.js", "assets/vendor/*.LICENSE", "assets/vendor/*.txt", "assets/requirements-claude*.txt", "assets/macos/*.swift", "assets/perplexity-extension.json"]

@@ -4,6 +4,7 @@ import importlib.util
 import re
 from .media_adapters import PROVIDERS as IMAGE_PROVIDERS
 from .cloud_media import SPECS as CLOUD_MEDIA
+from .native_apps import profile as native_profile
 
 TEXT_TYPES = ('text/plain','text/markdown')
 REGISTRY = {
@@ -31,6 +32,34 @@ REGISTRY = {
         'permissions':'Host Blender process with normal OS permissions; fixed Relay code and bounded primitive JSON only; no arbitrary scripts or existing blend inputs.'},
 }
 
+from .reel_contract import OUTPUTS as REEL_OUTPUTS
+from .hyperframes_contract import PREVIEW_OUTPUTS,RENDER_OUTPUTS,ASSET_TYPES
+REGISTRY['hyperframes.preview']={
+    'version':1,'kind':'procedure','review_correction':'application/json',
+    'input_types':list(dict.fromkeys([*TEXT_TYPES,'application/json',*ASSET_TYPES])),
+    'output_type':None,'outputs':PREVIEW_OUTPUTS,'max_inputs':100,'input_bytes':50000000,
+    'seconds':600,'output_bytes':50000000,'parameters':{},'external_requests':0,
+    'criteria':['The exact authored HyperFrames project passed local check, produced the declared full-size preview samples and a hash-bound editable bundle; source inputs are unchanged. Technical checks do not establish visual/editorial quality or user acceptance.'],
+    'permissions':'Author-supplied front-end HTML/CSS/JavaScript runs in local Chromium. Fixed installed HyperFrames commands, scoped filesystem reads/writes, clean environment, external network denied; local sockets/loopback remain available. No Node programs, shell commands, downloads or package installation.',
+    'cancellation':'Stop owned processes and retain evidence; confirmed failures may use an explicitly planned bounded source-correction loop. Never replay uncertain execution.'}
+REGISTRY['hyperframes.render']={
+    'version':1,'kind':'procedure','input_types':[*TEXT_TYPES,'application/json','application/zip'],
+    'output_type':None,'outputs':RENDER_OUTPUTS,'max_inputs':20,'input_bytes':50000000,
+    'seconds':1200,'output_bytes':50000000,'requires_registered_inputs':True,
+    'parameters':{'project_sha256':'Exact selected preview project.zip SHA-256','preview_sha256':'Exact passed preview verification.json SHA-256'},
+    'external_requests':0,
+    'criteria':['The exact selected preview project was rechecked and rendered to H.264 with matching dimensions, FPS, frame count, duration and audio presence; source bundle and inputs are unchanged. Rendered samples require independent review and human visual selection.'],
+    'permissions':'Same scoped local front-end execution as hyperframes.preview; exact registered project/preview hashes, no source regeneration.',
+    'cancellation':'Stop owned processes; preserve partial files and receipts; no automatic replay.'}
+
+REGISTRY['media.compose'] = {
+    'version':1,'kind':'procedure','input_types':[*TEXT_TYPES,'application/json','image/png','image/jpeg','audio/mpeg','audio/wav'],
+    'output_type':None,'outputs':REEL_OUTPUTS,'max_inputs':50,'input_bytes':50000000,
+    'seconds':1200,'output_bytes':100000000,'parameters':{},'external_requests':0,
+    'criteria':['The bounded scene specification produced an H.264 reel with matching dimensions, FPS, frame count, duration and audio presence, scene samples and an editable project; source inputs are unchanged. Technical checks do not establish visual/editorial quality or user acceptance.'],
+    'permissions':'Fixed local HyperFrames/Chromium/FFmpeg commands with a clean environment and external network denied; loopback is permitted. Normal host file permissions; no arbitrary agent shell, HTML, JavaScript, downloads or generated audio.',
+    'cancellation':'Stop owned rendering processes; preserve partial files and receipts; no automatic replay.'}
+
 REGISTRY['pptx.create'] = {
     'review_correction':'application/json',
     'version':1, 'kind':'procedure',
@@ -44,11 +73,19 @@ REGISTRY['pptx.create'] = {
 REGISTRY['images.collect'] = {
     'version':1,'kind':'procedure','input_types':list(TEXT_TYPES),'output_type':'application/zip',
     'min_inputs':0,'max_inputs':20,'input_bytes':120000,'seconds':600,'output_bytes':45000000,
-    'criteria':['Each requested subject has a found or missing receipt; downloaded JPEG/PNG candidates retain source, author, licence and byte hashes. Metadata matches are not visual identification.'],
-    'parameters':{'subjects':'1–40 {id,label,query} objects; literal public subject names'},
+    'criteria':['At least one usable photo is collected. Each requested subject has a found or missing receipt; downloaded JPEG/PNG candidates retain source, author, licence and byte hashes. Metadata matches are not visual identification.'],
+    'parameters':{'subjects':'1–40 {id,label,query} objects; literal public subject names; optional identity and exclude_titles'},
     'external_requests':320,
     'permissions':'Public read-only Wikimedia Commons search and image downloads; no credentials, paid model, generation or arbitrary URLs.',
     'cancellation':'Stop local downloads; retain receipts; no automatic replay.'}
+
+REGISTRY['images.fetch'] = {
+    'version':1,'kind':'procedure','input_types':['application/json'],'output_type':'application/zip',
+    'min_inputs':1,'max_inputs':1,'input_bytes':512000,'seconds':600,'output_bytes':45000000,
+    'criteria':['At least one observed source image was downloaded and validated. Exact source URLs, image bytes, hashes and gaps are retained. Subject identity and reuse rights require independent review.'],
+    'parameters':{},'external_requests':320,
+    'permissions':'Public HTTPS GETs to observed image/publisher hosts, no credentials or cookies. Unknown author/licence remain explicitly unknown. No image generation.',
+    'cancellation':'Stop downloads; retain evidence; no automatic replay.'}
 
 # Separate versioned capability preserves existing primitive-only plan contracts.
 REGISTRY.update(CLOUD_MEDIA)
@@ -113,20 +150,43 @@ REGISTRY['blender.animate']={'version':1,'kind':'host','input_types':[*TEXT_TYPE
     'permissions':'Fixed native Blender and ffmpeg operations with embedded scripts disabled, normal OS permissions. Numeric transforms only; no arbitrary Python, downloads or simulation. Output remains unselected.'}
 
 
+REGISTRY['rhino3dm.create'] = {
+    'version':1, 'kind':'procedure', 'input_types':[*TEXT_TYPES,'application/json'],
+    'output_type':None, 'max_inputs':20, 'input_bytes':20000000, 'seconds':120, 'output_bytes':50000000,
+    'outputs':{'delivery/candidate.3dm':'application/vnd.rhino','delivery/checks.json':'application/json',
+               'delivery/execution.json':'application/json'},
+    'criteria':['The bounded geometry specification produced a new .3dm, reopened with rhino3dm and checked for valid geometry, coordinates, topology, names, layers, colors, units and tolerance; source inputs are unchanged. These are library checks, not native Rhino or visual/source-fidelity verification.'],
+    'parameters':{}, 'external_requests':0,
+    'permissions':'Fixed local rhino3dm library code and bounded geometry JSON only. No user scripts, native app launch, plugins, rendering or network requests.',
+    'cancellation':'Stop the local operation; preserve partial files and receipts; never automatically replay or fall back to Rhino.'}
+
 REGISTRY['rhino.startup'] = {
     'version':1, 'kind':'host', 'input_types':list(TEXT_TYPES), 'output_type':None,
     'max_inputs':20, 'input_bytes':2000000, 'seconds':120, 'output_bytes':200000,
     'outputs':{'delivery/execution.json':'application/json'},
-    'criteria':['The owned Rhino 7/8 process has a recorded interpreter startup result, exit status and runtime evidence.'],
+    'criteria':['The selected Rhino 7/8 runtime has an identity-bound interpreter result and transport evidence.'],
     'parameters':{}, 'external_requests':0,
-    'cancellation':'Terminate the owned supervisor process group; no automatic retry.',
+    'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. A shared script may continue; no automatic retry.',
     'permissions':'Fixed startup script with normal host permissions; macOS Rhino 7/8 desktop session required. No Grasshopper.'}
+
+REGISTRY['rhino3dm.run_python'] = {
+    'version':1,'kind':'host','execution_mode':'standalone_library',
+    'input_types':[*TEXT_TYPES,'application/vnd.rhino','text/x-python','application/json','application/octet-stream','image/png','image/jpeg'],
+    'output_type':None,'max_inputs':50,'input_bytes':100000000,'seconds':600,'output_bytes':100000000,
+    'outputs':{'delivery/candidate.3dm':'application/vnd.rhino','delivery/model.py':'text/plain',
+               'delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The exact approved standalone Python used the installed rhino3dm API to create/edit a File3dm; the candidate reopened in a separate Python process with the approved archive version, valid geometry, declared preservation checks and unchanged input copies. Library checks do not establish native Rhino, visual or source-fidelity verification.'],
+    'parameters':{'scene_sha256':'Exact primary source .3dm SHA-256 or null for create','script_sha256':'Exact reviewed Python SHA-256',
+                  'checks_sha256':'Exact reviewed library checks SHA-256, including target file version','permissions':'unrestricted_host'},
+    'requires_registered_inputs':True,'external_requests':None,
+    'permissions':'Exact-script approval for standalone CPython and the full pinned rhino3dm Python API. Normal filesystem/network permissions, not OS isolation. The runner never launches Rhino; scripts must stay within their approved scope.',
+    'cancellation':'Stop the supervised local process tree; preserve receipts and partial files. Uncertain script outcomes require reconciliation. Never automatically replay or switch to native Rhino.'}
 REGISTRY['rhino.inspect'] = {
     **copy.deepcopy(REGISTRY['rhino.startup']), 'input_types':[*TEXT_TYPES,'application/vnd.rhino'],
     'input_bytes':100000000, 'output_bytes':2000000,
     'outputs':{'delivery/inspection.json':'application/json','delivery/execution.json':'application/json'},
     'criteria':['The exact selected .3dm has a complete bounded geometry/document inventory and unchanged source-copy hash.'],
-    'permissions':'Fixed native .3dm inspection in an owned Rhino process. Native dependencies/plugins use normal host permissions; not filesystem isolation. No Grasshopper.'}
+    'permissions':'Fixed native .3dm inspection in an owned process or a separate document in connected Rhino 8. Native dependencies/plugins use normal host permissions; not filesystem isolation. No Grasshopper.'}
 REGISTRY['rhino.inspect']['review_evidence'] = True
 
 REGISTRY['rhino.run_python'] = {
@@ -134,11 +194,11 @@ REGISTRY['rhino.run_python'] = {
     'output_type':None, 'max_inputs':20, 'input_bytes':100000000, 'seconds':600, 'output_bytes':100000000,
     'outputs':{'delivery/candidate.3dm':'application/vnd.rhino','delivery/preview.png':'image/png',
                'delivery/model.py':'text/plain','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
-    'criteria':['The exact approved Rhino Python created/edited an assigned document; the saved candidate reopened in a separate process, passed declared geometry/preservation checks and produced a viewport preview; input copies remain unchanged.'],
+    'criteria':['The exact approved Rhino Python created/edited an assigned document; the saved candidate reopened in a fresh headless document, passed declared geometry/preservation checks and produced a viewport preview; input copies remain unchanged.'],
     'parameters':{'scene_sha256':'Selected .3dm SHA-256, or null for a new model',
                   'script_sha256':'Exact reviewed source SHA-256 for the selected Rhino interpreter', 'checks_sha256':'Exact Rhino checks JSON SHA-256',
                   'permissions':'unrestricted_host'}, 'external_requests':None,
-    'cancellation':'Terminate the owned supervisor process group. Preserve partial files; no automatic replay. Script side effects cannot be undone.',
+    'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. A shared script may continue; retain its pending receipt and never replay. Script side effects cannot be undone.',
     'permissions':'Exact-script approval required for IronPython 2.7 (Rhino 7) or CPython 3 (Rhino 8)/RhinoCommon with normal host filesystem/network access. No OS isolation. Grasshopper support is paused.'}
 
 REGISTRY['rhino.render'] = {
@@ -147,9 +207,34 @@ REGISTRY['rhino.render'] = {
     'outputs':{'delivery/render.png':'image/png','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
     'criteria':['The selected model rendered through built-in Rhino Render from the exact named-view/resolution manifest; PNG dimensions and source-copy preservation were checked.'],
     'parameters':{'manifest_sha256':'Exact registered render manifest SHA-256'},'external_requests':0,
-    'cancellation':'Terminate the owned process group; keep partial files and receipts, never automatically replay.',
+    'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. Retain partial files and pending receipts; no automatic replay.',
     'permissions':'Fixed host rendering with model materials/lighting and normal OS permissions. No arbitrary script, third-party renderer or model save; Grasshopper paused.'}
 
+
+REGISTRY['sketchup.startup'] = {
+    'version':1,'kind':'host','input_types':list(TEXT_TYPES),'output_type':None,
+    'max_inputs':20,'input_bytes':2000000,'seconds':120,'output_bytes':200000,
+    'outputs':{'delivery/execution.json':'application/json'},'parameters':{},'external_requests':0,
+    'criteria':['The owned SketchUp process has a matching embedded Ruby startup receipt; failure remains diagnostic evidence.'],
+    'cancellation':'Stop only the owned process; no automatic replay.',
+    'permissions':'macOS desktop SketchUp 2025/2026 with normal host permissions; no attachment to existing user sessions.'}
+REGISTRY['sketchup.inspect'] = {
+    **copy.deepcopy(REGISTRY['sketchup.startup']),
+    'input_types':[*TEXT_TYPES,'application/vnd.sketchup.skp'],'input_bytes':100000000,'output_bytes':2000000,
+    'outputs':{'delivery/inspection.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The selected .skp has a bounded native inventory and unchanged source-copy hash.'],
+    'review_evidence':True}
+REGISTRY['sketchup.run_ruby'] = {
+    'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/vnd.sketchup.skp','text/x-ruby','application/json'],
+    'output_type':None,'max_inputs':20,'input_bytes':100000000,'seconds':600,'output_bytes':100000000,
+    'outputs':{'delivery/candidate.skp':'application/vnd.sketchup.skp','delivery/preview.png':'image/png',
+               'delivery/model.rb':'text/plain','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'parameters':{'scene_sha256':'Selected .skp SHA-256 or null for create','script_sha256':'Exact reviewed UTF-8 Ruby SHA-256',
+                  'checks_sha256':'Exact SketchUp v1 checks SHA-256','permissions':'unrestricted_host'},
+    'criteria':['The exact approved Ruby created/edited a candidate, saved it and reopened it in an independent owned process; declared dimensions/preservation and viewport evidence passed; input copies remain unchanged.'],
+    'external_requests':None,'requires_registered_inputs':True,
+    'permissions':'Exact Ruby/script/checks host approval. Normal filesystem/network access, not an OS sandbox. Desktop session and license required.',
+    'cancellation':'Stop only owned work; preserve partial outputs. Script side effects cannot be undone. Never automatically replay.'}
 
 # These operations need already registered versions before execution approval.
 for _capability in ('blender.run_python','blender.import_asset','blender.animate',
@@ -165,11 +250,36 @@ def catalog():
         configured_model=(config.get('models',{}).get(ident.split('.')[1],gemini.DEFAULT_MODELS[ident.split('.')[1]]) if config and ident.startswith('gemini.') else None))
         for ident,spec in REGISTRY.items()]
     for entry in result:
+        if entry['id']=='rhino3dm.run_python':
+            from .rhino3dm_script import discover
+            from .rhino3dm_script_contract import DESCRIPTION
+            app=discover()
+            entry.update(available=app['available'],availability_evidence=app['evidence'],blocker=app['blocker'],
+                library_version=app['version'],interpreter=app['interpreter'],checks_schema=DESCRIPTION)
+        if entry['id']=='rhino3dm.create':
+            from . import rhino3dm_document, rhino3dm_contract
+            entry['geometry_schema']=rhino3dm_contract.DESCRIPTION
+            entry['execution_mode']='standalone_library'
+            try:rhino3dm_document.available()
+            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
+            else:entry['availability_evidence']='Pinned rhino3dm library available; no Rhino installation or native verification required or implied.'
+        if entry['id'].startswith('sketchup.'):
+            app=native_profile(entry['id']).discover()
+            entry.update(available=app['available'],availability_evidence=app['evidence'],blocker=app['blocker'],
+                         application_version=app['version'],interpreter=app['interpreter'])
+            if entry['id']=='sketchup.run_ruby':
+                from .sketchup_contract import DESCRIPTION
+                entry['checks_schema']=copy.deepcopy(DESCRIPTION)
         if entry['id']=='images.collect':
             from .image_sources import DESCRIPTION
             entry['image_source_schema']=DESCRIPTION
             entry.update(available=importlib.util.find_spec('PIL') is not None,
                          availability_evidence='Public Commons adapter and local image validation; live coverage varies by subject.')
+        if entry['id']=='images.fetch':
+            from .browser_images import DESCRIPTION
+            entry['image_source_schema']=DESCRIPTION
+            entry.update(available=importlib.util.find_spec('PIL') is not None,
+                         availability_evidence='Observed browser image references and public downloads; browser discovery requires a configured browser worker.')
         if entry['id'] in CLOUD_MEDIA:
             from task_relay.cloud_providers import read_config
             provider,kind=entry['id'].split('.')
@@ -177,6 +287,18 @@ def catalog():
             entry.update(available=bool(selected), configured_model=(selected or {}).get('models',{}).get(kind),
                          availability_evidence='Saved API credential and implemented model adapter; generation access and credits are unverified.')
             entry['available']=entry['available'] and bool(entry['configured_model'])
+        if entry['id'].startswith('hyperframes.'):
+            from . import hyperframes_project,hyperframes_contract
+            entry['project_schema']=hyperframes_contract.DESCRIPTION
+            try:hyperframes_project.available()
+            except (ValueError,ImportError) as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
+            else:entry['availability_evidence']='Local authored-project check, snapshots and render are qualified; provider authorship and visual quality require independent review.'
+        if entry['id']=='media.compose':
+            from . import reel_document,reel_contract
+            entry['composition_schema']=reel_contract.DESCRIPTION
+            try:reel_document.available()
+            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
+            else:entry['availability_evidence']='Configured local HyperFrames runtime passed the recorded fixture qualification; each reel still requires independent review and visual selection.'
         if entry['id']=='pptx.create':
             from . import pptx_document
             entry['slide_schema']=pptx_document.DESCRIPTION
@@ -195,6 +317,8 @@ def catalog():
     app=blender()
     for entry in result:
         if entry['kind']=='host':
+            if entry['id']=='rhino3dm.run_python':continue
+            if entry['id'].startswith('sketchup.'):continue
             if entry['id'].startswith('rhino.'):
                 rhino_app=rhino()
                 entry.update(available=rhino_app['available'],availability_evidence=rhino_app['evidence'])
@@ -239,6 +363,8 @@ def validate(a):
         validate_subjects(params['subjects'])
         if any(not str(o.get('path','')).endswith('.zip') for o in a.get('outputs',[])):
             raise ValueError('Image collection requires a .zip output.')
+    if e['capability']=='images.fetch' and any(not o['path'].endswith('.zip') for o in a.get('outputs',[])):
+        raise ValueError('Image fetching requires a .zip output.')
     if e['capability'] in CLOUD_MEDIA:
         from .cloud_media import validate as validate_cloud, OUTPUTS
         validate_cloud(e['capability'],params,a.get('inputs',[]))
@@ -265,7 +391,15 @@ def validate(a):
                 raise ValueError('Rhino render needs exactly one model and manifest')
         if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
             raise ValueError('Rhino render requires already registered inputs')
-    if e['capability']=='rhino.run_python':
+    if e['capability']=='sketchup.run_ruby':
+        if params['permissions']!='unrestricted_host':raise ValueError('SketchUp Ruby requires unrestricted_host')
+        for key in ('scene_sha256','script_sha256','checks_sha256'):
+            if key=='scene_sha256' and params[key] is None:continue
+            if not isinstance(params[key],str) or not re.fullmatch('[a-f0-9]{64}',params[key]):raise ValueError('SketchUp requires exact input hashes')
+        for media,count in (('application/vnd.sketchup.skp',int(params['scene_sha256'] is not None)),('text/x-ruby',1),('application/json',1)):
+            if sum(i.get('media_type')==media for i in a.get('inputs',[]))!=count:raise ValueError('SketchUp needs exact Ruby/checks and a model only for edits')
+        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):raise ValueError('SketchUp accepts only already registered inputs')
+    if e['capability'] in ('rhino.run_python','rhino3dm.run_python'):
         if params['permissions']!='unrestricted_host':raise ValueError('Rhino Python requires unrestricted_host; no isolation is enforced')
         for key in ('scene_sha256','script_sha256','checks_sha256'):
             if key=='scene_sha256' and params[key] is None:continue
@@ -313,18 +447,34 @@ def validate(a):
     if a.get('criteria')!=spec['criteria']:raise ValueError('Use the registered operation criteria; semantic review is a separate agent step.')
     if not isinstance(a.get('inputs'),list) or not spec.get('min_inputs',1)<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
     if any(not isinstance(i,dict) or i.get('media_type') not in spec['input_types'] for i in a['inputs']):raise ValueError('Registered input media types do not match the selected operation.')
-    if spec['kind']=='host':
+    if e['capability'] in ('hyperframes.preview','hyperframes.render'):
+        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
+            raise ValueError('HyperFrames needs exactly one project JSON or preview receipt')
+        if e['capability']=='hyperframes.render':
+            if sum(i.get('media_type')=='application/zip' for i in a['inputs'])!=1 or any('artifact' not in i or 'from_task' in i for i in a['inputs']):
+                raise ValueError('Render requires already registered preview project and receipt; select the preview before the render stage')
+            if any(not isinstance(params[k],str) or not re.fullmatch('[a-f0-9]{64}',params[k]) for k in ('project_sha256','preview_sha256')):
+                raise ValueError('Render requires exact project and preview SHA-256 values')
+    if e['capability']=='media.compose':
+        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
+            raise ValueError('Reel composition requires exactly one JSON scene specification')
+    if e['capability']=='rhino3dm.create':
+        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
+            raise ValueError('Standalone 3DM creation needs exactly one geometry JSON specification')
+    if spec.get('outputs'):
         if any(i.get('path','').split('/')[0]=='delivery' for i in a['inputs']):
-            raise ValueError('Host inputs must stay outside the reserved delivery directory.')
+            raise ValueError('Operation inputs must stay outside the reserved delivery directory.')
         outputs=a.get('outputs')
         if (not isinstance(outputs,list) or len(outputs)!=len(spec['outputs'])
                 or any(not isinstance(o,dict) for o in outputs)
                 or {o.get('path'):o.get('media_type') for o in outputs}!=spec['outputs']):
-            raise ValueError('Use the exact registered host output paths and media types.')
+            raise ValueError('Use the exact registered '+('host ' if spec['kind']=='host' else '')+'output paths and media types.')
         if e['capability']=='rhino.inspect' and sum(i['media_type']=='application/vnd.rhino' for i in a['inputs'])!=1:
             raise ValueError('Select exactly one Rhino model version for inspection')
         if e['capability']=='blender.inspect' and sum(i['media_type']=='application/x-blender' for i in a['inputs'])!=1:
             raise ValueError('Select exactly one Blender scene version for inspection.')
+        if e['capability']=='sketchup.inspect' and sum(i['media_type']=='application/vnd.sketchup.skp' for i in a['inputs'])!=1:
+            raise ValueError('Select exactly one SketchUp model version for inspection.')
         if e['capability'] in ('blender.scene','blender.mesh_scene') and sum(i['media_type']=='application/json' for i in a['inputs'])!=1:
             raise ValueError('Blender scene needs exactly one application/json scene input; context inputs are text/plain.')
     elif not isinstance(a.get('outputs'),list) or len(a['outputs'])!=1 or not isinstance(a['outputs'][0],dict) or a['outputs'][0].get('media_type')!=spec['output_type']:
@@ -347,7 +497,16 @@ def validate(a):
 
 def available(a):
     spec=validate(copy.deepcopy(a))
-    if a['execution']['capability']=='images.collect' and importlib.util.find_spec('PIL') is None:
+    if a['execution']['capability'].startswith('hyperframes.'):
+        from .hyperframes_project import available as project_available
+        project_available()
+    if a['execution']['capability']=='media.compose':
+        from .reel_document import available as reel_available
+        reel_available()
+    if a['execution']['capability']=='rhino3dm.create':
+        from .rhino3dm_document import available as library_available
+        library_available()
+    if a['execution']['capability'] in ('images.collect','images.fetch') and importlib.util.find_spec('PIL') is None:
         raise ValueError('Image collection requires the bundled Pillow image validator.')
     if a['execution']['capability']=='pptx.create':
         from .pptx_document import available as pptx_available
@@ -355,8 +514,7 @@ def available(a):
     if (a['execution']['capability'] in IMAGE_PROVIDERS or a['execution']['capability'] in CLOUD_MEDIA and a['execution']['capability'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
         raise ValueError('Image conversion dependency is missing; no provider request was sent. Install task-relay[images] or update the desktop app.')
     if spec['kind']=='host':
-        from task_relay.host_apps import blender,rhino
-        app=rhino() if a['execution']['capability'].startswith('rhino.') else blender()
+        app=native_profile(a['execution']['capability']).discover()
         if not app['available']:raise ValueError(app['blocker'])
         if a['execution']['capability']=='blender.animate':
             from task_relay.host_apps import video_tools

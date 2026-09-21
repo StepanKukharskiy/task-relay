@@ -1,5 +1,457 @@
 # Changelog
 
+## 0.13.89 beta — accumulated public release
+
+- Package the accumulated 0.13.55–0.13.89 updates, including the public 0.13.60
+  first-run planning fix, native model adapters, typed contracts and local reels.
+- Include operation documentation in the public source inventory and refresh
+  release notes for the Mac installer, in-app update package and matching CLI source.
+- Align the runtime update version with the 0.13.89 app and package versions.
+- Previously unreleased contract diagnostics, standalone 3DM operations and
+  SketchUp adapter source are included; host qualification limits remain unchanged.
+
+## 0.13.89 — ordinary reel request routing
+
+- Teach the conversational router to resolve a plain reel request from current
+  subject/reply context and selected prior content, choose the local HyperFrames
+  production steps, and retain an MP4 deliverable through preview preparation.
+- Carry existing selected sources and guides through the completed-stage handoff;
+  ask about actual source ambiguity instead of operation names or technical prompts.
+  Preserve local video discovery when large conversation context is compacted.
+- Keep provider/tool choices, planning-only restrictions and execution/selection
+  boundaries. This is routing guidance and discovery, not a keyword-based dispatch
+  rule or new authority to execute a production.
+
+## 0.13.88 — full HyperFrames authoring across providers
+
+- Add shared `hyperframes.preview` and `hyperframes.render` operations for actual
+  provider-authored HTML/CSS/JavaScript, local assets and independent animation
+  layers. Preserve exact source and bind final encoding to the reviewed preview
+  ZIP and receipt. Keep existing `media.compose` plans compatible.
+- Plan source review, preview diagnostics, bounded source correction and human
+  preview selection before a separate exact-project render. Existing content
+  workflows supply their selected storyboard and guides without being redrafted.
+- Scope authored front-end execution to installed runtimes and staged work, retain
+  failure evidence and reject uncertain replay. No provider-specific video worker,
+  arbitrary shell tools, external downloads or automatic content acceptance.
+
+## 0.13.87 — provider-independent local reel rendering
+
+- Add `media.compose`: a provider-authored scene JSON contract compiled by Relay
+  into a local HyperFrames reel, editable project, contact sheet and verification
+  receipt. Validate assets and pacing, exact encoded properties and source hashes.
+- Keep binary rendering outside provider text/Python tools. Planning supplies an
+  asset index and requires specification review, delivery review and human visual
+  selection. Equally narrow worker profiles prefer the current model provider;
+  explicit executor locks and approval boundaries remain intact.
+- Add a qualified macOS renderer adapter with pinned installed runtime identity,
+  no inherited credentials or external network, bounded command supervision,
+  owner-death cleanup and retained failure receipts. No arbitrary agent commands,
+  automatic installation, generated audio or replay of uncertain renders.
+
+## 0.13.86 — bounded recovery for long text generations
+
+- Extend confirmed incomplete-generation recovery to local text API workers: discard
+  the entire malformed/truncated response, then allow one bounded recovery per
+  failure kind within existing request, tool and time limits. Uncertain transport
+  and safety failures remain terminal; rejected tools never execute.
+- Add section-by-section text append with an expected byte count. Long documents
+  can be saved across responses; stale appends fail without duplicating text.
+  Preserve output grants, byte limits and independent review requirements.
+
+## 0.13.85 — text delivery evidence and failed-review continuation
+
+- Supply up to 96 KB of hash-verified source text at the start of API text work,
+  prioritizing the review candidate and current request. Preserve explicit offsets
+  for omitted text and the original file grants; request limits stay unchanged.
+- Require complete candidate text exposure before a text review decision; reject
+  acceptance of placeholder-only candidates and successful placeholder-only output
+  reports. These checks establish evidence availability, not editorial quality.
+- Route explicit continuation of an exhausted, definitively finished failed text
+  review to a fresh bounded producer/reviewer stage. Preserve failed attempts,
+  receipts, provider, output scope and user decision gate. Pending or uncertain
+  provider responses remain ineligible; completed old-review recovery is unchanged.
+
+## 0.13.84 — Gemini report transport
+
+- Use a Gemini-specific `finish(report_json)` transport so the provider sees
+  a flat string argument while Relay retains and validates the full frozen report
+  schema, evidence, role and decision requirements locally. Raw envelope arguments
+  and the decoded report remain recorded. Other providers retain structured reports.
+- A user-approved live check with all tools callable returned a report that passed
+  the unchanged local validator. No returned tools executed and no production
+  attempt was restarted.
+
+## 0.13.83 — continuation after rejection before drafting
+
+- Permit an explicitly requested text-stage successor when a first API attempt
+  has a confirmed HTTP 400 rejection, zero tool calls, no draft artifacts and no
+  uncertain submissions. Retain the original inputs, output scope, provider and
+  human review gate; preserve all parent attempts.
+- Recover a failed local no-draft continuation setup only on explicit request,
+  journaling its complete failed record before requeueing the same bounded successor.
+  Instructions distinguish initial drafting from revision of an existing draft.
+
+## 0.13.82 — Gemini request diagnostics and parameterless tools
+
+- Send parameterless Gemini tools using the documented omitted-parameters form,
+  retaining nonempty schemas and other providers' original tool definitions.
+- Preserve bounded structured Gemini HTTP error messages and status after
+  credential and URL redaction. Retain diagnostics in worker outcome receipts;
+  HTTP 400 remains a terminal rejection without automatic retry.
+
+## 0.13.81 — workflow operation and worker distinction
+
+- Advertise captured registered operation IDs in the workflow builder schema.
+  Ordinary writing and review use an empty operation list.
+- Compile redundant `files.text` declarations from saved production-stage proposals
+  as the baseline agent ability, retaining the original declaration in the receipt.
+  Extra worker permissions, unknown operations and duplicate declarations still
+  fail validation. No worker, provider, gate or execution approval is changed.
+
+## 0.13.80 — API worker startup, workflow inputs and blocker scope
+
+- Fix shared API worker imports when launched through the registered Python script
+  entry point. File inputs, typed reports and outcome guidance no longer fail before
+  the first provider request because of missing package context.
+- Limit workflow pause notices to the affected production instead of including
+  unrelated recent failures. Preserve failed attempts and explicit continuation.
+- Freeze the originating request's attached files into new workflows and retain
+  their exact versions across stage requests. Later planners no longer lose the
+  attachment when the scheduler allocates a new request ID. Existing executed
+  assignments remain unchanged.
+
+## 0.13.79 — typed artifacts, workflow stages and reports
+
+- Compile captured artifact/output selections into source bindings, reviewer inputs,
+  dependency edges and companion gates. New advertised schemas use compact selectors;
+  legacy integrations and saved receipts remain supported.
+- Compile semantic workflow stage outputs/uses into registered handoff contracts,
+  preserving human gates, exact quantities and explicit companion selections.
+- Freeze assignment-specific report forms for Codex and shared API workers. Bind
+  identity and criterion numbers procedurally; accept typed source observations and
+  measured errors without manufacturing evidence or success. Retain raw responses
+  and compilation records alongside canonical plans/reports.
+
+## 0.13.78 — typed standalone execution builder
+
+- Compile `rhino3dm.run_python` execution/review stages from selected script, checks,
+  optional scene/assets and task-specific review concerns. Relay supplies registry
+  constants, exact input hashes, output ports, worker requirements and selection wiring.
+- Freeze the typed response schema and input choices; reject invented contract
+  fields and registry drift. Preserve raw planner responses plus compilation receipts
+  and record field/code details for the existing bounded correction attempt.
+- Keep exact-code delivery, separate Start and output selection. Recovery preparation
+  restores its preparation schema. Generic preparation, mixed graphs and legacy
+  proposals remain supported; other operation/checks builders remain tracked work.
+
+## Unreleased — contract boundary diagnostics
+
+- Add a read-only planning-error audit command with aggregate categories, distinct
+  plan/call counts, current statuses and optional private receipt details. Keep
+  provider errors, missing capabilities and unknown signatures distinct.
+- Track remaining model-authored contract fields and procedural-builder work,
+  including scoped corrections, operation constants, source bindings and evidence
+  envelopes. No runtime behavior, replay policy or approval changes.
+
+## 0.13.77 — procedural planning contracts
+
+- Freeze a versioned proposal schema in new planning requests, use it for Gemini
+  structured output and validate response shapes locally for every provider.
+  Field/type errors identify their exact path before assignment compilation.
+- Compile worker bindings from the frozen selection. Record redundant exact
+  locked executor fields without spending another planner call; reject conflicting
+  selectors and preserve raw responses. Legacy frozen requests retain their contract.
+- Explain when selected text-only workers cannot run bound operation validators.
+  No automatic provider fallback, schema-free retry, stage replay or approval change.
+
+## Unreleased — standalone 3DM generation
+
+- Expose the full installed `rhino3dm` Python API through `rhino3dm.run_python`,
+  without a Relay geometry whitelist. Create/edit selected File3dm documents and
+  use declared additional binary inputs. Retain the JSON convenience builder.
+- Add explicit target archive versions, including Rhino 7 and Rhino 8. Bind exact
+  script/checks/input identities, CPython and library package bytes to approval;
+  prepare/review/select first and require separate execution Start.
+- Execute and reopen in separate processes. Record library-only verification,
+  serialization/dimension quality findings and failed-preservation blockers.
+  Integrate failure correction proposals while retaining uncertain-outcome and
+  no-replay boundaries. No automatic switch to or from native Rhino execution.
+
+- Add `rhino3dm.create` as a distinct local library procedure for new models from
+  bounded points, polylines and meshes, with layers, colors and units. No Rhino
+  application, user script or network call is involved.
+- Reopen with the pinned `rhino3dm` library and verify geometry/topology and document
+  metadata against the exact specification. Deliver the model and hash-bound
+  receipts with explicit library provenance and no native Rhino verification claim.
+- Integrate schema preparation, independent review, user selection, availability
+  blockers and packaged dependency declarations. Existing native Rhino stages
+  keep their execution and approval identity; there is no automatic route fallback.
+- Preserve failed candidates as diagnostics and retain the one-attempt/no-replay
+  boundary. Library checks do not establish visual quality or source fidelity.
+
+## 0.13.76 — shared result review policy
+
+- Classify worker findings as quality, execution, integrity, authorization or
+  uncertainty. Usable outputs with quality concerns require explicit user review
+  of the exact files/previews before dependent production work can continue. A
+  clean AI review cannot waive that decision; no correction attempt is spent
+  automatically. This supersedes 0.13.75’s dimension warning-and-continue policy.
+- Apply the same gate to visual/design/content concerns, native size differences
+  and measured source-geometry discrepancies. Rhino, Blender and SketchUp report
+  dimensional evidence while retaining previews. Invalid/missing evidence,
+  failed execution, unauthorized changes and file corruption still block.
+- Show concerns with their evidence and an explicit accept-with-concerns button.
+  Record the exact accepted artifact set and findings. Rhino/Blender correction
+  feedback proposes preparation and independent review, never native replay;
+  revised code still requires its separate exact-code Start.
+
+## 0.13.75 — dimensions are warnings
+
+- Rhino bounding-box dimension differences are advisory: save the model, complete
+  its preview and continue handoff. Preserve expected/measured dimensions, units
+  and tolerances in verification/execution receipts and show non-blocking warnings
+  in Relay status and result messages. Review guidance reflects the same policy.
+- Keep missing/ambiguous required geometry, invalid objects, incorrect units,
+  preservation violations and execution/file-integrity failures blocking.
+- An explicit continuation of an older dimension-only verification failure can
+  propose unchanged inputs with the updated runtime and a fresh exact-code Start.
+  Recheck the saved measurements; retain old failures and never replay automatically.
+
+## 0.13.74 — correction after native verification failure
+
+- Offer Plan correction and route explicit Continue to bounded preparation after
+  a confirmed Rhino/Blender script or verification failure, including standalone
+  productions whose independent reviewer has not run. No native replay is queued.
+- Preserve the original source geometry contract, exact script/input checks,
+  failure receipt and measured output report. Failed candidates are diagnostic
+  evidence, not replacement source geometry. Check corrections must be explained
+  and independently reviewed, then selected and approved with the exact code.
+- Report expected dimensions, measured dimensions, tolerances and units on Rhino
+  verification failures. Preparation schema checks do not establish numerical
+  consistency or source fidelity.
+
+## 0.13.73 — Rhino connection discovery latency
+
+- Allow up to 20 seconds for read-only Rhino script-server discovery. A working
+  session can take longer than the former five-second limit to report itself.
+- Distinguish discovery timeout, CLI exit/start failure, malformed results and
+  a missing matching connection. Do not tell users the server is off because a
+  probe timed out. Keep exact process/version matching and no automatic submission.
+
+## 0.13.72 — route started plans to their saved execution
+
+- When a same-scope continuation is incorrectly proposed as revision of a started
+  plan, resolve its exact saved run and enter normal production recovery. Preserve
+  the original request/response and record the routing correction.
+- Reject changed sources, deliverables, execution settings and ambiguous or
+  non-blocked targets. Do not reset old attempts or bypass native execution Start.
+- Clarify orchestrator guidance: started planning records refer to existing
+  executions; their preparation ancestors are not the continuation target.
+
+## 0.13.71 — shared native recovery decisions
+
+- Classify trusted execution evidence through one recovery policy: confirmed
+  pre-execution stop, terminal script failure, completed result, or uncertain outcome.
+- Rhino and Blender pre-execution continuations retain exact inputs and limits and
+  propose a fresh Start. Existing bounded script repair uses the same classification.
+  Unknown, conflicting, submitted or timed-out execution evidence never permits replay.
+- Keep readiness checks in host adapters. A terminated Rhino startup requires a
+  working script connection before recovery; startup guidance includes plug-in dialogs.
+- Record the policy decision and exact failure receipt in new recovery proposals;
+  preserve prior assignments, attempts, receipts and completed outputs.
+
+## 0.13.70 — recovery after registered criteria updates
+
+- Fresh recovery proposals refresh service-defined operation criteria and matching
+  independent reviewer criteria together, recording old/new wording for review.
+- Preserve saved assignments, attempts, receipts, exact code, inputs, outputs and
+  limits. The new plan requires its own delivered Start. Unsupported operation
+  versions still require new planning; provider proposals remain strictly validated.
+- Remove obsolete recovery-card guidance to close an already connected Rhino.
+
+## 0.13.69 — work beside an open Rhino 8 session
+
+- Use the selected Rhino 8 script server with separate task documents when Rhino
+  is already open. Keep the owned-process path for a closed application.
+- Wait for actual script completion, not the CLI submission acknowledgement; retain
+  unresolved submissions and serialize work without killing or replaying user sessions.
+- Keep exact code/checks approval, fresh document reopen verification, and preview
+  cleanup. Load current worker modules per phase in the persistent interpreter.
+- Rhino 8.11+ needs StartScriptServer enabled; Rhino 7 and Windows do not gain
+  shared-session execution.
+
+## 0.13.68 — Rhino pre-launch availability and recovery
+
+- Check the selected Rhino application before Start creates a production. An open
+  session leaves the plan ready, with no new execution attempt spent. The existing
+  launch-time process guard remains in place to catch races.
+- Explicit continuation can recover a recorded before-phase refusal proving that
+  no Rhino worker launched. Reuse the exact selected script/checks and limits;
+  present a fresh exact-code Start instead of regenerating or editing the script.
+- Reject recovery while the selected Rhino is open, for changed receipts, or if
+  any process/worker launch is recorded. Never close or control an existing session.
+
+## 0.13.67 — exhausted review allowance
+
+- Report scheduler attempt-limit blocks separately from worker failures, including
+  older receipts. Explain when a corrected candidate has never been reviewed.
+- On explicit continuation, offer one additional local API review of the exact
+  newer candidate. A delivered Start review card approves the added allowance;
+  retain old attempts, producer outputs, provider limits and user selection gates.
+- Reject active/uncertain work, changed candidate inputs, already-started downstream
+  work and extensions beyond the existing three-attempt contract ceiling.
+- Preserve preparation and native execution boundaries; no producer regeneration
+  or automatic approval occurs when recovering the review.
+
+## 0.13.66 — code-worker report writing
+
+- Initialize inherited file-tool state through one shared initializer. Code workers
+  no longer crash on ordinary file_write or automatic review-report saving because
+  image_source_grants was missing. Applies to all supported code providers.
+- Preserve code-worker binary input validation and byte limits; browser screenshot
+  and image-source permissions remain unavailable to code workers.
+- Add cross-provider text-write and review-finalization regression coverage.
+  Existing failed receipts and draft artifacts remain unchanged; explicit review
+  continuation uses its remaining attempt allowance without replaying preparation.
+
+## 0.13.65 — source-derived native geometry
+
+- Bind explicitly selected project files as immutable, hashed workflow inputs for
+  author and reviewer. Reject path escapes, linked files and oversized captures.
+- Require new native modeling/preparation proposals to declare procedural or
+  source-derived geometry. Source-derived work needs actual source artifacts;
+  conversation, request and operation-contract snapshots cannot substitute.
+- Freeze proposed geometry tolerances in the plan. Terrain review requires
+  contour, boundary, elevation-span and source-entity coverage comparisons.
+- Separate preparation source audits from native output comparison. Block review
+  acceptance without source-version-bound evidence, complete measurements or when
+  reported errors exceed tolerance. Measurements remain worker observations, not
+  a deterministic geometry certificate. Existing saved plans/runs are unchanged.
+- Verified with 143 controlled tests. No live provider call, native execution
+  or regeneration of an existing model was performed by those checks.
+- Built, signed and installed locally with app/database backups. All 219 installed
+  runtime files match source; fresh app-owned service heartbeats verified. No
+  public release or automatic terrain workflow replay.
+
+## 0.13.64 — host input paths and saved-plan recovery
+
+- Assign host input aliases outside the reserved delivery directory before plan
+  approval. Preserve exact artifact versions, upstream output paths, script/check
+  hashes, output contracts and limits; record alias changes in plan provenance.
+- Reject collisions, including case-insensitive and file/directory conflicts.
+  Frozen execution validation continues to reject inputs inside delivery/.
+- Let Plan execution recover a blocked, unexecuted saved proposal when it now
+  validates. Retain the failure receipt and stage selections; require Start on
+  the recovered plan. No provider retry or host execution occurs during recovery.
+
+## 0.13.63 — unused reference metadata in planning
+
+- Normalize an omitted reference_pack_id to null when no ready pack exists, before
+  normal action validation. Preserve all source choices, requested operations and
+  approval fields; do not guess a pack or fill missing authorization.
+- Record the original provider response and applied default with the planning
+  dispatch. No extra model call or automatic retry is needed.
+- Show actual action-validation failures separately from malformed JSON, while
+  retaining duplicate-key rejection and the original failed request/response.
+
+## 0.13.62 — Telegram albums and version correction
+
+- Correct the local album build accidentally numbered 0.13.60 after 0.13.61;
+  retain the first-run planning fix and existing runtime features. Local installer
+  now rejects lower candidate versions before any service or app changes.
+- Group unassigned Telegram album attachments into one durable local folder with
+  unique filenames, one receiving notice and one saved-file summary after downloads.
+- Queue the exact caption once with its exact ready attachments after a short quiet
+  interval. Report saved paths; do not ask users to repeat a caption instruction.
+- Hold incomplete or conflicting-caption groups without dispatch. Late arrivals
+  are saved and reported without altering or replaying an earlier request.
+- Apply upload allowances per group, preserving pending-download limits, legacy
+  paths and production-guide approval semantics. Keep duplicate updates idempotent.
+
+## 0.13.61 — local installation update
+
+- Preserve the installed 0.13.59 runtime features while adding the first-run
+  planning fix from 0.13.60. Only the planner and two version declarations change;
+  the other 208 runtime files remain byte-identical to the prior installation.
+- Build and install locally with the same signing identity, retained app/database
+  backups and fresh Telegram/Messages service health. No public release was made.
+
+## 0.13.60 — first-run workflow planning
+
+- Let new installations plan with an already verified file worker when no saved
+  production default or previous run exists; prefer the conversation provider.
+- Preserve exact configured models, named executors, existing assignments and
+  execution approval. Missing workers now point to Check worker connection.
+- Add controlled fresh-state planning and failure/recovery regression coverage.
+- Publish the signed Mac beta installer and in-app update assets from a focused
+  release based on public 0.13.54. Installation on another Mac remains unverified.
+
+## Unreleased — SketchUp native adapter
+
+- Share native application profiles across Rhino, Blender and SketchUp for
+  discovery, script/checks types, exact-code authorization and dispatch.
+- Add macOS SketchUp 2025/2026 startup, selected-model inspection and approved
+  Ruby create/edit operations with native candidates, reopen checks and PNG previews.
+- Integrate Ruby preparation, complete source/checks attachments, atomic Start
+  approval, independent output review and explicit candidate selection.
+- Preserve process ownership and partial receipts; interrupted or unacknowledged
+  modeling stays uncertain and is never replayed automatically.
+- Package the embedded Ruby worker and add an explicit local roundtrip qualifier.
+  Controlled checks pass; live startup is blocked at SketchUp's sign-in screen.
+  Native modeling remains unqualified, and installed services were not updated.
+
+## 0.13.59 — automatic image source selection
+
+- Share availability-based photo sourcing defaults across routing and production
+  planning. Generic requests can use browser discovery without naming a website;
+  use Commons when browser discovery is unavailable or explicitly preferred.
+- Plan bounded alternate search sites before execution; preserve explicit source,
+  rights and provider restrictions, exact ZIP handoffs and independent review.
+- Keep source choices visible in compressed model context and limit stage defaults
+  to the captured operation/worker catalog. Existing approved work is unchanged.
+
+## 0.13.58 — browser image discovery
+
+- Expose labelled image controls and observed original/publisher references in the
+  existing browser worker; export source manifests through an explicit file grant.
+- Add images.fetch for bounded public downloads into the same ZIP handoff used by
+  presentations. Preserve exact image bytes, sources, gaps and unknown reuse rights.
+- Reject thumbnails, stale observations, fabricated source-manifest writes, private
+  network destinations and redirects to unobserved hosts. Retain independent review.
+- Support planning browser discovery without a search API; qualify one live Google
+  Images-to-bundle handoff, without claiming other engines or unattended reliability.
+
+## 0.13.57 — bounded photo search fallback
+
+- Try the exact subject phrase and then the same literal words in any order;
+  retain short-name and optional exact-identity checks, licences and attribution.
+- Rank focused titles first and try at most two distinct image candidates, within
+  the existing per-subject request budget. Preserve searches and download failures.
+- Report empty collections as failed with a diagnostic ZIP instead of silently
+  completing a photo stage without photos. Partial collections remain reviewable.
+
+## 0.13.56 — model service failures and recovery
+
+- Distinguish a received HTTP 503 from a lost response for synchronous models
+  using local tools. Retry once inside the existing request/time allowance,
+  preserving drafts and completed tool calls; no browser/media job replay.
+- Retain specific provider errors and show the failed task in workflow pause
+  messages. Reconcile legacy 503 evidence without rewriting its receipt.
+- Recover stopped presentation preparation from saved research and exact photo
+  bundles; retain reviews and require Start for a newly proposed attempt.
+
+## 0.13.55 — registered workflow handoffs
+
+- Derive unambiguous single-output handoff types from registered operations and
+  propagate them to downstream inputs before dispatch, without a second model call.
+  Preserve explicit format requests and reject ambiguous producer mappings.
+- Keep image collections as ZIP bundles containing photos and attribution manifests;
+  retain direct independent review instead of replacing the photos with JSON.
+- Recover an unexecuted blocked stage from a valid saved proposal with an audited
+  type-only successor. Preserve completed research and original failure receipts;
+  require Start before executing the recovered plan.
+
 ## 0.13.54 — native inspection and release downloads
 
 - Resolve website download links and version labels from the newest complete

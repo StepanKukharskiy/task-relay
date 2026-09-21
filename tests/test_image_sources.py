@@ -41,7 +41,7 @@ class ImageSourcesTests(unittest.TestCase):
                 return json.dumps({'query':{'pages':pages}}).encode(),'application/json',url
             return photo(),'image/jpeg',url
         raw,manifest=sources.collect([subject(),dict(id='missing',label='Other subject',query='Unknown subject')],fetch=fetch,record=journal.append)
-        self.assertFalse(manifest['complete']);self.assertEqual(len(calls),3)
+        self.assertFalse(manifest['complete']);self.assertEqual(len(calls),4)
         images,credits,_=sources.unpack(raw)
         self.assertEqual(images['images/oak.jpg'],photo())
         self.assertEqual(credits['images/oak.jpg']['author'],'Example Author')
@@ -151,3 +151,110 @@ class ImageSourcesTests(unittest.TestCase):
         p=page();self.assertIsNone(sources.candidate(p,dict(subject(),exclude_titles=[p['title']])))
         p['title']='File:Quercus exampleDistMap227.png'
         self.assertIsNone(sources.candidate(p,subject()))
+
+    def test_keyword_fallback_preserves_all_words_and_optional_identity(self):
+        from urllib.parse import parse_qs,urlsplit
+        calls=[]
+        scene=dict(id='scene',label='Winter waterfront',query='Example City winter snow',identity='Example City')
+        p=page();p['title']='File:Snow in winter, Example City.jpg'
+        p['imageinfo'][0]['extmetadata']['ImageDescription']['value']='Waterfront'
+        def fetch(url,*args):
+            calls.append(url)
+            if 'api.php' in url:
+                pages={} if len(calls)==1 else {'1':p}
+                return json.dumps({'query':{'pages':pages}}).encode(),'application/json',url
+            return photo(),'image/jpeg',url
+        raw,m=sources.collect([scene],fetch=fetch)
+        self.assertEqual(m['coverage'],dict(found=1,missing=0,total=1))
+        query=parse_qs(urlsplit(calls[1]).query)['gsrsearch'][0]
+        self.assertEqual(query,'"example" "city" "winter" "snow" filetype:bitmap')
+        self.assertEqual(m['subjects'][0]['query'],scene['query'])
+        self.assertEqual(sources.unpack(raw)[0]['images/scene.jpg'],photo())
+        self.assertIsNone(sources.candidate(p,dict(scene,query='Other City winter snow'),keywords=True))
+        self.assertIsNone(sources.candidate(p,dict(scene,identity='City Example'),keywords=True))
+        p['title']='File:Quercus other example.jpg'
+        self.assertIsNone(sources.candidate(p,subject(),keywords=True))
+
+    def test_bad_candidate_tries_a_distinct_file_without_retrying_same_url(self):
+        p=page();q=page();q['title']='File:Quercus example 2.jpg';q['index']=2
+        q['imageinfo'][0]['url']=q['imageinfo'][0]['url'].replace('.jpg','2.jpg')
+        calls=[]
+        def fetch(url,*args):
+            calls.append(url)
+            if 'api.php' in url:return json.dumps({'query':{'pages':{'1':p,'2':q}}}).encode(),'application/json',url
+            return (b'invalid' if url==p['imageinfo'][0]['url'] else photo()),'image/jpeg',url
+        raw,m=sources.collect([subject()],fetch=fetch)
+        self.assertEqual(len(calls),3);self.assertEqual(len(set(calls)),3)
+        self.assertEqual(m['subjects'][0]['title'],q['title'])
+        self.assertEqual(len(m['subjects'][0]['download_failures']),1)
+        self.assertEqual(sources.unpack(raw)[0]['images/oak.jpg'],photo())
+
+    def test_missing_reasons_distinguish_no_results_rejected_metadata_and_bad_downloads(self):
+        for mode in ('empty','wrong','download'):
+            p=page()
+            if mode=='wrong':p['imageinfo'][0]['extmetadata']['Artist']['value']=''
+            calls=[]
+            def fetch(url,*args):
+                calls.append(url)
+                if 'api.php' in url:return json.dumps({'query':{'pages':{} if mode=='empty' else {'1':p}}}).encode(),'application/json',url
+                raise OSError('bad image response')
+            _,m=sources.collect([subject()],fetch=fetch)
+            reason=m['subjects'][0]['reason']
+            self.assertIn({'empty':'no files','wrong':'none met','download':'bad image response'}[mode],reason)
+            self.assertLessEqual(len(calls),3)
+            self.assertEqual(len(calls),len(set(calls)))
+
+    def test_redirects_consume_the_same_bounded_subject_budget(self):
+        import time
+        from unittest.mock import MagicMock
+        connection=MagicMock();connection.getresponse.return_value.status=302
+        connection.getresponse.return_value.getheader.return_value='https://commons.wikimedia.org/next'
+        budget={'remaining':2}
+        with patch('task_relay.orchestrator_web.public_addresses',return_value=['8.8.8.8']),patch(
+                'task_relay.orchestrator_web.PublicHTTPS',return_value=connection):
+            with self.assertRaisesRegex(ValueError,'request budget exhausted'):
+                sources.download('https://commons.wikimedia.org/first',100,time.monotonic()+30,budget)
+        self.assertEqual(connection.request.call_count,2)
+        self.assertEqual(budget['remaining'],0)
+
+    def test_empty_registered_collection_retains_diagnostic_zip_but_fails(self):
+        import tempfile
+        from pathlib import Path
+        from orchestrator.runtime import Runtime
+        from orchestrator.adapters import ExecutionFactory
+        from tests.test_mixed_execution import LocalRegistered,Client,operation
+        from tests.test_orchestrator import FakeFactory,plan
+        def fetch(url,*args):return b'{"query":{"pages":{}}}','application/json',url
+        with tempfile.TemporaryDirectory() as directory,patch.object(sources,'download',side_effect=fetch):
+            root=Path(directory).resolve()
+            rt=Runtime(root/'runtime',ExecutionFactory(FakeFactory(),LocalRegistered(Client())))
+            try:
+                task=operation('images','images.collect',[])
+                task['execution']['parameters']={'subjects':[subject()]}
+                task['outputs']=[dict(path='images.zip',purpose='Photo candidates',media_type='application/zip')]
+                rt.create(plan([task]));rt.tick('demo');rt.tick('demo');rt.tick('demo')
+                status=rt.status('demo')
+                self.assertEqual(status['tasks'][0]['status'],'blocked')
+                receipt=json.loads(status['attempts'][0]['receipt'])
+                self.assertEqual(receipt['operation']['outcome'],'failed')
+                self.assertIn('No usable photos',receipt['operation']['reason'])
+                self.assertEqual(receipt['operation']['validation']['coverage']['found'],0)
+                bundles=list(root.rglob('images.zip'))
+                self.assertTrue(bundles)
+                self.assertEqual(sources.unpack(bundles[0].read_bytes())[0],{})
+            finally:rt.close()
+
+    def test_fallback_ranks_focused_title_before_incidental_long_caption(self):
+        scene=dict(id='scene',label='Scene',query='Example City snowy waterfront')
+        long=page();short=page()
+        long['title']='File:A person near a shop with a very long unrelated description at the waterfront of snowy Example City.jpg'
+        short['title']='File:Snowy waterfront, Example City.jpg';short['index']=2
+        short['imageinfo'][0]['url']=short['imageinfo'][0]['url'].replace('.jpg','2.jpg')
+        searches=[]
+        def fetch(url,*args):
+            if 'api.php' in url:
+                searches.append(url)
+                return json.dumps({'query':{'pages':{} if len(searches)==1 else {'1':long,'2':short}}}).encode(),'application/json',url
+            return photo(),'image/jpeg',url
+        _,m=sources.collect([scene],fetch=fetch)
+        self.assertEqual(m['subjects'][0]['title'],short['title'])

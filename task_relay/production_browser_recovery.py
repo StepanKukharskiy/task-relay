@@ -128,7 +128,7 @@ def prepare(state,run,request,policies,*,kind='browser_setup'):
     values.update(id=new_id,request_id=ident,parent_id=parent['id'],request=parent['request']+'\n\n--- RECOVERY REQUEST ---\n'+request,
         options=c.encoded(options),context=c.encoded(payload),context_hash=c.digest(payload),status='ready',calls=0,token=secrets.token_hex(12),
         event_id=None,expires=time.time()+86400,run=None,error=None,created=time.time())
-    result,plan=planning.validate_result(c.encoded(result),values)
+    result,plan=planning.validate_recovery_result(result,values)
     values.update(result=c.encoded(result),plan=c.encoded(plan),plan_hash=c.digest(plan))
     state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))
     state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(ident,channel))

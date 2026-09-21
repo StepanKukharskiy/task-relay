@@ -77,6 +77,8 @@ def snapshot(root, attempt, spec, backend, now=None):
     progress=_read(root,'workers/'+aid+'/progress.json',aid)
     receipt=json.loads(attempt['receipt'] or '{}')
     if not isinstance(receipt,dict):receipt={}
+    warnings=receipt.get('operation',{}).get('warnings',[])
+    if isinstance(warnings,list):result['warnings']=[w for w in warnings if isinstance(w,str)]
     final=receipt.get('status')=='finished' or _number(receipt.get('finished')) is not None
     recorded=receipt if final else progress
     begun=_number(receipt.get('started')) or _number(start.get('started'))
@@ -128,6 +130,8 @@ def blocker_lines(task):
     if task['status'] not in ('blocked','uncertain','cancelled','cancelling'):return []
     error=str(task.get('error') or '')
     explanations=(
+        ('HTTP 503','The AI service was temporarily unavailable. Saved work is retained; continue the stopped preparation when the service is available.'),
+        ('request failed (503)','The provider returned HTTP 503 (service unavailable). Relay retained the request receipt and saved work.'),
         ('Review requested corrections:','The independent review finished and requested changes to the candidate.'),
         ('MALFORMED_FUNCTION_CALL','The AI returned an invalid tool call, so Relay could not execute that response.'),
         ('generation output limit','The AI response exceeded its generation length limit; bounded recovery could not complete it.'),
@@ -152,6 +156,14 @@ def lines(task, now=None):
     if not activity:return []
     active=task['status'] in ('running','launching','cancelling')
     text=[]
+    concern=task.get('quality_review')
+    if concern:
+        accepted=task['status']=='completed'
+        text.append('Accepted with quality concerns:' if accepted else 'Quality concerns — review the files/previews before accepting:')
+        text.extend(f['message']+' Evidence: '+f['evidence'] for f in concern['findings'])
+        if not accepted:text.append('Reply with correction feedback or explicitly accept these outputs as-is. Dependent work waits for your decision.')
+    if not concern:
+        for warning in activity.get('warnings',[]):text.append('Warning: '+warning)
     if activity.get('objective'):
         text.append(('Relay is working on: ' if active else 'Task: ')+activity['objective'])
     prefix='Planned ' if not task.get('latest_attempt') else ''

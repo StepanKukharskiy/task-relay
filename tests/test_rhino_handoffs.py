@@ -26,6 +26,8 @@ class Tests(unittest.TestCase):
 
     def setUp(self):
         fixture.Tests.setUp(self)
+        idle=patch('task_relay.rhino_host.running_instances',return_value=[])
+        idle.start();self.addCleanup(idle.stop)
         del self.fail
         self.app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
         self.app.start()
@@ -104,6 +106,7 @@ class Tests(unittest.TestCase):
         review['inputs']=[dict(from_task='app',output=o['path'],path='candidate/'+Path(o['path']).name,
                               purpose='Review actual host output',authority='Unaccepted candidate',media_type=o['media_type']) for o in host['outputs']]
         return dict(decision='ready',message='Review exact host inputs before Start',input_basis={'mode':'new','artifacts':[]},
+                    geometry_basis={'mode':'procedural','artifacts':[],'checks':[]},
                     plan=dict(brief='Rhino host stage',tasks=[host,review]))
 
     def fake_host(self,*args):

@@ -1,6 +1,7 @@
 """Blender-side, explicitly scoped semantic snapshots for candidate comparisons."""
 import hashlib
 import json
+import math
 
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,allow_nan=False).encode()).hexdigest()
 
@@ -75,6 +76,15 @@ def compare(before,after,checks):
     if before['frame']!=after['frame']:errors.append('Active frame changed')
     for name,expected in checks['expected_dimensions'].items():
         actual=after['dimensions'].get(name)
-        if actual is None or any(abs(a-b)>max(1e-4,abs(b)*1e-4) for a,b in zip(actual or [],expected)):
-            errors.append('Expected dimensions failed: '+name)
+        if actual is None or len(actual)!=3 or any(not math.isfinite(a) or a<0 for a in actual):
+            errors.append('Missing or invalid dimension measurement: '+name)
     return errors
+
+def dimension_warnings(after,checks):
+    warnings=[]
+    for name,expected in checks['expected_dimensions'].items():
+        actual=after['dimensions'].get(name)
+        if actual is None or len(actual)!=3 or any(not math.isfinite(a) or a<0 for a in actual):continue
+        if any(abs(a-b)>max(1e-4,abs(b)*1e-4) for a,b in zip(actual,expected)):
+            warnings.append(f'{name}: measured dimensions {actual}; expected {expected} (Blender scene units).')
+    return warnings

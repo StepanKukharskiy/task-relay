@@ -274,6 +274,29 @@ def catalog(state=None):
     return result
 
 
+def synchronous_unavailable(backend, request, outcome):
+    """A received HTTP 503 from a local-tool model call, not a lost submission.
+
+    Never applies to browser workers, asynchronous media jobs or server-side tools.
+    Legacy receipts retain their original wording; this only interprets evidence.
+    """
+    if backend.get('type') not in (*FILE_TYPES,*CODE_TYPES):return False
+    if outcome.get('outcome') not in ('uncertain','rejected'):return False
+    if outcome.get('http_status')!=503 and outcome.get('status')!='Gemini request failed (503)':return False
+    provider=request.get('provider');payload=request.get('payload',{});endpoint=request.get('endpoint','')
+    if provider!=provider_for(backend) or not isinstance(payload,dict):return False
+    tools=payload.get('tools',[])
+    if not isinstance(tools,list) or not tools:return False
+    if provider=='gemini':
+        return (endpoint=='models/'+backend['model']+':generateContent' and
+                all(isinstance(t,dict) and set(t)=={'functionDeclarations'} for t in tools))
+    if provider=='openai':
+        return (endpoint=='responses' and payload.get('store') is False and not payload.get('background') and
+                all(isinstance(t,dict) and t.get('type')=='function' for t in tools))
+    return (endpoint=='chat/completions' and payload.get('stream') is False and
+            all(isinstance(t,dict) and t.get('type')=='function' for t in tools))
+
+
 if __name__=='__main__':
     import sys
     if len(sys.argv)!=2 or sys.argv[1] not in tuple('verify-'+p for p in PROVIDERS):raise SystemExit('Use: python3 -m orchestrator.executors verify-PROVIDER')

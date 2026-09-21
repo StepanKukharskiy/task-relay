@@ -47,7 +47,8 @@
       "release": true,
       "patterns": [
         "task_relay/*.py",
-        "orchestrator/*.py"
+        "orchestrator/*.py",
+        "orchestrator/*.rb"
       ],
       "exclude": [
         "test_*.py"
@@ -183,6 +184,7 @@
         "docs/project-structure.md",
         "docs/reference-collection.md",
         "docs/rhino.md",
+        "docs/sketchup.md",
         "docs/shared-storage.md",
         "docs/usage-tracking.md",
         "docs/worker-runtime.md",
@@ -194,7 +196,11 @@
         "docs/account-sites.md",
         "docs/desktop-browser.md",
         "docs/image-sourcing.md",
-        "docs/workflow-handoffs.md"
+        "docs/workflow-handoffs.md",
+        "docs/contract-boundary-tracker.md",
+        "docs/reels.md",
+        "docs/result-policy.md",
+        "docs/typed-contract-builders.md"
       ]
     }
   ],

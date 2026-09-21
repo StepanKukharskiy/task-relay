@@ -15,9 +15,11 @@ from task_relay import gemini
 from task_relay import api_providers as api
 from task_relay import production_control as pc
 from task_relay import relay_channels
+from task_relay import planning_contract
 from orchestrator import contracts as c, templates
 from orchestrator.cloud_media import KINDS as CLOUD_MEDIA
 from orchestrator.runtime import Runtime, safe_file, file_hash
+from orchestrator.native_apps import SCRIPT_OPERATIONS, NATIVE_MEDIA, profile as native_profile
 
 MAX_CONTEXT = 400000
 MAX_INPUT_BYTES = 150000000
@@ -44,6 +46,13 @@ the user asks to use, or [] for unrelated uploads. Resolve "this image" using th
 upload caption/reply context; ask only when the identity is ambiguous. Never claim
 an uploaded reference is included without selecting its ID. Uploads are distinct
 from generated artifact_ids and research_ids.
+Optional project_files selects up to ten exact project-relative source paths from
+the selected known project (100 MB total). Use file_list to resolve filenames.
+For modeling from a local DXF, survey, scene or drawing, select the actual file,
+not merely a conversation describing it. Its immutable bytes reach author and
+reviewer. Never substitute a summary, guessed contour, synthetic slope or an
+approximate footprint when the user requested source-derived geometry. If the
+source cannot be identified or opened, ask for that specific source before work.
 For a named existing scene, select its exact artifact ID or ask which version if absent/ambiguous.
 Relative edits such as "make it twice as tall" need the existing artifact, even
 without a filename. Resolve it from conversation/reply provenance and select the
@@ -65,9 +74,10 @@ those profiles. Missing adapters stay explicit blockers. A named executor locks
 the scope; other proposed backend choices require stage Start before dispatch.
 For every new production request, include deliverables as {stable_id: exact requested output description}, covering every requested result regardless of tool or file type. Do not add outcomes beyond the user request.
 For a requested mixed workflow, optional step_capabilities lists needed IDs
-from snapshot.capabilities.graph_operations (pptx.create, text.bundle, gemini.text, gemini.image,
+from snapshot.capabilities.graph_operations (hyperframes.preview, hyperframes.render, media.compose, pptx.create, text.bundle, gemini.text, gemini.image,
 openai.image, openrouter.image, runway.image, runway.video, higgsfield.image,
-higgsfield.video, meshy.mesh, Blender operations, rhino.startup, rhino.inspect, rhino.run_python or rhino.render).
+higgsfield.video, meshy.mesh, Blender operations, rhino.startup, rhino.inspect, rhino.run_python,
+rhino.render, rhino3dm.create, rhino3dm.run_python, sketchup.startup, sketchup.inspect or sketchup.run_ruby).
 These grant the planner permission to PROPOSE those operations, not to run them.
 Each API operation makes one external request with an exact model and bounded
 parameters; do not include it unless the user's work needs it. The plan card
@@ -125,14 +135,60 @@ def context(state):
              'result':{k:v for k,v in json.loads(r['result']).items() if k!='plan'} if r['result'] else None} for r in rows]
 
 
+def normalize_action(action, snap):
+    """An omitted unused pack is null, not a source choice or new permission."""
+    if (isinstance(action,dict) and action.get('kind')=='plan_production'
+        and 'reference_pack_id' not in action
+        and not any(p.get('status')=='ready' for p in snap.get('reference_packs',[]))):
+        return {**action, 'reference_pack_id':None}
+    return action
+
+
+class StartedPlanningRequest(ValueError):
+    """An existing execution must use continuation, not planning revision."""
+
+
+def started_plan_continuation(action,snap,request):
+    """Resolve only an exact started-plan target with unchanged saved scope.
+
+    The result enters ordinary continuation validation and its approval gates.
+    No names are guessed, source choices dropped, or new scope authorized.
+    """
+    action=normalize_action(action,snap)
+    if snap.get('pipeline_step') or action.get('kind')!='plan_production':return None
+    if not isinstance(request,str) or not 1<=len(request.strip())<=4000:return None
+    matches=[p for p in snap.get('production_plans',[]) if p['id']==action.get('parent_id')]
+    if len(matches)!=1:return None
+    plan=matches[0]
+    if plan.get('status')!='started' or not plan.get('run'):return None
+    runs=[r for r in snap.get('production_runs',[]) if r['name']==plan['run']]
+    if len(runs)!=1 or runs[0].get('status')!='blocked':return None
+    saved=plan.get('options',{})
+    if action.get('planning_only') is not False:return None
+    # Validate all normal fields before considering a routing correction.
+    probe={k:v for k,v in action.items() if k not in ('parent_id','previous_run')}
+    validate_action(probe,snap)
+    for key in ('template','project','reference_pack_id','research_ids','planning_only'):
+        if key not in saved or action.get(key)!=saved[key]:return None
+    for key in ('artifact_ids','reference_ids','project_files'):
+        if action.get(key):return None  # New source selection needs new planning.
+    for key in ('deliverables','executor','starter_workflow','starter_stage'):
+        if key in action and action[key]!=saved.get(key):return None
+    if 'task_seconds' in action and action['task_seconds']!=saved.get('limits',{}).get('seconds'):return None
+    if 'step_capabilities' in action and set(action['step_capabilities'])!=set(saved.get('step_capabilities',[])):return None
+    if action.get('previous_run') and action['previous_run']!=saved.get('previous_run'):return None
+    return dict(kind='continue_production',workflow=plan['run'],items=None,direction=request)
+
+
 def validate_action(action,snap):
+    action=normalize_action(action,snap)
     if action['kind']=='authorize_production_plan':
         if set(action)!={'kind','plan_id'}:raise ValueError('Specify the saved plan ID.')
         if not any(p['id']==action['plan_id'] and p['status']=='ready' for p in snap.get('production_plans',[])):
             raise ValueError('The selected plan is not ready.')
         return
     required={'kind','template','project','reference_pack_id','research_ids','planning_only'}
-    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids','reference_ids','starter_workflow','starter_stage','deliverables','task_seconds'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
+    if set(action)-{'parent_id','previous_run','step_capabilities','executor','artifact_ids','reference_ids','project_files','starter_workflow','starter_stage','deliverables','task_seconds'}!=required or action['template'] not in (*templates.STAGES,'custom') or type(action['planning_only']) is not bool:
         raise ValueError('Specify a template, project, sources and planning-only intent for the new stage.')
     if 'task_seconds' in action and (type(action['task_seconds']) is not int or not 60<=action['task_seconds']<=1800):
         raise ValueError('Task time ceiling must be between 60 and 1800 seconds.')
@@ -149,6 +205,7 @@ def validate_action(action,snap):
     if action['reference_pack_id'] is not None and not any(p['id']==action['reference_pack_id'] and p['status']=='ready' for p in snap.get('reference_packs',[])):
         raise ValueError('Choose a ready reference pack.')
     from task_relay import routing_inputs
+    routing_inputs.validate_project_files(action.get('project_files',[]),action['project'])
     if 'reference_ids' not in action and any(f['status']=='ready' for f in snap.get('uploaded_files',[])):
         raise routing_inputs.MissingSourceSelection(['reference_ids'])
     if 'reference_ids' in action:routing_inputs.validate_upload_ids(action['reference_ids'],snap.get('uploaded_files',[]))
@@ -156,6 +213,8 @@ def validate_action(action,snap):
     if 'artifact_ids' in action:
         routing_inputs.validate_artifact_ids(action['artifact_ids'],snap.get('production_artifacts',[]))
     if action.get('parent_id') and not any(p['id']==action['parent_id'] and p['status'] in ('needs_input','ready','blocked') for p in snap.get('production_plans',[])):
+        if any(p['id']==action['parent_id'] and p['status']=='started' and p.get('run') for p in snap.get('production_plans',[])):
+            raise StartedPlanningRequest('This plan already has an execution. Continue its recorded production; planning revision cannot resume executed work.')
         raise ValueError('Choose an unstarted planning request to clarify or revise.')
     if action.get('previous_run'):
         if action.get('parent_id'):raise ValueError('Clarify the saved plan or continue a completed stage, not both.')
@@ -252,6 +311,7 @@ def repeated_blocked_request(state,job,snap):
 
 
 def enqueue(state,job,action,snap):
+    action=normalize_action(action,snap)
     validate_action(action,snap)
     ident='plan-'+str(job['id']);channel=relay_channels.request_channel(state,job['id'])
     previous=state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
@@ -291,7 +351,18 @@ def enqueue(state,job,action,snap):
     if backend is None:
         row=state.db.execute('SELECT plan FROM production_runs ORDER BY rowid DESC LIMIT 1').fetchone()
         if row:backend=json.loads(row['plan'])['backend']
-    if not backend:raise ValueError('Configure a production-planner-policy backend before planning; no worker model was guessed.')
+    if backend is None:
+        from orchestrator import executors
+        # Bootstrap only new, unassigned work from verified configuration. Browser
+        # and code profiles remain task-specific choices in the frozen catalog.
+        candidates=[x for x in executors.catalog(state) if x['available']
+                    and x['id'] in (*executors.FILE_TYPES,'codex-cli')]
+        candidates.sort(key=lambda x:(x['id']!=job['provider']+'-agent',
+                                      x['id']=='codex-cli',x['id']))
+        if candidates:backend=copy.deepcopy(candidates[0]['backend'])
+    if not backend:
+        raise ValueError('No verified production worker is available. In Relay, connect a provider, '
+                         'select its text model, then select its Worker provider and click Check worker connection')
     from orchestrator import executors
     tools=executors.validate(backend)
     executors.available(backend)
@@ -339,7 +410,11 @@ def enqueue(state,job,action,snap):
         pack['unresolved']=data.get('unresolved',[])
     from task_relay import routing_inputs; from task_relay import orchestrator_guides
     manifest=routing_inputs.freeze(state,job,[],action['research_ids'],action.get('artifact_ids'))+orchestrator_guides.selected(state,job['id'])
-    manifest+=routing_inputs.freeze_uploads(state,job,action.get('reference_ids'))
+    manifest+=routing_inputs.freeze_project_files(state,job,action['project'],action.get('project_files',[]))
+    from .attachment_batches import selected as attachment_selection
+    upload_ids=action.get('reference_ids')
+    if upload_ids is None:upload_ids=attachment_selection(state,job['id'])
+    manifest+=routing_inputs.freeze_uploads(state,job,upload_ids)
     required=[a for a in prior['required_artifacts'] if a in {s['artifact'] for s in sources}] if parent else ([s['artifact'] for s in sources] if stage else [])
     if parent and parent['plan']:
         required.extend(s['artifact'] for s in sources if s['artifact'] in selected)
@@ -359,6 +434,7 @@ def enqueue(state,job,action,snap):
         aid=rt.register(item['path'],item['role'],run=ident,path=path)
         entry=source_entry(rt,aid,path,item['role'],'Selected guide governs its stated scope; other inputs are source context, not authorization.')
         if item.get('workflow_artifact'):entry['workflow_artifact']=item['workflow_artifact']
+        if item.get('project_file'):entry['project_file']=item['project_file']
         if item.get('upload_id') is not None:
             entry.update(upload_id=item['upload_id'],media_type=item['media_type'],caption=item['caption'])
             if item['media_type'].startswith('image/'):entry['visual_reference']=True
@@ -380,12 +456,41 @@ def enqueue(state,job,action,snap):
         from orchestrator.blender_host import validator_source
         for operation in operations:
             capability=operation['id']
-            if capability not in ('pptx.create','blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render'):continue
+            if capability not in ('media.compose','hyperframes.preview','hyperframes.render','pptx.create','rhino3dm.create','rhino3dm.run_python','blender.scene','blender.mesh_scene','blender.run_python','blender.import_asset','blender.animate','rhino.run_python','rhino.render','sketchup.run_ruby'):continue
             prefix='operation-support/'+operation['id']+'/'
             documents={'contract.json':json.dumps(operation,ensure_ascii=False,indent=2)+'\n'}
-            if capability=='pptx.create':
+            if capability in ('media.compose','hyperframes.preview','hyperframes.render'):
+                documents['asset-index.json']=json.dumps([{k:s[k] for k in ('artifact','path','purpose','sha256','bytes')}
+                    for s in sources if Path(s['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp','.svg','.wav','.mp3','.mp4','.webm','.m4a','.ogg','.ttf','.otf','.woff','.woff2','.js','.mjs','.css')],ensure_ascii=False,indent=2)
+            elif capability=='rhino3dm.run_python':
+                from orchestrator import rhino3dm_script_contract, host_script
+                documents['rhino3dm_script_contract.py']=Path(rhino3dm_script_contract.__file__).read_text(encoding='utf-8')
+                documents['host_script.py']=Path(host_script.__file__).read_text(encoding='utf-8')
+                documents['validate.py']=('import json, sys\nfrom rhino3dm_script_contract import validate_checks\n'
+                    'from host_script import validate_script_bytes\n'
+                    'with open(sys.argv[1], encoding="utf-8") as f: validate_checks(json.load(f))\n'
+                    'if len(sys.argv)>2:\n'
+                    '    with open(sys.argv[2], "rb") as f: compile(validate_script_bytes(f.read()).decode("utf-8"),sys.argv[2],"exec")\n'
+                    'print("RELAY_RHINO3DM_SCRIPT_CONTRACT_VALID")\n')
+            elif capability=='rhino3dm.create':
+                from orchestrator import rhino3dm_contract
+                documents['rhino3dm_contract.py']=Path(rhino3dm_contract.__file__).read_text(encoding='utf-8')
+                documents['validate.py']=('import sys\nfrom rhino3dm_contract import load, validate\n'
+                    'with open(sys.argv[1], encoding="utf-8") as f: validate(load(f.read()))\n'
+                    'print("RELAY_RHINO3DM_CONTRACT_VALID")\n')
+            elif capability=='pptx.create':
                 from orchestrator.pptx_document import validator_source as pptx_validator
                 documents['validate.py']=pptx_validator()
+            elif capability=='sketchup.run_ruby':
+                from orchestrator import sketchup_contract, host_script
+                documents['sketchup_contract.py']=Path(sketchup_contract.__file__).read_text(encoding='utf-8')
+                documents['host_script.py']=Path(host_script.__file__).read_text(encoding='utf-8')
+                documents['validate.py']=('import json, sys\nfrom sketchup_contract import validate_checks\n'
+                    'from host_script import validate_script_bytes\n'
+                    'with open(sys.argv[1], encoding="utf-8") as f: validate_checks(json.load(f))\n'
+                    'if len(sys.argv)>2:\n'
+                    '    with open(sys.argv[2], "rb") as f: validate_script_bytes(f.read()).decode("utf-8")\n'
+                    'print("RELAY_SKETCHUP_CONTRACT_VALID")\n')
             elif capability.startswith('rhino.'):
                 from orchestrator import rhino_contract, host_script
                 validator='validate_checks' if capability=='rhino.run_python' else 'validate_render'
@@ -437,8 +542,18 @@ def enqueue(state,job,action,snap):
         'required_artifacts':required,'source_texts':texts,'reference_pack':pack,
         'missing_text_artifacts':[s['artifact'] for s in sources if s['artifact'] not in {t['artifact'] for t in texts}],
         'max_selected_input_bytes':MAX_INPUT_BYTES}
+    if set(options.get('step_capabilities',[])) & set(SCRIPT_OPERATIONS):
+        from .geometry_sources import INSTRUCTIONS as geometry_instructions
+        payload['geometry_source_policy']=1
+        payload['planner_instructions']+=geometry_instructions
     if any(s.get('visual_reference') for s in sources):
-        payload['planner_instructions']+=UPLOAD_PLANNER_INSTRUCTIONS
+        if set(options.get('step_capabilities',[])) & {'media.compose','hyperframes.preview','hyperframes.render'}:
+            payload['planner_instructions']+=('\nFor media.compose, uploaded images may be exact render assets rather than visual references for an author. '
+                'Bind render assets explicitly to the operation and use the asset index for text authors. '
+                'Do not infer their visible content from filenames. If the user asks for image interpretation or design matching, '
+                'bind those exact images explicitly to the relevant agent tasks with images.view; report a missing visual capability rather than bypass it. '
+                'Delivery code review must disclose its lack of visual inspection; human visual selection remains required.')
+        else:payload['planner_instructions']+=UPLOAD_PLANNER_INSTRUCTIONS
     from . import pipelines
     pipeline=pipelines.request_context(state,job['id'])
     if not pipeline and action.get('previous_run'):pipeline=pipelines.context_for_run(state,action['previous_run'])
@@ -484,6 +599,18 @@ def enqueue(state,job,action,snap):
     if options.get('step_capabilities'):
         payload['graph_operations']=operations
         payload['planner_instructions']+=MIXED_INSTRUCTIONS
+    from .image_sourcing_policy import describe as image_sourcing
+    payload['image_sourcing']=image_sourcing(operations,options.get('worker_catalog',[]),payload.get('managed_browser',{}))
+    from . import operation_builders
+    builder=operation_builders.freeze(payload)
+    if builder:
+        payload['operation_builder']=builder
+        payload['planner_instructions']+='\n'+operation_builders.INSTRUCTIONS
+    if not builder:
+        from . import artifact_bindings
+        payload['artifact_binding_version']=1
+        payload['planner_instructions']+='\n'+artifact_bindings.INSTRUCTIONS
+    payload['response_contract']=planning_contract.contract(options,builder,bindings=not builder)
     encoded=c.encoded(payload)
     if len(encoded)>MAX_CONTEXT:raise ValueError('Planning context exceeds its limit; select a smaller reference set.')
     if parent:state.db.execute("UPDATE production_plans SET status='superseded' WHERE id=?",(parent['id'],))
@@ -535,7 +662,13 @@ Reviewer dependencies include producer, inputs include every output under candid
 and criteria exactly equal the producer's. Local drafting/review tasks have
 max_attempts=options.max_attempts (one initial attempt plus at most one correction).
 Browser tasks and registered operations have max_attempts=1. Stay within options.limits. When options.worker_catalog exists, compose each agent dynamically:
-include worker={"requires":["files.text"]}, optionally executor with an exact catalog ID.
+include worker={"requires":["files.text"]}. Relay compiles the executor, model and
+tools from the frozen catalog. When options.executor_locked is true, omit executor
+everywhere: the service already owns that exact selection. Otherwise an explicitly
+selected per-task executor goes ONLY inside worker, for example
+worker={"requires":["files.text"],"executor":"exact-catalog-id"}.
+Never put executor, model or backend at task level. Follow response_contract.schema
+when present; it describes proposal fields, not the compiled runtime assignment.
 Choose a task-specific role, objective, exact inputs, outputs and review criteria.
 Use code.execute for local calculations/validation, files.binary for binary files,
 browser.use for scoped website control. These are adapter capabilities, not role names.
@@ -555,9 +688,45 @@ input/output ceilings and at most 120 seconds per code call within task limits.
 Use runtime_tools from the captured profile to check format libraries. Missing
 libraries are blockers; do not install packages. These workers have no subprocess,
 network, browser, native application or media-encoder access. They do not replace
-Rhino/Blender, generation, or registered pptx.create operations. Binary input bytes
+Rhino/Blender, generation, or registered pptx.create/media.compose operations. Binary input bytes
 remain local; read text, code logs and extracted summaries go to the selected model.
 Format save/reopen checks do not prove visual quality or Office/Keynote compatibility.
+For an existing storyboard or a custom reel design, use hyperframes.preview followed
+by hyperframes.render. Read project_schema in their frozen catalog. Any provider can
+author full HTML/CSS/JavaScript as the files object of one project.json; this JSON is
+only a source transport, not a scene/layout template. Give authors the existing
+storyboard, guides and asset index, with enough response/tool budget for real source.
+Do not recreate an already completed article/thread/storyboard workflow. Keep source
+paths exact and preserve revision constraints. Include local libraries as declared
+assets or use paused browser-native animations; do not invent installed GSAP paths.
+Plan author -> independent source review -> hyperframes.preview -> independent
+preview review. Preview findings/confirmed failures may use the explicitly proposed
+local correction allowance to revise source and recheck. Require human preview
+selection of project.json, project.zip, frames.zip, contact-sheet.png and verification.json.
+When hyperframes.render is also selected but no exact passed preview exists, defer
+only that operation with an explicit reason; the gated preview task is the preparation.
+After preview selection, plan the exact registered project.zip/verification.json pair
+with project_sha256 and preview_sha256; no source redesign in the rendering step.
+Rendered video also needs independent review and human selection. Code-only reviewers
+must disclose that diagnostics and binary inspection do not establish visual quality.
+Never demand Codex or a provider-specific video worker to render a local composition.
+media.compose is the legacy fixed-template convenience operation. Use it only when
+its constrained design is explicitly appropriate; it cannot fulfill arbitrary authored
+HyperFrames storyboards. For that limited operation, use the chosen
+model provider. Read its composition_schema and operation-support/media.compose/
+contract.json plus asset-index.json. Plan a text JSON author, independent JSON review,
+the registered render dependent on that review, and independent delivery review.
+Raw image/audio inputs belong to the operation; give the text author the asset index,
+storyboard and guides, not binary assets. Bind exact asset paths explicitly. The JSON
+is data only: no HTML, JS, arbitrary commands, downloads or TTS. Keep narration within
+180 wpm and on-screen copy within the declared reading bound; request a revised timing
+decision if an accepted storyboard cannot fit. No audio means a silent video.
+The delivery reviewer receives ALL four outputs and uses files.binary/code.execute
+on the same model provider where available. Code inspection is technical/editorial
+review, not visual inspection; explicitly disclose that limit. Require a human visual
+selection gate on the render. Do not demand Codex merely to encode a video. If an
+exact locked text-only executor cannot review binary files, report that specific
+profile limitation and propose its same-provider code profile for approval.
 Choose limits.seconds independently for each
 task based on its actual work; the ceiling is not a required duration. Complex
 authoring may need 1200–1800 seconds; a focused review may need 300–900 seconds.
@@ -691,7 +860,15 @@ Example shape (replace illustrative content and IDs with the actual job):
 {"id":"review","role":"reviewer","review_of":"produce","objective":"Review candidate","instruction":"Inspect actual candidate against request and sources","inputs":[{"from_task":"produce","output":"delivery/result.md","path":"candidate/result.md","purpose":"Candidate to inspect","authority":"Unaccepted candidate"}],"outputs":[{"path":"review.md","purpose":"Independent findings"}],"dependencies":["produce"],"criteria":["Matches exact request"],"tools":["files","shell"],"limits":{"seconds":600,"tool_calls":60,"output_bytes":100000000},"max_attempts":1}
 ]}}'''
 
+from .image_sourcing_policy import INSTRUCTIONS as IMAGE_SOURCING_INSTRUCTIONS
+PLANNER_SYSTEM += "\n" + IMAGE_SOURCING_INSTRUCTIONS
+
 MIXED_INSTRUCTIONS='''
+Input path is the consumer workspace alias, not the producer output location.
+Keep host input aliases outside delivery/ (use inputs/model.py, inputs/checks.json,
+or inputs/candidate.3dm). For upstream references, output remains the exact producer
+output, e.g. delivery/candidate.3dm. Relay binds reserved input aliases before plan
+approval; artifact IDs, hashes, producer output paths and code bytes stay exact.
 Preparation outputs that must travel together (especially model.py and checks.json)
 require selection_outputs on the producer: an explicit list of the exact declared
 output paths to select as one set. Give the producer a user_gate describing that
@@ -738,10 +915,43 @@ review them. Do not execute this script in the agent shell. Stop for user review
 rhino.render uses an exact existing named view and bounded resolution from an attached
 manifest, with the built-in Rhino Render engine; it requires independent review and
 a candidate selection gate. It never substitutes a viewport preview.
+Direct SketchUp: sketchup.startup runs a fixed owned-process diagnostic; sketchup.inspect
+reads one exact application/vnd.sketchup.skp artifact. sketchup.run_ruby creates/edits
+using embedded Ruby on macOS SketchUp 2025/2026. Prepare model.rb and checks.json
+with independent review and selection_outputs including BOTH files; defer execution
+until exact registered script/checks/model versions are selected. Ruby is text/x-ruby;
+scene_sha256 is null only for create. Use the catalog checks_schema, exact outputs
+and criteria. Every candidate requires independent output review and a user_gate.
+Do not substitute Rhino/Blender or perform host work in a preparation task.
+Full standalone library: rhino3dm.run_python exposes the installed rhino3dm Python
+API without a Relay geometry whitelist, including NURBS, surfaces/BReps, annotations,
+document tables and any other API present in that library version. It creates or
+edits a File3dm without running Rhino. Prepare/review model.py and checks JSON using
+its checks_schema and supplied validate.py. Select both exact registered artifacts
+before a separate execution Start; scene_sha256=null for create, selected primary
+.3dm hash for edit. Additional binary inputs use application/octet-stream. Scripts
+receive rhino3dm, model, input_paths and workspace; Relay saves model afterward.
+file_version in checks is explicit: 7 for Rhino 7, 8 for Rhino 8; the library version
+does not determine the requested file version. Independent output review and user
+selection are required. Full library access does not mean all Rhino commands,
+plugins, rendering or Rhino.Compute are available/authorized. Normal host Python
+permissions apply. Native Rhino execution/verification remains a separate route.
+Standalone 3DM convenience builder: rhino3dm.create is a local procedure using the rhino3dm library,
+without Rhino. Prepare bounded geometry JSON from geometry_schema (points,
+polylines, meshes including terrain, layers and units); independently review it
+before generation. Read operation-support/rhino3dm.create/contract.json and run its
+validate.py against the geometry JSON. Use the exact registered outputs and criteria,
+independent output review and a user selection gate. Geometry JSON is data, never
+Python. Generation is new-file only, with no previews, rendering, model imports,
+plugins or Rhino modeling commands. Unsupported requests must remain explicit;
+never silently mesh a requested NURBS surface. A .3dm format request alone does
+not require Rhino execution. Explicit Rhino execution/verification or an existing
+Rhino stage must keep rhino.*; switching routes needs a newly reviewed plan and Start.
+Report library-generated/library-reopened separately from native Rhino verification.
 Direct Rhino: rhino.startup is a fixed version/interpreter startup diagnostic; rhino.inspect
 inventories one exact application/vnd.rhino .3dm with its source unchanged.
 rhino.run_python creates/edits through IronPython 2.7 on Rhino 7 or CPython 3 on
-Rhino 8, using RhinoCommon in an owned macOS process. First prepare and independently review model.py and checks JSON
+Rhino 8, using RhinoCommon in an owned macOS process or separate documents in connected Rhino 8. First prepare and independently review model.py and checks JSON
 using its catalog checks_schema. Only a later stage with already registered exact
 script/checks and optional scene can execute. Prepared scripts must be at most
 100000 UTF-8 bytes. Validate BOTH checks and script with validate.py checks.json
@@ -809,8 +1019,18 @@ scene-output reviewer. Make the scene operation depend on the data review.
 For pptx.create, prepare slides.json using slide_schema in the frozen operation
 catalog and operation-support/pptx.create/contract.json. The operation accepts one
 application/json specification and optional exact PNG/JPEG inputs, sourced-image
-bundles (application/zip from images.collect), plus text context.
+bundles (application/zip from images.collect or images.fetch), plus text context.
 For images.collect, subjects in parameters contain the complete literal search inputs.
+Use concise subject queries, not prose captions. Set optional identity to the exact
+botanical name, place or landmark established by the request/research. The collector
+tries the phrase and the same words in any order; it never invents synonyms or drops
+required words. Avoid overconstraining one query with several redundant descriptions.
+A wholly empty collection fails with diagnostic receipts; partial missing subjects
+remain explicit for review and any user-authorized omissions.
+The registered result is a ZIP containing image bytes and manifest.json; bind the
+photo-bundle deliverable directly to that ZIP. Do not add a JSON conversion to
+replace it. Its independent reviewer must review the collector's exact ZIP even
+when another task derives a summary or manifest.
 Use inputs=[]; retain research/context with the independent reviewer and deck author,
 not with the download operation. Never attach conversation histories just for provenance.
 For factual research, identification guides, real examples and documentary decks,
@@ -818,7 +1038,26 @@ default to authentic sourced photographs, even when the user only says images or
 visuals. Synthetic illustrations require a requested illustrative/design purpose;
 generic research does not authorize inventing reference examples. Honor the saved
 stage's visual_intent; do not replace its sourcing operation with a media provider.
-For requested real photos or reference illustrations of named subjects, use images.collect
+For Google Images, Bing, DuckDuckGo or browser-based source discovery, use a
+browser.use producer with browser.image_sources=[{path:"delivery/image-sources.json",
+subjects:[{id,label,query}]}]. It searches a suitable service chosen using image_sourcing (or the explicit
+user-selected service) in the existing managed browser and exports observed originals using browser_image_source. Include
+necessary exact search/consent origins; do not invent unseen publisher domains or
+expand navigation scope. Search result previews can expose original image and
+publisher links without navigating to that publisher. Thumbnails are rejected.
+Then images.fetch consumes exactly that JSON and returns a ZIP. Use an independent
+binary-capable reviewer for the ZIP and a selection gate, checking subject identity,
+coverage and source rights. Unknown licences stay unknown; never claim cleared reuse.
+Pass the exact ZIP to pptx.create. No search API key, model-generated URL list,
+screenshot-as-photo, paid search subscription or image generation is needed.
+Plan small discovery batches (normally one to three subjects). Set explicit
+provider_requests up to 24 and enough tool_calls for navigation, preview loading,
+source export and finish; keep the user's lower budgets. Larger collections need
+multiple bounded producers/downloads, with their exact ZIPs passed to the deck.
+Report challenges as manual
+verification and retain successful prior results. Do not silently replay a blocked
+approved stage or switch an explicitly requested search service.
+When images.collect is selected by image_sourcing or the user constraints, use it
 with the exact subject list, then review its manifest and candidates before slide
 preparation. Follow image_source_schema; missing matches stay explicit. Never use
 image generation as an implicit substitute for image search. This is generic image
@@ -897,9 +1136,12 @@ def generate(row,payload):
     body=json.dumps(payload,ensure_ascii=False)
     system=payload['planner_instructions']
     if provider=='gemini':
+        generation={'responseMimeType':'application/json','maxOutputTokens':10000}
+        if payload.get('response_contract'):
+            generation['responseJsonSchema']=payload['response_contract']['schema']
         response=gemini.Client(config['api_key']).request('models/'+gemini.model_name(row['model'])+':generateContent',
             {'systemInstruction':{'parts':[{'text':system}]},'contents':[{'role':'user','parts':[{'text':body}]}],
-             'generationConfig':{'responseMimeType':'application/json','maxOutputTokens':10000}})
+             'generationConfig':generation})
         text=''.join(p.get('text','') for candidate in response.get('candidates',[]) for p in candidate.get('content',{}).get('parts',[]) if not p.get('thought'))
         return text,response.get('usageMetadata',{})
     client=api.Client(provider,config['api_key'],config.get('base_url'))
@@ -992,6 +1234,35 @@ def complete_operation_wiring(tasks):
                 task['dependencies'].append(item['from_task'])
 
 
+def bind_host_input_paths(tasks):
+    """Assign consumer paths before approval; producer identities remain exact.
+
+    delivery/ belongs to outputs in every host workspace. This only relocates
+    declared input copies, never upstream output names, file bytes or parameters.
+    Runtime validation still rejects invalid frozen assignments.
+    """
+    from orchestrator.execution import REGISTRY
+    import unicodedata
+    def key(path):return unicodedata.normalize('NFC',path).casefold()
+    changes=[]
+    for task in tasks:
+        spec=REGISTRY.get(task.get('execution',{}).get('capability'),{})
+        if not spec.get('outputs'):continue
+        occupied={key(c.relative(i['path'])) for i in task['inputs']}
+        occupied.update(key(c.relative(o['path'])) for o in task['outputs'])
+        for item in task['inputs']:
+            old=c.relative(item['path'])
+            if old.split('/')[0]!='delivery':continue
+            new='source-inputs/'+old
+            canonical=key(new)
+            if any(canonical==p or canonical.startswith(p+'/') or p.startswith(canonical+'/') for p in occupied):
+                raise ValueError('Host input staging path conflicts with another declared file: '+new)
+            item['path']=new;occupied.add(canonical)
+            changes.append({'task':task['id'],'from':old,'to':new,
+                            'source':{k:item[k] for k in ('artifact','from_task','output') if k in item}})
+    return changes
+
+
 def source_catalog(payload):
     return payload['sources']+payload.get('available_sources',[])
 
@@ -1000,20 +1271,64 @@ def compatible_implicit_source(capability, source):
     """Capability input types govern operation arguments, not workflow provenance."""
     import mimetypes
     from orchestrator.execution import REGISTRY
-    if capability=='images.collect':return False  # Literal parameters are the operation input.
+    if capability in ('images.collect','images.fetch'):return False  # Literal parameters are the operation input.
     allowed=REGISTRY[capability]['input_types']
     suffix=Path(source['path']).suffix.lower()
     media=source.get('media_type')
     if not media or media=='application/octet-stream':
-        media={'.3dm':'application/vnd.rhino','.blend':'application/x-blender',
+        media={'.3dm':'application/vnd.rhino','.blend':'application/x-blender','.skp':'application/vnd.sketchup.skp','.rb':'text/x-ruby',
                '.py':'text/plain','.csv':'text/plain'}.get(suffix) or mimetypes.guess_type(source['path'])[0]
     # Existing plain-text context files (including JSON receipts) remain readable
     # context. Explicit JSON specs are bound separately by the declared operation.
-    if suffix in ('.txt','.md','.json','.csv','.py') and 'text/plain' in allowed:return True
+    if suffix in ('.txt','.md','.json','.csv','.py','.rb') and 'text/plain' in allowed:return True
     return media in allowed
 
 
-def validate_result(raw,row):
+def validate_recovery_result(result, values):
+    """Compile a fresh recovery proposal against current service-owned criteria.
+
+    Historical assignments/receipts stay immutable. Only same-version registered
+    criteria can refresh; all parameters, outputs, limits and scope still pass the
+    full validator and the successor still needs its own delivered Start.
+    """
+    from orchestrator.execution import REGISTRY
+    if not values.get('parent_id') or values.get('status')!='ready' or values.get('run'):
+        raise ValueError('Criteria refresh requires a new, unstarted recovery proposal.')
+    result=copy.deepcopy(result)
+    updates=[]
+    for task in result['plan']['tasks']:
+        operation=task.get('execution')
+        if not operation:continue
+        spec=REGISTRY.get(operation.get('capability'))
+        if not spec or operation.get('version')!=spec['version']:
+            raise ValueError('The saved operation version is no longer supported. A new execution plan is required; nothing was dispatched.')
+        if task.get('criteria')!=spec['criteria']:
+            updates.append({'task':task['id'],'capability':operation['capability'],
+                'version':operation['version'],'previous':copy.deepcopy(task.get('criteria')),
+                'current':copy.deepcopy(spec['criteria'])})
+            task['criteria']=copy.deepcopy(spec['criteria'])
+    # A registered producer and its independent reviewer share the operation
+    # criteria. Retain any additional reviewer requirements verbatim.
+    for update in updates:
+        update['reviewers']=[]
+        for task in result['plan']['tasks']:
+            if task.get('review_of')!=update['task']:continue
+            previous=update['previous'];criteria=task.get('criteria',[])
+            if not isinstance(previous,list) or criteria[:len(previous)]!=previous:
+                raise ValueError('Saved reviewer criteria no longer match the operation. A new reviewed plan is required; nothing was dispatched.')
+            task['criteria']=copy.deepcopy(update['current'])+criteria[len(previous):]
+            update['reviewers'].append(task['id'])
+    candidate=dict(values)
+    if updates:
+        payload=json.loads(candidate['context'])
+        payload['registered_criteria_updates']=updates
+        candidate.update(context=c.encoded(payload),context_hash=c.digest(payload))
+    result,plan=validate_result(c.encoded(result),candidate,compiled=True)
+    values.update(context=candidate['context'],context_hash=candidate['context_hash'])
+    return result,plan
+
+
+def validate_result(raw,row,*,compiled=False):
     from orchestrator.execution import REGISTRY
     if not isinstance(raw,str) or len(raw)>100000:raise ValueError('Planner response exceeds 100,000 characters.')
     def unique(pairs):
@@ -1023,15 +1338,25 @@ def validate_result(raw,row):
             result[k]=v
         return result
     result=json.loads(raw,object_pairs_hook=unique)
-    if not isinstance(result,dict) or set(result)-{'input_basis','deferred_operations','deliverable_map'}!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
+    payload=json.loads(row['context']);options=json.loads(row['options'])
+    proposal,field_bindings=planning_contract.prepare(result,payload,options,compiled=compiled)
+    builder_receipt=None;binding_receipts=[]
+    if payload.get('artifact_binding_version') and not compiled:
+        from .artifact_bindings import build as bind_artifacts
+        proposal,binding_receipts=bind_artifacts(proposal,payload)
+        if binding_receipts:result=copy.deepcopy(proposal)
+    if payload.get('operation_builder') and not compiled and proposal.get('decision')=='ready':
+        from .operation_builders import build
+        result,builder_receipt=build(proposal,payload,options)
+        proposal=copy.deepcopy(result)
+    if not isinstance(result,dict) or set(result)-{'input_basis','geometry_basis','deferred_operations','deliverable_map'}!={'decision','message','plan'} or result['decision'] not in ('ready','needs_input','blocked'):
         raise ValueError('Invalid planning response envelope.')
     c.nonempty(result['message'],'planning message')
     if len(result['message'])>3000:raise ValueError('Planning message too long.')
     if result['decision']!='ready':
         if result['plan'] is not None:raise ValueError('An unresolved plan cannot include executable tasks.')
         return result,None
-    payload=json.loads(row['context']);options=json.loads(row['options'])
-    supplied=result['plan']
+    supplied=proposal['plan']
     mixed=bool(options.get('step_capabilities'))
     max_tasks=options.get('max_tasks',6)
     if type(max_tasks) is not int or not 2<=max_tasks<=12:raise ValueError('Invalid saved planning task limit.')
@@ -1040,6 +1365,12 @@ def validate_result(raw,row):
     plan=copy.deepcopy(supplied);plan.update(id='production-'+str(row['request_id']),backend=options['backend'],concurrency=2)
     if not isinstance(plan['brief'],str) or not 1<=len(plan['brief'])<=1500:raise ValueError('Use a concise stage brief.')
     known={s['artifact']:s for s in source_catalog(payload)};used=set(payload['required_artifacts'])
+    from . import geometry_sources
+    geometry=geometry_sources.basis(result,payload,known)
+    # Source geometry is required for both agents, including sources selected
+    # from the available-artifact catalog instead of the initial routing action.
+    required_artifacts=list(dict.fromkeys(payload['required_artifacts']+(geometry['artifacts'] if geometry else [])))
+    used.update(required_artifacts)
     basis=result.get('input_basis')
     if payload.get('available_sources') or basis is not None:
         if not isinstance(basis,dict) or set(basis)!={'mode','artifacts'} or basis['mode'] not in ('new','modify_existing'):
@@ -1049,11 +1380,17 @@ def validate_result(raw,row):
             raise ValueError('Select distinct baseline artifacts from the captured source catalog.')
         if (basis['mode']=='new' and ids) or (basis['mode']=='modify_existing' and not ids):
             raise ValueError('A modification requires exact baseline artifacts; independent new work has none.')
-    for task in plan['tasks']:
+    for task_index,task in enumerate(plan['tasks']):
         if not isinstance(task,dict):raise ValueError('Invalid task object.')
-        if set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','selection_outputs','tools','execution','browser','worker'}:
-            raise ValueError('Unsupported assignment field.')
+        unknown=set(task)-{'id','role','objective','instruction','inputs','outputs','dependencies','criteria','limits','max_attempts','review_of','user_gate','selection_outputs','tools','execution','browser','worker'}
+        if unknown:
+            hint=' Executor belongs inside worker; omit it when the executor is already locked.' if 'executor' in unknown else ''
+            raise ValueError('$.plan.tasks['+str(task_index)+']: unsupported assignment fields: '+', '.join(sorted(unknown))+'.'+hint)
         registered='execution' in task
+        if not registered and payload.get('response_contract') and 'worker' not in task:
+            # Do not make the model repeat configuration to enter resolution.
+            required=['files.text']+(['browser.use'] if task.get('browser') else [])
+            task['worker']={'requires':required}
         if registered:
             if 'worker' in task:raise ValueError('Registered operations cannot carry agent workers.')
             e=task['execution']
@@ -1078,11 +1415,16 @@ def validate_result(raw,row):
                 used.add(item['artifact'])
         declared_inputs=copy.deepcopy(task.get('inputs',[]))
         explicit_inputs={i['artifact'] for i in declared_inputs if 'artifact' in i}
-        bound_artifacts=list(dict.fromkeys(payload['required_artifacts']+
+        bound_artifacts=list(dict.fromkeys(required_artifacts+
             ([i['artifact'] for i in declared_inputs if 'artifact' in i] if registered else [])))
         task['inputs']=[i for i in task.get('inputs',[]) if i.get('artifact') not in bound_artifacts]
         for aid in bound_artifacts:
             source=known[aid]
+            if (set(options.get('step_capabilities',[])) & {'media.compose','hyperframes.preview','hyperframes.render'} and not registered and aid not in explicit_inputs
+                    and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp','.wav','.mp3','.mp4','.webm','.ttf','.otf','.woff','.woff2')):
+                # Media bytes are operation arguments, not implicit model context.
+                # Explicit requests to inspect an image retain their visual grant.
+                continue
             browser_role=bool(task.get('browser') or 'browser.use' in task.get('worker',{}).get('requires',[]))
             if not registered and browser_role and aid not in explicit_inputs and not source.get('visual_reference'):
                 # Stage-wide document contracts/bundles are not browser inputs.
@@ -1094,7 +1436,7 @@ def validate_result(raw,row):
                     continue
             if registered and aid not in explicit_inputs and not compatible_implicit_source(e['capability'],source):
                 continue
-            if registered and source.get('operation_support') in ('pptx.create','rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate'):
+            if registered and source.get('operation_support') in ('media.compose','hyperframes.preview','hyperframes.render','pptx.create','rhino3dm.create','rhino3dm.run_python','rhino.run_python','rhino.render','blender.run_python','blender.import_asset','blender.animate','sketchup.run_ruby'):
                 continue
             item={k:source[k] for k in ('artifact','path','purpose','authority')}
             if source.get('media_type'):item['media_type']=source['media_type']
@@ -1102,31 +1444,44 @@ def validate_result(raw,row):
             if any(i.get('artifact')!=aid and i['path']==item['path'] for i in declared_inputs):
                 item['path']='context/'+aid+'/'+item['path']
             if registered:
-                if (e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render','blender.inspect','blender.run_python','blender.import_asset','blender.animate')
+                if (e['capability'] in ('media.compose','hyperframes.preview','hyperframes.render','rhino3dm.create','rhino3dm.run_python','rhino.inspect','rhino.run_python','rhino.render','blender.inspect','blender.run_python','blender.import_asset','blender.animate','sketchup.inspect','sketchup.run_ruby')
                     and aid not in explicit_inputs):
                     # Historical inputs are context, even when their bytes equal
                     # a selected script/model. Bind native arguments explicitly;
                     # an inspector's upstream model must not acquire old versions.
-                    if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py'):continue
+                    if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py','.rb'):continue
                     item['media_type']='text/plain';task['inputs'].append(item);continue
-                if e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render') and Path(source['path']).suffix.lower()=='.3dm':
+                asset_alias=next((i for i in declared_inputs if i.get('artifact')==aid and i.get('media_type') in ('application/octet-stream','image/png','image/jpeg')),None)
+                if e['capability']=='hyperframes.preview' and Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv'):
+                    import mimetypes
+                    item['media_type']=source.get('media_type') or mimetypes.guess_type(source['path'])[0]
+                    if item['media_type']=='application/octet-stream':item['media_type']=mimetypes.guess_type(source['path'])[0]
+                elif e['capability']=='hyperframes.render' and Path(source['path']).suffix.lower()=='.zip':
+                    item['media_type']='application/zip'
+                elif e['capability']=='rhino3dm.run_python' and asset_alias:
+                    item['media_type']=asset_alias['media_type']
+                elif e['capability'].startswith('sketchup.') and Path(source['path']).suffix.lower()=='.skp':
+                    item['media_type']='application/vnd.sketchup.skp'
+                elif e['capability'] in ('rhino.inspect','rhino.run_python','rhino.render','rhino3dm.run_python') and Path(source['path']).suffix.lower()=='.3dm' and source.get('media_type')!='application/octet-stream':
                     item['media_type']='application/vnd.rhino'
                 elif e['capability'] in ('blender.inspect','blender.run_python','blender.import_asset','blender.animate') and Path(source['path']).suffix.lower()=='.blend':
                     item['media_type']='application/x-blender'
-                elif e['capability']=='pptx.create' and source['artifact'] in explicit_inputs and Path(source['path']).suffix.lower()=='.json':
+                elif e['capability']=='media.compose' and Path(source['path']).suffix.lower() in ('.wav','.mp3'):
+                    item['media_type']='audio/wav' if Path(source['path']).suffix.lower()=='.wav' else 'audio/mpeg'
+                elif e['capability'] in ('media.compose','hyperframes.preview','hyperframes.render','pptx.create','rhino3dm.create') and source['artifact'] in explicit_inputs and Path(source['path']).suffix.lower()=='.json':
                     item['media_type']='application/json'
-                elif e['capability'] in ('pptx.create','blender.import_asset','gemini.image','openai.image','openrouter.image','runway.image','runway.video') and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
+                elif e['capability'] in ('media.compose','hyperframes.preview','hyperframes.render','pptx.create','blender.import_asset','gemini.image','openai.image','openrouter.image','runway.image','runway.video') and Path(source['path']).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
                     item['media_type']={'.png':'image/png','.webp':'image/webp'}.get(Path(source['path']).suffix.lower(),'image/jpeg')
                 elif e['capability'] in ('blender.animate','pptx.create') and Path(source['path']).suffix.lower()=='.zip':
                     item['media_type']='application/zip'
                 elif e['capability'] in ('blender.import_asset','blender.animate','rhino.render') and source['sha256']==e.get('parameters',{}).get('manifest_sha256'):
                     item['media_type']='application/json'
-                elif e['capability'] in ('blender.run_python','rhino.run_python') and source['sha256']==e.get('parameters',{}).get('script_sha256'):
-                    item['media_type']='text/x-python'
-                elif e['capability'] in ('blender.run_python','rhino.run_python') and source['sha256']==e.get('parameters',{}).get('checks_sha256'):
+                elif e['capability'] in SCRIPT_OPERATIONS and source['sha256']==e.get('parameters',{}).get('script_sha256'):
+                    item['media_type']=native_profile(e['capability']).script_media
+                elif e['capability'] in SCRIPT_OPERATIONS and source['sha256']==e.get('parameters',{}).get('checks_sha256'):
                     item['media_type']='application/json'
                 else:
-                    if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py'):
+                    if Path(source['path']).suffix.lower() not in ('.txt','.md','.json','.csv','.py','.rb'):
                         raise ValueError('Selected binary source is incompatible with this registered operation.')
                     item['media_type']='text/plain'
             aliases=[i for i in declared_inputs if i.get('artifact')==aid]
@@ -1142,6 +1497,14 @@ def validate_result(raw,row):
             task['instruction']+='\nVisually inspect the exact visual_reference image files using image viewing tools. Caption, filename, dimensions and pixel statistics alone are not visual inspection. Distinguish visible proportions from inferred hidden geometry and scale; keep assumptions explicit.'
         task['instruction']='Read request/USER-REQUEST.txt first. Preserve its exact constraints and current user decisions.\n\n'+task['instruction']
         if not registered:
+            prefix='operation-support/sketchup.run_ruby/'
+            if prefix+'validate.py' in {s['path'] for s in payload['sources']}:
+                task['instruction']+=('\nRead '+prefix+'contract.json and sketchup_contract.py for the frozen authoritative SketchUp contract. '
+                    'Prepare UTF-8 model.rb and checks.json, at most 100000 script bytes. Validate with python3 '+prefix+
+                    'validate.py CHECKS_JSON SCRIPT_RB. This validates JSON and script bounds, not Ruby syntax or geometry. '
+                    'Use SketchUp Ruby API; model is Sketchup.active_model. Internal lengths are inches; checks are millimeters. '
+                    'Select script and checks together for independent review. Do not launch SketchUp during preparation. '
+                    'Exact approved Ruby executes later in sketchup.run_ruby; Relay saves/reopens the native candidate.')
             for capability in ('blender.run_python','blender.import_asset','blender.animate'):
                 prefix='operation-support/'+capability+'/'
                 if not {prefix+'contract.json',prefix+'validate.py'} <= {s['path'] for s in payload['sources']}:continue
@@ -1159,7 +1522,18 @@ def validate_result(raw,row):
                 if capability=='rhino.run_python':
                     task['instruction']+='\nHost scripts must be at most 100000 UTF-8 bytes. Run the validator with BOTH checks JSON and script paths: python3 '+prefix+'validate.py CHECKS_JSON SCRIPT_PY. For a flat drawing prepare a saved orthographic named view and preview.named_view.'
                     from orchestrator.rhino_contract import DESCRIPTION
-                    task['instruction']+='\n'+DESCRIPTION['output_checks']
+                    task['instruction']+='\n'+DESCRIPTION['output_checks']+' '+DESCRIPTION['dimension_warnings']
+        if not registered and not task.get('browser') and 'operation-support/rhino3dm.run_python/validate.py' in {s['path'] for s in payload['sources']}:
+            task['instruction']+=('\n\nRead operation-support/rhino3dm.run_python/contract.json and rhino3dm_script_contract.py. '
+                'Validate BOTH checks JSON and Python with its validate.py; choose explicit file_version (7 for Rhino 7). '
+                'The script has the full installed rhino3dm API and receives model, rhino3dm, input_paths and workspace. '
+                'Prepare/review only; do not execute this modeling script here. Select script/checks together before '
+                'separate exact-code Start. The runtime is standalone CPython, never Rhino 7 IronPython or RhinoCommon.')
+        if not registered and not task.get('browser') and 'operation-support/rhino3dm.create/validate.py' in {s['path'] for s in payload['sources']}:
+            task['instruction']+=('\n\nRead operation-support/rhino3dm.create/contract.json and rhino3dm_contract.py. '
+                'Validate prepared/reviewed geometry JSON using its validate.py. This is data-only preparation; '
+                'never launch Rhino or execute user modeling scripts. Library generation is a separate registered '
+                'operation; its reopen checks do not establish native Rhino verification or visual/source fidelity.')
         if not registered and not task.get('browser') and 'operation-support/pptx.create/validate.py' in {s['path'] for s in payload['sources']}:
             task['instruction']+=('\n\nUse the supplied operation-support/pptx.create/validate.py schema checker, '
                 'the same implementation as the PPTX creator. Run it with the slide JSON path followed by '
@@ -1188,6 +1562,7 @@ def validate_result(raw,row):
             if type(value) is not int or not (0 if registered and key=='tool_calls' else 1)<=value<=maximum:
                 raise ValueError(f"{task['id']}: planned {key}={value!r} exceeds or violates its frozen limit {maximum}.")
     complete_operation_wiring(plan['tasks'])
+    input_path_bindings=bind_host_input_paths(plan['tasks'])
     from . import presentation_inputs
     presentation_inputs.bind(plan['tasks'])
     selected_operations=set(options.get('step_capabilities',[]))
@@ -1200,9 +1575,12 @@ def validate_result(raw,row):
         if not any(REGISTRY.get(capability,{}).get('requires_registered_inputs') for capability in deferred):
             raise ValueError('Host deferral requires an exact-input operation awaiting prepared registered inputs.')
         for capability,reason in deferred.items():
-            if REGISTRY.get(capability,{}).get('kind')!='host' or not isinstance(reason,str) or not 1<=len(reason)<=500:
+            if (REGISTRY.get(capability,{}).get('kind')!='host' and capability!='hyperframes.render') or not isinstance(reason,str) or not 1<=len(reason)<=500:
                 raise ValueError('Only selected host operations can share the deferred execution phase, each with an explicit preparation reason.')
         prepared=[t for t in plan['tasks'] if not t.get('execution') and not t.get('review_of') and t.get('user_gate') and t.get('selection_outputs')]
+        if set(deferred)=={'hyperframes.render'}:
+            prepared += [t for t in plan['tasks'] if t.get('execution',{}).get('capability')=='hyperframes.preview' and t.get('user_gate')
+                         and set(t.get('selection_outputs',[]))==set(REGISTRY['hyperframes.preview']['outputs'])]
         if not prepared:raise ValueError('A deferral requires a gated preparation task with selected outputs.')
     missing_operations=selected_operations-actual_operations-set(deferred)
     if missing_operations:
@@ -1250,16 +1628,16 @@ def validate_result(raw,row):
             raise ValueError('Every declared baseline must be an input to the producing step; conversation alone is insufficient.')
     reviewers=[t for t in plan['tasks'] if t.get('review_of')]
     for producer in producers:
-        prepared=[o['path'] for o in producer['outputs'] if Path(o['path']).suffix.lower() in ('.py','.json')]
-        if (set(options.get('step_capabilities',[])) & {'rhino.run_python','blender.run_python'}
-            and any(p.endswith('.py') for p in prepared) and any(p.endswith('.json') for p in prepared)
+        prepared=[o['path'] for o in producer['outputs'] if Path(o['path']).suffix.lower() in ('.py','.rb','.json')]
+        if (set(options.get('step_capabilities',[])) & set(SCRIPT_OPERATIONS)
+            and any(p.endswith(('.py','.rb')) for p in prepared) and any(p.endswith('.json') for p in prepared)
             and not set(prepared)<=set(producer.get('selection_outputs',[]))):
             raise ValueError('Host script preparation requires selection_outputs containing its script and checks together')
         for path in producer.get('selection_outputs',[]):
             if not any(i.get('from_task')==producer['id'] and i.get('output')==path
                        for r in reviewers if r['review_of']==producer['id'] for i in r['inputs']):
                 raise ValueError('Every member of a selection set needs independent review')
-    if (not producers and not any(REGISTRY.get(t.get('execution',{}).get('capability'),{}).get('kind')=='procedure' or t.get('execution',{}).get('capability') in ('pptx.create','gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA,'blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate','rhino.startup','rhino.inspect','rhino.run_python','rhino.render') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
+    if (not producers and not any(REGISTRY.get(t.get('execution',{}).get('capability'),{}).get('kind')=='procedure' or t.get('execution',{}).get('capability') in ('pptx.create','gemini.image','openai.image','openrouter.image',*CLOUD_MEDIA,'blender.startup','blender.inspect','blender.run_python','blender.import_asset','blender.animate','rhino.startup','rhino.inspect','rhino.run_python','rhino.render','rhino3dm.run_python','sketchup.startup','sketchup.inspect','sketchup.run_ruby') for t in plan['tasks'])) or (not mixed and (len(producers)!=1 or len(reviewers)!=1)) or any(not any(r['review_of']==p['id'] for r in reviewers) for p in producers):
         raise ValueError('An independent reviewer is required for every agent producer.')
     # Independent verification needs the same source versions as production.
     for review in reviewers:
@@ -1283,6 +1661,7 @@ def validate_result(raw,row):
             raise ValueError(f"{operation['id']}: selected operation inputs total {total} bytes, exceeding {ceiling}; select only required inputs before Start.")
     if sum(known[aid]['bytes'] for aid in used)>MAX_INPUT_BYTES:raise ValueError('Selected inputs exceed 150 MB; select a smaller source set.')
     pipeline_stage=payload.get('pipeline_step')
+    geometry_sources.bind(plan['tasks'],geometry,known)
     if pipeline_stage and not deferred:
         targets={}
         for binding in coverage.values():
@@ -1328,9 +1707,34 @@ def validate_result(raw,row):
     bind_stage(payload.get('pipeline_step'),plan,payload.get('handoff_sources',[]),source_catalog(payload))
     plan=c.plan(plan)
     for task in plan['tasks']:
-        if task.get('execution',{}).get('capability')=='images.collect':
+        if task.get('execution',{}).get('capability') in ('images.collect','images.fetch'):
             if not any(r['review_of']==task['id'] for r in reviewers):
                 raise ValueError('Image sourcing needs independent review of subject coverage and candidate identity.')
+        if task.get('execution',{}).get('capability') in ('hyperframes.preview','hyperframes.render'):
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
+                raise ValueError('HyperFrames execution needs independent delivery review and human visual selection')
+            if task['execution']['capability']=='hyperframes.preview':
+                if set(task.get('selection_outputs',[]))!=set(REGISTRY['hyperframes.preview']['outputs']):
+                    raise ValueError('Preview selection must preserve the complete source/project/frame/receipt set')
+                manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
+                if 'from_task' in manifest and not any(r['review_of']==manifest['from_task'] and r['id'] in task['dependencies'] for r in reviewers):
+                    raise ValueError('HyperFrames preview must depend on independent review of its source project')
+            else:
+                for media,key in (('application/zip','project_sha256'),('application/json','preview_sha256')):
+                    item=next(i for i in task['inputs'] if i['media_type']==media)
+                    if known[item['artifact']]['sha256']!=task['execution']['parameters'][key]:raise ValueError('Render parameters must match the captured exact preview artifact hashes')
+        if task.get('execution',{}).get('capability')=='media.compose':
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
+                raise ValueError('Reel composition requires independent delivery review and a human visual selection gate')
+            manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
+            if 'from_task' in manifest and not any(r['review_of']==manifest['from_task'] and r['id'] in task['dependencies'] for r in reviewers):
+                raise ValueError('Reel composition must depend on independent review of its scene specification')
+        if task.get('execution',{}).get('capability')=='rhino3dm.create':
+            if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
+                raise ValueError('Standalone 3DM creation needs independent output review and a candidate selection gate')
+            manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
+            if 'from_task' in manifest and not any(r['review_of']==manifest['from_task'] and r['id'] in task['dependencies'] for r in reviewers):
+                raise ValueError('Standalone 3DM creation must depend on independent review of its geometry specification')
         if task.get('execution',{}).get('capability')=='pptx.create':
             if not task.get('user_gate') or not any(r['review_of']==task['id'] and any(
                 i.get('from_task')==task['id'] and i.get('output')==task['outputs'][0]['path'] for i in r['inputs']) for r in reviewers):
@@ -1353,16 +1757,21 @@ def validate_result(raw,row):
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):raise ValueError('Asset import needs independent review and a candidate selection gate')
             manifest=next(i for i in task['inputs'] if i['media_type']=='application/json')
             if known[manifest['artifact']]['sha256']!=task['execution']['parameters']['manifest_sha256']:raise ValueError('Asset manifest hash does not match the selected version')
-        if task.get('execution',{}).get('capability') in ('blender.run_python','rhino.run_python'):
+        if task.get('execution',{}).get('capability') in SCRIPT_OPERATIONS:
             if not task.get('user_gate') or not any(r['review_of']==task['id'] for r in reviewers):
-                raise ValueError('Host Python requires independent output review and a candidate selection gate')
-            native='application/vnd.rhino' if task['execution']['capability']=='rhino.run_python' else 'application/x-blender'
-            for media,key in ((native,'scene_sha256'),('text/x-python','script_sha256'),('application/json','checks_sha256')):
-                if native=='application/vnd.rhino' and key=='scene_sha256' and task['execution']['parameters'][key] is None:continue
+                raise ValueError('Host script requires independent output review and a candidate selection gate')
+            adapter=native_profile(task['execution']['capability']);native=adapter.media
+            for media,key in ((native,'scene_sha256'),(adapter.script_media,'script_sha256'),('application/json','checks_sha256')):
+                if adapter.new_model and key=='scene_sha256' and task['execution']['parameters'][key] is None:continue
                 item=next(i for i in task['inputs'] if i['media_type']==media)
                 if known[item['artifact']]['sha256']!=task['execution']['parameters'][key]:raise ValueError('Proposed host code/input hash differs from its selected artifact')
     if not any(a.get('review_of') for a in plan['tasks']):raise ValueError('An independent reviewer is required.')
     plan['origin']=plan_origin(payload,supplied,row['request_id'])
+    if builder_receipt:plan['origin']['operation_builder']=builder_receipt
+    if binding_receipts:plan['origin']['artifact_bindings']=dict(version=1,tasks=binding_receipts)
+    if field_bindings:plan['origin']['planner_field_bindings']=field_bindings
+    if geometry:plan['origin']['geometry_basis']=geometry
+    if input_path_bindings:plan['origin']['input_path_bindings']=input_path_bindings
     return result,plan
 
 
@@ -1404,7 +1813,8 @@ def attach_host_code(state,row,event,rt):
         if not host_code.required(task):continue
         # Validate concrete code/checks before presenting an executable host card.
         host_code.binding(rt,task)
-        for media,suffix,filename in (('text/x-python','script','edit.py'),('application/json','checks','edit-checks.json')):
+        adapter=native_profile(task['execution']['capability'])
+        for media,suffix,filename in ((adapter.script_media,'script','edit'+adapter.script_suffix),('application/json','checks','edit-checks.json')):
             item=next(i for i in task['inputs'] if i['media_type']==media)
             artifact=rt.artifact(item['artifact'])
             state.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
@@ -1417,6 +1827,13 @@ def preview(row):
     plan=json.loads(row['plan']);options=json.loads(row['options'])
     lines=['Proposed production: '+plan['brief'], 'Planning only.' if options['planning_only'] else 'Ready for your approval; no workers have started.']
     payload=json.loads(row['context'])
+    geometry=plan.get('origin',{}).get('geometry_basis')
+    if geometry:
+        lines.append('Geometry basis: '+geometry['mode'])
+        if geometry['checks']:
+            lines.append('Proposed source error limits: '+', '.join(
+                str(x['metric'])+' ≤ '+str(x['tolerance'])+' '+x['unit'] for x in geometry['checks']))
+            lines.append('Preparation audits source use. Native output acceptance additionally requires measured source comparisons; unavailable measurements block review.')
     if payload.get('starter_workflow'):
         starter=payload['starter_workflow']
         lines.append('Starter: '+starter['definition']['id']+' v'+str(starter['definition']['version'])+
@@ -1442,7 +1859,9 @@ def preview(row):
         lines.append('Next stage after: '+payload['previous_stage']['run']+'; exact recorded selections and prior instructions are included.')
     if payload.get('review_correction_origin'):
         origin=payload['review_correction_origin']
-        lines.append('Correction preparation for '+origin['run']+'. Existing model, preview and inspection stay unchanged. This Start approves script preparation and independent review only; native execution needs a separate exact-code Start.')
+        lines.append('Correction preparation for '+origin['run']+'. Existing files and receipts stay unchanged. This Start approves script/checks preparation and independent review only; native execution needs a separate exact-code Start.')
+    if payload.get('registered_criteria_updates'):
+        lines.append('Operation completion criteria refreshed for this app version. Historical receipts are unchanged; Start approves this new proposal.')
     if payload.get('execution_recovery'):
         recovery=payload['execution_recovery']
         lines.append('Repair of failed execution: '+recovery['baseline']['run']+'. Original attempts and files remain preserved.')
@@ -1451,6 +1870,11 @@ def preview(row):
         elif recovery.get('kind')=='code_budget':lines.append('New bounded preparation with draft checkpoints and exact creator asset bindings. Completed work is retained; original attempts are not reset. Provider request limits are unchanged.')
         else:lines.append('Local operation input repair; completed preparation and exact source bytes are retained.')
         if recovery.get('runtime_changes'):lines.append('Implementation repair; script bytes unchanged. Updated: '+', '.join(sorted(recovery['runtime_changes'])))
+        if recovery.get('assessment'):
+            lines.append('Recovery: '+recovery['assessment']['reason']+' Exact inputs and limits are retained; a fresh Start is required.')
+        # Previously saved proposals remain readable without rewriting history.
+        if recovery.get('no_launch_receipt') or recovery.get('startup_failure_receipt'):
+            lines.append('The prior attempt stopped before modeling. Exact script/checks are retained; a fresh Start is required.')
         if recovery.get('reviewed_repair'):
             diagnosis=recovery['reviewed_repair']['diagnosis']
             lines.extend(['Diagnosis: '+diagnosis['cause'][:600], 'Proposed correction: '+diagnosis['changes'][:600],
@@ -1479,10 +1903,14 @@ def preview(row):
                 lines.append('External generation: the displayed prompt and supported image inputs go to '+e['capability'].split('.')[0]+'. One generation request; status polling and local output download. Provider credits may be charged. Stopping local waiting does not cancel remote work; uncertain submissions are never repeated.')
             if e['capability']=='blender.inspect':
                 lines.append('Host inspection: open the exact selected .blend with embedded auto-execution disabled. Linked libraries may resolve on the host. No editing, rendering or asset import.')
-            if e['capability'] in ('blender.run_python','rhino.run_python'):
-                lines.append('HOST PYTHON: Start authorizes the attached exact script with normal host filesystem and network access. No OS isolation is enforced. Scene/scripts/checks hashes and limits are fixed; changes require a new approval. Candidate output is not automatically selected.')
+            if e['capability'] in SCRIPT_OPERATIONS:
+                lines.append('HOST CODE: Start authorizes the attached exact script with normal host filesystem and network access. No OS isolation is enforced. Scene/scripts/checks hashes and limits are fixed; changes require a new approval. Candidate output is not automatically selected.')
+            if e['capability']=='rhino3dm.run_python':
+                lines.append('Standalone rhino3dm Python, not a Rhino application. Full installed library API; target .3dm file version is fixed in the attached checks (7 means Rhino 7). Verification reopens with the library, not native Rhino.')
+            if e['capability'].startswith('sketchup.'):
+                lines.append('SketchUp 2025/2026 on macOS: owned desktop process, normal host permissions. Existing user sessions are not attached. Ruby modeling requires exact source/checks approval; the saved candidate is reopened and checked independently. No implicit selection.')
             if e['capability'].startswith('rhino.'):
-                lines.append('Direct Rhino 7/8 on macOS: owned application process, IronPython 2.7 on 7 or CPython 3 on 8, and RhinoCommon. Modeling creates a new .3dm candidate with independent reopen checks and a viewport preview. Startup/inspection use fixed code. Grasshopper is paused.')
+                lines.append('Direct Rhino 7/8 on macOS: owned process or separate documents in connected Rhino 8, IronPython 2.7 on 7 or CPython 3 on 8, and RhinoCommon. Modeling creates a new .3dm candidate with independent reopen checks and a viewport preview. Startup/inspection use fixed code. Grasshopper is paused.')
             if e['capability']=='blender.import_asset':
                 lines.append('Host asset import: append named meshes and pack selected image files using the attached exact manifest. Normal OS permissions; embedded scripts disabled. No downloads or persistent links. Candidate and retained source bundle remain unselected.')
             if e['capability']=='blender.animate':
@@ -1490,6 +1918,7 @@ def preview(row):
             if e['capability'] in ('blender.startup','blender.scene','blender.mesh_scene'):
                 lines.append('Host execution: Blender runs with normal OS permissions using fixed Relay code and validated data. No arbitrary scripts or agent shell escalation.')
             if e['capability']=='gemini.text':lines.append('External transfer: listed text inputs and instructions go to Gemini in one API request. Local cancellation cannot undo an accepted remote request; unknown cost remains unknown.')
+            if e['capability']=='images.fetch':lines.append('Image downloads: public HTTPS images from the declared observed-source manifest. Source URLs and unknown rights are retained for review; no search API or generated image.')
             if e['capability']=='images.collect':lines.append('Image sourcing: only the displayed literal subject queries go to public Wikimedia Commons. No credentials or image generation model; exact downloads, source credits and missing matches are retained for review.')
             if e['capability']=='gemini.image':lines.append('External transfer: listed images, text and instructions go to the exact displayed image model in one API request. Cancellation cannot undo accepted work; uncertain submissions are never replayed.')
             if e['capability']=='openrouter.image':lines.append('External transfer: listed images, text and instructions go through OpenRouter to the selected model in one image request; provider fallbacks are disabled. Uncertain submissions are never replayed.')
@@ -1639,34 +2068,47 @@ def recover_validated_response(state,ident):
     if c.digest(payload)!=row['context_hash']:raise ValueError('Frozen planning request changed.')
     rt=Runtime(pc.root(state),connection=state.db)
     for source in payload['sources']:verify_artifact(rt,source)
-    for call in state.db.execute('SELECT * FROM production_plan_calls WHERE plan_id=? ORDER BY number DESC',(ident,)):
-        if not call['response'] or not call['error']:continue
-        try:result,plan=validate_result(call['response'],row)
-        except (ValueError,KeyError,TypeError):continue
-        if not plan:continue
-        used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
-        for source in source_catalog(payload):
-            if source['artifact'] in used:verify_artifact(rt,source)
-        receipt={'plan_id':ident,'call':call['number'],'response_sha256':c.digest(call['response'])}
-        new_request=-int(c.digest(receipt)[:15],16)-1
-        new_id='plan-'+str(new_request)
-        if state.db.execute('SELECT 1 FROM production_plans WHERE id=?',(new_id,)).fetchone():
-            raise ValueError('This saved proposal was already recovered; inspect its successor.')
-        values=dict(row)
-        context={**payload,'recovered_proposal':receipt}
-        values.update(id=new_id,request_id=new_request,parent_id=ident,context=c.encoded(context),
-            context_hash=c.digest(context),status='ready',calls=0,result=c.encoded(result),plan=c.encoded(plan),
-            plan_hash=c.digest(plan),token=secrets.token_hex(12),event_id=None,expires=time.time()+86400,
-            run=None,error=None,created=time.time())
-        state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))
-        state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(new_request,row['channel']))
-        from . import production_stages
-        production_stages.replace_unexecuted_plan(state,rt,payload,ident,new_id,row['channel'])
-        current=state.db.execute('SELECT * FROM production_plans WHERE id=?',(new_id,)).fetchone()
-        event=notice(state,current,'ready','Recovered saved proposal; no provider call was repeated.\n'+preview(current))
-        state.db.execute('UPDATE production_plans SET event_id=? WHERE id=?',(event,new_id))
-        publish_ready_files(state,current,event,rt,plan,context)
-        return new_id,receipt
+    from . import workflow_correction
+    def candidates():
+        yield payload,None
+        binding=workflow_correction.stage_binding_recovery(state,row)
+        if binding:yield binding[0],binding
+    for payload,binding in candidates():
+        for call in state.db.execute('SELECT * FROM production_plan_calls WHERE plan_id=? ORDER BY number DESC',(ident,)):
+            if not call['response'] or not call['error']:continue
+            candidate=dict(row);candidate['context']=c.encoded(payload);candidate['context_hash']=c.digest(payload)
+            try:result,plan=validate_result(call['response'],candidate)
+            except (ValueError,KeyError,TypeError):continue
+            if not plan:continue
+            used={i['artifact'] for t in plan['tasks'] for i in t['inputs'] if 'artifact' in i}
+            for source in source_catalog(payload):
+                if source['artifact'] in used:verify_artifact(rt,source)
+            receipt={'plan_id':ident,'call':call['number'],'response_sha256':c.digest(call['response'])}
+            if binding:receipt['stage_type_recovery']=binding[2]
+            new_request=-int(c.digest(receipt)[:15],16)-1
+            new_id='plan-'+str(new_request)
+            if state.db.execute('SELECT 1 FROM production_plans WHERE id=?',(new_id,)).fetchone():
+                raise ValueError('This saved proposal was already recovered; inspect its successor.')
+            if binding:
+                from . import pipelines
+                _,spec,record=binding
+                state.db.execute('UPDATE relay_pipelines SET spec=? WHERE id=?',(c.encoded(spec),record['pipeline']))
+                pipelines.event(state,record['pipeline'],record['stage'],'registered_handoff_rebound',receipt)
+            values=dict(row)
+            context={**payload,'recovered_proposal':receipt}
+            values.update(id=new_id,request_id=new_request,parent_id=ident,context=c.encoded(context),
+                context_hash=c.digest(context),status='ready',calls=0,result=c.encoded(result),plan=c.encoded(plan),
+                plan_hash=c.digest(plan),token=secrets.token_hex(12),event_id=None,expires=time.time()+86400,
+                run=None,error=None,created=time.time())
+            state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))
+            state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(new_request,row['channel']))
+            from . import production_stages
+            production_stages.replace_unexecuted_plan(state,rt,payload,ident,new_id,row['channel'])
+            current=state.db.execute('SELECT * FROM production_plans WHERE id=?',(new_id,)).fetchone()
+            event=notice(state,current,'ready',('Recovered saved proposal with registered output types; review and Start this plan.\n' if binding else 'Recovered saved proposal; no provider call was repeated.\n')+preview(current))
+            state.db.execute('UPDATE production_plans SET event_id=? WHERE id=?',(event,new_id))
+            publish_ready_files(state,current,event,rt,plan,context)
+            return new_id,receipt
     raise ValueError('No saved proposal currently validates. A new explicit planning request is needed; no work was replayed.')
 
 
@@ -1722,7 +2164,7 @@ def prepare_local_input_repair(state,run,request):
     values=dict(parent);values.update(id=new_id,request_id=ident,parent_id=parent['id'],request=prompt,
         options=c.encoded(options),context=c.encoded(payload),context_hash=c.digest(payload),status='ready',calls=0,
         token=secrets.token_hex(12),event_id=None,expires=time.time()+86400,run=None,error=None,created=time.time())
-    result,plan=validate_result(c.encoded(result),values)
+    result,plan=validate_recovery_result(result,values)
     operation=next(t for t in plan['tasks'] if t['id']==failed['id'])
     if operation['execution']['capability']=='pptx.create':
         from orchestrator import pptx_document
@@ -1745,7 +2187,61 @@ def prepare_local_input_repair(state,run,request):
     return new_id
 
 
-def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,repair_evidence=None):
+def host_recovery_assessment(rt,run,task):
+    """Bind shared policy evidence to the exact latest registered receipt."""
+    from orchestrator.native_recovery import assess
+    capability=rt.spec(task).get('execution',{}).get('capability')
+    artifact=rt.output(run,task['id'],'delivery/execution.json')
+    if not artifact or artifact['attempt']!=task['latest']:return None
+    if file_hash(artifact['blob'])!=artifact['sha256']:raise ValueError('Host receipt changed.')
+    receipt=json.loads(Path(artifact['blob']).read_text())
+    if (receipt.get('assignment')!=task['latest'] or receipt.get('capability')!=capability
+        or receipt.get('passed') is not False):return None
+    return artifact,receipt,assess(receipt,capability)
+
+
+def prepare_host_launch_recovery(state,run,request):
+    """Shared pre-execution recovery; exact-code Start remains mandatory."""
+    from . import production_stages
+    if not state.db.in_transaction:raise ValueError('Host recovery requires a transaction.')
+    rt=Runtime(pc.root(state),connection=state.db)
+    tasks=[t for t in rt.status(run)['tasks'] if t['status']=='blocked']
+    if len(tasks)!=1:return None
+    capability=rt.spec(tasks[0]).get('execution',{}).get('capability')
+    # These are the native operations supported by the existing repair planner.
+    if capability not in ('rhino.run_python','blender.run_python','rhino3dm.run_python'):return None
+    assessment=host_recovery_assessment(rt,run,tasks[0])
+    if not assessment:return None
+    if assessment[2]['action']=='prepare_reviewed_repair' and capability=='rhino.run_python':
+        # Older versions treated bounding-box differences as fatal. Re-evaluate
+        # only registered, terminal verification evidence; never relabel the old
+        # attempt or start modeling from here. Fresh exact-code Start is required.
+        from orchestrator.rhino_contract import compare, dimension_warnings, validate_checks
+        task=tasks[0];report=rt.output(run,task['id'],'delivery/checks.json')
+        phases=assessment[1].get('runs',[])
+        if (not report or report['attempt']!=task['latest'] or not phases or phases[-1]['mode']!='verify'):
+            return None
+        measured=verify_artifact(rt,source_entry(rt,report['id'],'failure/checks.json','Failure measurements','Historical evidence'))
+        evidence=json.loads(measured.read_text())
+        errors=evidence.get('errors')
+        if not isinstance(errors,list) or not errors or any(not isinstance(e,str) or not e.startswith('Unexpected dimensions: ') for e in errors):return None
+        spec=rt.spec(task)
+        original=next(i for i in spec['inputs'] if i.get('media_type')=='application/json')
+        entry=source_entry(rt,original['artifact'],original['path'],'Original input checks','Frozen input')
+        if entry['sha256']!=spec['execution']['parameters']['checks_sha256']:raise ValueError('Original checks identity changed.')
+        checks=validate_checks(json.loads(verify_artifact(rt,entry).read_text()))
+        try:
+            if compare(evidence['before'],evidence['after'],checks) or evidence['after'].get('dependencies') or not dimension_warnings(evidence['after'],checks):return None
+        except (KeyError,TypeError,ValueError):return None
+        script=next(i['artifact'] for i in spec['inputs'] if i.get('media_type')=='text/x-python')
+        return prepare_host_repair(state,run,script,request,runtime_repair=True)
+    if assessment[2]['action']!='retry_unchanged':return None
+    production_stages.failed_execution_snapshot(state,rt,run,getattr(state,'channel','telegram'))
+    script=next(i['artifact'] for i in rt.spec(tasks[0])['inputs'] if i.get('media_type')=='text/x-python')
+    return prepare_host_repair(state,run,script,request,pre_execution_recovery=True)
+
+
+def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,repair_evidence=None,pre_execution_recovery=False):
     """Propose one exact-script repair; never dispatch it or reset old attempts.
 
     The caller supplies the user's recovery request and a registered candidate.
@@ -1776,7 +2272,16 @@ def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,r
     from orchestrator.host_script import validate_script_bytes
     validate_script_bytes(Path(rt.artifact(script_artifact)['blob']).read_bytes())
     runtime_changes={}
-    if candidate['sha256']==rt.artifact(old_script)['sha256']:
+    recovery_assessment=host_recovery_assessment(rt,run,failed) if pre_execution_recovery else None
+    if pre_execution_recovery:
+        from orchestrator.native_recovery import require_ready
+        if (not recovery_assessment or recovery_assessment[2]['action']!='retry_unchanged'
+            or script_artifact!=old_script):raise ValueError('Confirmed pre-execution stop and unchanged script required.')
+        artifact,receipt,decision=recovery_assessment
+        require_ready(receipt,failed_spec['execution']['capability'])
+        payload['sources'].append(source_entry(rt,artifact['id'],'recovery/pre-execution-failure.json',
+            'Confirmed pre-execution failure receipt','Historical evidence; no permission to replay work.'))
+    elif candidate['sha256']==rt.artifact(old_script)['sha256']:
         if not runtime_repair or failed_spec['execution']['capability']!='rhino.run_python':
             raise ValueError('Script repair must name a changed candidate version.')
         artifact=rt.output(run,failed['id'],'delivery/execution.json')
@@ -1795,7 +2300,7 @@ def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,r
     # Retain the original operation recipe, parameters, review and limits.
     result['plan']['tasks']=[t for t in tasks if t['id'] not in done]
     for t in result['plan']['tasks']:
-        t['instruction']='Read recovery/REQUEST.txt for the exact recovery request. Use the proposed corrected script version; prior failed artifacts are history, not accepted outputs.\n\n'+t['instruction']
+        t['instruction']='Read recovery/REQUEST.txt for the exact recovery request. '+('Use the unchanged selected script and checks; the previous attempt never reached the approved script execution phase. ' if pre_execution_recovery else 'Use the unchanged script/checks with the disclosed runtime correction. ' if runtime_changes else 'Use the proposed corrected script version; ')+ 'Prior failed artifacts are history, not accepted outputs.\n\n'+t['instruction']
         if t.get('review_of') in done:raise ValueError('A completed producer with unfinished review needs separate recovery.')
         t['dependencies']=[d for d in t.get('dependencies',[]) if d not in done]
         for item in t.get('inputs',[]):
@@ -1815,6 +2320,9 @@ def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,r
               'script_replacement':{'old':old_script,'new':script_artifact,'sha256':candidate['sha256']},
               'reused_completed_tasks':sorted(done),'request':request}
     if runtime_changes:recovery['runtime_changes']=runtime_changes
+    if recovery_assessment:
+        artifact,receipt,decision=recovery_assessment
+        recovery['assessment']={**decision,'artifact':artifact['id'],'sha256':artifact['sha256']}
     ident=-int(c.digest({'run':run,'script':script_artifact,'request':request})[:15],16)-1
     new_id='plan-'+str(ident)
     payload['recovery_origin']={'original_request':parent['request'],'previous_stage':payload.pop('previous_stage',None)}
@@ -1845,12 +2353,13 @@ def prepare_host_repair(state,run,script_artifact,request,runtime_repair=False,r
             source['path']='recovery-history/'+run+'/'+source['artifact']+'/REQUEST.txt'
     payload['sources'].append(source_entry(rt,aid,'recovery/REQUEST.txt','Original and exact recovery request','Current user request; preserve its limits.'))
     payload['required_artifacts'].append(aid)
-    result['message']='Corrected script proposed; completed tasks are retained. Start approves the attached new version.'
+    result['message']=('Updated runtime proposed with unchanged script and checks; Start approves a new execution attempt.' if runtime_changes else 'Corrected script proposed; completed tasks are retained. Start approves the attached new version.')
     if runtime_changes:result['message']='Corrected Rhino verification runtime proposed with the unchanged script and checks. Start approves the new execution assignment.'
+    if recovery_assessment:result['message']='The prior attempt stopped before the approved script ran. Exact inputs and limits are retained; Start approves a fresh attempt after the host readiness check.'
     values=dict(parent);values.update(id=new_id,request_id=ident,parent_id=parent['id'],request=prompt,
         options=c.encoded(options),context=c.encoded(payload),context_hash=c.digest(payload),status='ready',calls=0,
         token=secrets.token_hex(12),event_id=None,expires=time.time()+86400,run=None,error=None,created=time.time())
-    result,plan=validate_result(c.encoded(result),values)
+    result,plan=validate_recovery_result(result,values)
     values.update(result=c.encoded(result),plan=c.encoded(plan),plan_hash=c.digest(plan))
     state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))
     state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(ident,channel))
@@ -1888,6 +2397,8 @@ class Worker:
             try:response=json.loads(response)
             except (ValueError,TypeError):pass
             payload={**payload,'structural_correction':{'error':row['error'],'previous_response':response}}
+            detail=s.get('planner-contract-error:'+row['id']+':'+str(number-1))
+            if detail:payload['structural_correction']['detail']=detail
         try:
             if number>2:raise ValueError('The two-call planning budget is exhausted.')
             if len(c.encoded(payload))>MAX_CONTEXT:raise ValueError('Planning request including correction exceeds its frozen context limit.')
@@ -1908,6 +2419,9 @@ class Worker:
                         if source['artifact'] in used:verify_artifact(rt,source)
             except (ValueError,KeyError,TypeError) as exc:
                 with s.db:
+                    from .operation_builders import ContractError
+                    if isinstance(exc,ContractError):
+                        s.put('planner-contract-error:'+row['id']+':'+str(number),exc.receipt())
                     s.db.execute('UPDATE production_plan_calls SET error=? WHERE plan_id=? AND number=?',(str(exc),row['id'],number))
                     s.db.execute('UPDATE production_plans SET status=?,error=? WHERE id=?',('queued' if number<2 else 'blocked',str(exc),row['id']))
                     if number>=2:notice(s,row,'invalid','Planning stopped after one structural correction: '+str(exc)+'. No workers started.')
@@ -1999,6 +2513,9 @@ def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followu
         if not task.get('execution'):executor_available(backend_for(task,plan['backend']))
     for task in plan['tasks']:
         if task.get('execution'):available(task)
+    if any(t.get('execution',{}).get('capability','').startswith('rhino.') for t in plan['tasks']):
+        from . import host_apps,rhino_host
+        rhino_host.require_available(host_apps.rhino()['executable'])
     for source in source_catalog(payload):
         if source['artifact'] in used:verify_artifact(rt,source)
     from orchestrator import host_code
@@ -2017,7 +2534,7 @@ def apply(state,token,verb,reviewed_event=None,reviewed_attachments=None,followu
             if not delivered(row['event_id']+':asset-manifest:'+task['id']):raise ValueError('Wait for the complete asset manifest before approving this import')
         if host_code.required(task):
             for suffix in ('script','checks'):
-                if not delivered(row['event_id']+':host-'+suffix+':'+task['id']):raise ValueError('Wait for the complete editing script and checks documents before approving host Python')
+                if not delivered(row['event_id']+':host-'+suffix+':'+task['id']):raise ValueError('Wait for the complete editing script and checks documents before approving host code')
     validate_bound_worker_inputs(rt,plan,payload)
     rt.create(plan)
     if pipeline_grant:

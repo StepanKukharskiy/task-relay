@@ -19,7 +19,8 @@ has not chosen a provider/model. Explicit request choices and an existing task's
 model take precedence. Defaults never change approved plans or queued jobs.
 For image generation, a Gemini default uses generate_image; other providers use their
 registered production image operation. Do not silently switch a disconnected
-default to another provider. Requests to find existing photos use images.collect,
+default to another provider. Existing-photo requests use images.collect or browser
+source discovery plus images.fetch according to image_sourcing availability and user constraints,
 not a generation default. Gemini video clips use the existing task /video path;
 Runway/Higgsfield use registered video operations. Meshy uses meshy.mesh for a
 text-to-3D untextured GLB. Texturing and image-to-3D are not implemented. Editable

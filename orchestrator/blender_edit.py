@@ -12,7 +12,7 @@ from . import host_code
 CHECKS_DESCRIPTION={
     'changed_objects':'1–100 existing object names allowed to change; object additions/removals and collection/frame changes are outside v1',
     'preserve_other_objects':'true','preserve_cameras':'true','preserve_materials':'true',
-    'expected_dimensions':'Map of changed object name to expected [x,y,z] dimensions, at least one; tolerance max(0.0001, abs(expected)*0.0001)',
+    'expected_dimensions':'Map of changed object name to expected [x,y,z] dimensions, at least one; tolerance max(0.0001, abs(expected)*0.0001). Differences require user review of the preview; missing/invalid evidence and unauthorized edits fail.',
     'preview':{'camera':'Existing camera name, preserved','resolution':'[width,height], each 64–1024','samples':'1–16; CPU Cycles'},
     'scope':'Self-contained scenes only: packed/generated assets; no library imports, animation setup or UI. Checks are scoped, not full Blender semantic equivalence.'}
 
@@ -52,7 +52,7 @@ def execute(frozen,control,documents):
     with (control/'host-code-intent.json').open('x') as f:json.dump(receipt,f)
     out.mkdir();shutil.copyfile(script,out/'edit.py')
     deadline=time.monotonic()+max(1,frozen['limits']['seconds']-5)
-    passed=True;baseline_hash=None
+    passed=True;baseline_hash=None;findings=[]
     for mode in ('before','edit','verify'):
         command=[blender()['executable'],'--background','--factory-startup','--disable-autoexec','--python-exit-code','1',
             '--python',str(Path(__file__).with_name('blender_edit_worker.py')),'--',mode,str(scene),str(script),str(contract),str(out)]
@@ -80,6 +80,9 @@ def execute(frozen,control,documents):
             if passed and mode=='verify':
                 evidence=json.loads(safe_file(workspace,'delivery/checks.json').read_text())
                 if evidence.get('passed') is not True:raise ValueError('Independent checks failed')
+                from .outcomes import quality
+                findings=[quality('dimension_difference',w,'delivery/checks.json; delivery/after.png') for w in evidence.get('warnings',[])]
+                receipt['findings']=findings
                 for name in ('before.png','after.png'):
                     if safe_file(workspace,'delivery/'+name).read_bytes()[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError('Invalid preview')
                 if safe_file(workspace,'delivery/candidate.blend').stat().st_size==0:raise ValueError('Empty candidate')
@@ -94,9 +97,9 @@ def execute(frozen,control,documents):
             'attempt':frozen['assignment_id'],'selected':False}
         atomic(out/'execution.json',receipt)
     summary='Candidate saved, independently reopened/checked and previewed; awaiting review and selection.' if passed else 'Blender edit failed; see execution.json. Partial files are not accepted and will not be replayed.'
-    details={'outcome':'completed' if passed else 'failed','execution':frozen['execution'],'summary':summary,'usage':{}}
+    details={'outcome':'completed' if passed else 'failed','execution':frozen['execution'],'summary':summary,'usage':{},'findings':findings}
     atomic(control/'operation.json',details)
     atomic(workspace/'.relay/result.json',{'assignment_id':frozen['assignment_id'],'summary':summary,
-        'decision':'delivered' if passed else 'blocked','instruction':'',
+        'decision':'delivered' if passed else 'blocked','instruction':'','findings':findings,
         'checks':[{'criterion':1,'passed':passed,'evidence':'delivery/checks.json and delivery/execution.json'}]})
     return details

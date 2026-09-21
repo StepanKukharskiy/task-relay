@@ -69,6 +69,8 @@ def automation_tools():
         'blender.animate': 'Animate and render a bounded Blender scene',
         'rhino.startup': 'Check Rhino startup', 'rhino.inspect': 'Inspect a Rhino model',
         'rhino.run_python': 'Create or edit a Rhino model with reviewed code', 'rhino.render': 'Render a named Rhino view',
+        'sketchup.startup': 'Check SketchUp startup', 'sketchup.inspect': 'Inspect a selected SketchUp model',
+        'sketchup.run_ruby': 'Create or edit a SketchUp model with reviewed Ruby',
     }
     fields = ('id', 'version', 'kind', 'available', 'availability_evidence', 'input_types',
               'output_type', 'outputs', 'criteria', 'permissions', 'seconds', 'external_requests')

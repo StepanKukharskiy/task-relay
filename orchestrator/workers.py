@@ -69,6 +69,7 @@ class CodexFactory:
             from task_relay.app_access import require
             require('codex',self.executable)
         from task_relay.host_apps import catalog as app_catalog
+        from .outcomes import INSTRUCTIONS as outcome_instructions
         control = Path(control); control.mkdir(parents=True, exist_ok=False)
         prompt = (
             'Task Relay has assigned one bounded job to this fresh worker. Read .relay/ASSIGNMENT.json '
@@ -93,11 +94,15 @@ class CodexFactory:
             '60 seconds for essential checks and the final JSON handoff; finish required deliverables '
             'before optional analysis or lengthy notes. If the work cannot be completed in the budget, '
             'preserve the drafts and return blocked with the remaining work instead of claiming delivery. '
-            'Return a final JSON object conforming to the supplied schema, using assignment_id '
-            + frozen['assignment_id'] + '.\n\n' + encoded(frozen)
+            + ('Return a final JSON object conforming to report_contract.schema. Relay supplies assignment identity.\n\n'
+               if frozen.get('report_contract') else 'Return a final JSON object conforming to the supplied schema, using assignment_id '+frozen['assignment_id']+'.\n\n')
+            + outcome_instructions + '\n' + encoded(frozen)
         )
+        if frozen.get('report_contract'):
+            from .report_builder import INSTRUCTIONS
+            prompt += '\n'+INSTRUCTIONS
         (control / 'prompt.txt').write_text(prompt)
-        (control / 'schema.json').write_text(encoded(REPORT_SCHEMA))
+        (control / 'schema.json').write_text(encoded(frozen.get('report_contract',{}).get('schema',REPORT_SCHEMA)))
         support_hash=prepare_supervisor(control,frozen)
         atomic(control / 'launch.json', {
             'token': frozen['assignment_id'], 'workspace': str(workspace),

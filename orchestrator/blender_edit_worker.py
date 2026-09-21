@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from blender_snapshot import snapshot,compare
+from blender_snapshot import snapshot,compare,dimension_warnings
 
 def open_scene(path):
     import bpy
@@ -56,7 +56,7 @@ def main():
     elif mode=='verify':
         evidence=json.loads((out/'checks.json').read_text());after=snapshot()
         errors=compare(evidence['before'],after,checks)
-        evidence.update(after=after,passed=not errors,errors=errors,phase='verified',
+        evidence.update(after=after,passed=not errors,errors=errors,warnings=dimension_warnings(after,checks),phase='verified',
             scope='Object names, collection membership, active frame, mesh vertices/topology/UVs, transforms, modifier/constraint scalar settings, camera scalar properties, material/node/socket properties. Not full Blender semantic equivalence.')
         (out/'checks.json').write_text(json.dumps(evidence,allow_nan=False))
         if errors:raise ValueError('; '.join(errors))

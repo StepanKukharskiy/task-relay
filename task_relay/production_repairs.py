@@ -21,6 +21,10 @@ def preparation_guidance(cap):
     if cap == 'rhino.run_python':
         from orchestrator.rhino_contract import DESCRIPTION
         text += DESCRIPTION['camera_api'] + ' '
+    if cap == 'rhino3dm.run_python':
+        text += ('This is standalone rhino3dm CPython, not native Rhino. Use its full library API and supplied checks schema. '
+                 'Preserve the exact approved target file_version (7 for Rhino 7); changing compatibility requires an explicit proposal. '
+                 'Do not execute the modeling script during preparation or replace library checks with native Rhino claims. ')
     return text
 
 
@@ -50,18 +54,9 @@ def receipt(rt, run, failed):
 
 
 def script_failure(value, capability):
-    """Only failures inside a confirmed script/verification phase are candidates."""
-    runs = value.get('runs', [])
-    if not isinstance(runs, list) or not runs or not isinstance(runs[-1], dict):return False
-    last = runs[-1]
-    if last.get('timeout') or last.get('error_code') or value.get('validation_error'):return False
-    if capability == 'rhino.run_python':
-        return (last.get('mode') in ('model', 'verify') and isinstance(last.get('worker'), dict)
-                and last['worker'].get('passed') is False and bool(last['worker'].get('error')))
-    if capability == 'blender.run_python':
-        return (last.get('mode') in ('edit', 'verify') and last.get('returncode') not in (None, 0)
-                and 'Traceback (most recent call last)' in last.get('stderr', '') + last.get('stdout', ''))
-    return False
+    """Use the same policy as unchanged-input continuation, never an error label."""
+    from orchestrator.native_recovery import assess
+    return assess(value, capability)['action'] == 'prepare_reviewed_repair'
 
 
 def stop(state, p, s, reason):
@@ -96,10 +91,14 @@ def begin(state, p, s, run):
             failed = next(t for t in baseline['tasks'] if t['status'] == 'blocked')
             spec = rt.spec(failed); cap = spec['execution']['capability']
             evidence, details = receipt(rt, run, failed)
-            if not script_failure(details, cap):
-                reason = details.get('validation_error') or next((r.get('error') for r in reversed(details.get('runs', [])) if isinstance(r, dict) and r.get('error')), None)
+            from orchestrator.native_recovery import assess
+            recovery_decision = assess(details, cap)
+            if recovery_decision['action'] != 'prepare_reviewed_repair':
+                next_action = ('Resolve host readiness, then Continue to propose the same inputs with a fresh Start.'
+                               if recovery_decision['action'] == 'retry_unchanged' else
+                               'Inspect and reconcile the saved execution receipt before any retry.')
                 raise ValueError('The receipt does not confirm a repairable script failure. ' +
-                                 str(reason or 'Resolve the host startup, timeout, environment or verification-evidence issue first.'))
+                                 recovery_decision['reason'] + ' ' + next_action)
             parent = state.db.execute('SELECT * FROM production_plans WHERE run=?', (run,)).fetchone()
             if not parent or parent['channel'] != p['channel']:raise ValueError('Original execution plan is unavailable in this channel.')
             context = json.loads(parent['context'])
@@ -133,7 +132,8 @@ def begin(state, p, s, run):
             folder = state.media_dir.parent / 'production-repairs' / child
             folder.mkdir(parents=True, exist_ok=True)
             raw = c.encoded({'original_user_request': p['request'], 'workflow_stage': json.loads(p['spec'])['stages'][s['position']],
-                             'failed_assignment': spec, 'failure_baseline': baseline, 'repair_policy': policy})
+                             'failed_assignment': spec, 'failure_baseline': baseline, 'repair_policy': policy,
+                             'recovery_assessment': recovery_decision})
             path = folder / 'context.json'
             if path.exists() and (path.is_symlink() or path.read_text() != raw):raise ValueError('Repair context identity changed.')
             path.write_text(raw)

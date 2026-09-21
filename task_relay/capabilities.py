@@ -84,6 +84,28 @@ named map service and project area; keep URL/time provenance and visible attribu
 The PNG can feed pptx.create alongside a sourced image bundle. Do not omit the map,
 silently switch services or replace a website screenshot with a generated image.
 
+For ordinary requests such as "make me a reel", "turn this into a video" or "make
+the reel from our storyboard", resolve the subject and source from the current
+conversation, reply focus and selected production artifacts. The user specifies
+the outcome; Relay chooses the authoring, preview, correction and encoding steps.
+Consult snapshot.capabilities.local_video (also in current_execution_availability).
+For a locally composed reel, use plan_production with its step_capabilities and
+deliverables={"reel":"Rendered MP4 reel from the requested subject and sources"}.
+Do not ask the user to name operation IDs, a renderer, worker type, workflow ID,
+filesystem path or a technical prompt when those choices/sources are discoverable.
+For a relevant completed content stage, set previous_run to that exact run: selected
+storyboard versions, prior requests and guides carry forward automatically. Resolve
+the existing stage before collecting another reference pack or redoing content.
+Respect an unfinished next-stage plan and prior explicit planning-only restrictions.
+If the request genuinely lacks a subject or has competing source versions, ask one
+specific question about that ambiguity. A capability/status question stays action
+null. Honor an explicitly requested tool/provider; an unavailable local adapter is
+a concrete blocker, not permission to switch providers or use the legacy template.
+An unspecified reel does not authorize paid generated footage, voice or music.
+The requested MP4 remains pending through preview preparation; a storyboard or
+preview alone is not completion. Explain only the user-facing next step (plan,
+preview, review, finished video), preserving normal Start/selection boundaries.
+
 Editable presentation creation uses plan_production with step_capabilities=["pptx.create"]
 when the operation catalog reports it available. An agent prepares a bounded slide
 JSON specification, independent review checks it, then the local operation creates
@@ -93,13 +115,35 @@ no Google login or PowerPoint installation. PPTX can be opened in Keynote, but
 creation/reopen checks do not establish Keynote import fidelity or visual layout.
 Native .key output, arbitrary existing-template editing and PDF/previews are not
 outputs of this operation; preserve those requirements as explicit separate work.
-For real photos of specified subjects, include images.collect in step_capabilities.
+For browser discovery selected by image_sourcing or explicitly requested, use images.fetch with a
+browser.use producer exporting observed sources through browser_image_source.
+This uses the existing managed browser, not a search API; public original image
+downloads produce the same reviewed ZIP handoff. Challenges require manual
+verification. Never invent URLs, rights or substitute screenshots for photos.
+For Commons photos of specified subjects, include images.collect in step_capabilities.
 It searches public Wikimedia Commons without an image-generation model, returns an
 exact attributed image bundle and records missing matches. Review subject identity
 and coverage before using the bundle in pptx.create. Preserve all named subjects,
 scientific names when supplied, captions and source credits. Missing images require
 an explicit gap or further sourcing; do not silently replace search with generation.
 
+Full standalone .3dm work uses rhino3dm.run_python: reviewed Python can use every
+API in the pinned rhino3dm library, create/edit File3dm documents, and read declared
+binary assets. No Relay geometry whitelist. Prepare and independently review the
+script/checks, select both, then propose a separate exact-script execution Start.
+Checks explicitly choose file_version:7 for Rhino 7 files or 8 for Rhino 8.
+This uses standalone CPython, not Rhino 7 IronPython or RhinoCommon; native app
+execution/rendering/plugins and external Compute services remain separate scopes.
+Library reopening and native Rhino verification are distinct. Preserve approval
+identity and never automatically switch between these routes.
+Standalone .3dm creation can also use rhino3dm.create with bounded geometry JSON
+(points, polylines, meshes including terrain, layers and units), independent review
+and user selection. This local library procedure needs no Rhino application and
+produces library reopen checks, not a viewport preview or native Rhino verification.
+Use it only when those supported geometry types meet the request; never silently
+replace a requested NURBS model, native Rhino execution, plugins or rendering.
+An approved rhino.* stage cannot fall back to rhino3dm.create; changing the route
+requires a new reviewed plan and Start. Missing library availability is a blocker.
 Direct Rhino support uses rhino.startup, rhino.inspect and rhino.run_python.
 Select exact .3dm artifacts for inspection. For modeling, first prepare/review
 interpreter-compatible model.py (IronPython 2.7 for Rhino 7, CPython 3 for Rhino 8) and checks JSON using the rhino.run_python catalog schema.
@@ -440,11 +484,15 @@ def catalog(state, snapshot):
     from .managed_browser import status as managed_browser_status
     from .capability_defaults import read as model_defaults
     from orchestrator.worker_capabilities import CAPABILITIES
-    return dict(version=1,operations=specs,graph_operations=graph_catalog(),graph_executors=executor_catalog(state),targets=targets,routing_enabled=enabled,dispatches=receipts,
+    from .image_sourcing_policy import describe as image_sourcing
+    graph_operations=graph_catalog(); graph_executors=executor_catalog(state); browser=managed_browser_status()
+    return dict(version=1,operations=specs,graph_operations=graph_operations,graph_executors=graph_executors,targets=targets,routing_enabled=enabled,dispatches=receipts,
+        image_sourcing=image_sourcing(graph_operations,graph_executors,browser),
+        local_video=local_video(graph_operations),
         worker_capabilities=CAPABILITIES.copy(),
         model_defaults=model_defaults(state.db)['choices'],
         browser_account_sites=site_catalog(state.db),
-        managed_browser=managed_browser_status(),
+        managed_browser=browser,
         host_applications=app_catalog(state),
         backend_catalog_limit=50,backend_catalog_truncated=enabled and state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0]>50,
         image_configured=bool(gemini.read_config()),
@@ -452,6 +500,19 @@ def catalog(state, snapshot):
         web={'web_fetch':'Public HTTPS text reader; no login/JavaScript/PDF.',
              'web_search':'Gemini/Google Search; configured' if gemini.read_config() else 'Connect Gemini to enable search.'},
         production_worker='Task-specific roles resolve required worker_capabilities to captured executor profiles. Each approved task freezes its model and tools; explicit executor choice has no fallback. Registered operations remain separate. Workers are not free routing targets.')
+
+
+def local_video(operations):
+    """Current discovery for outcome-based routing, never an execution grant."""
+    required=['hyperframes.preview','hyperframes.render']
+    known={op['id']:op for op in operations}
+    missing=[cap for cap in required if not known.get(cap,{}).get('available')]
+    return dict(available=not missing,step_capabilities=required,
+        outcome='Rendered MP4 reel from an authored composition and local source assets.',
+        action='plan_production',
+        sources='Resolve current subject/reply context; reuse selected storyboard, guides and assets from a matching completed stage via previous_run.',
+        blocker='; '.join(cap+': '+str(known.get(cap,{}).get('blocker') or 'local operation unavailable') for cap in missing) or None,
+        boundary='Discovery only. Propose a plan, review previews, render the selected project; never infer execution or acceptance.')
 
 
 def validate_delegate(action, snapshot):

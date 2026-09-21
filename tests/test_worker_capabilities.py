@@ -208,6 +208,8 @@ class PlanningTests(unittest.TestCase):
     def test_legacy_catalog_cannot_gain_dynamic_permissions(self):
         self.queue();row=dict(self.row());options=json.loads(row['options']);options.pop('worker_catalog',None)
         row['options']=json.dumps(options)
+        payload=json.loads(row['context']);payload.pop('response_contract',None)
+        row['context']=json.dumps(payload)
         with self.assertRaisesRegex(ValueError,'no dynamic worker catalog'):
             planning.validate_result(json.dumps(self.dynamic()),row)
 

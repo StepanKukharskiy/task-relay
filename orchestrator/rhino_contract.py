@@ -20,10 +20,12 @@ DESCRIPTION = {
     'changed_objects': '0–100 unique existing object UUIDs permitted to change or be deleted',
     'allow_additions': 'boolean; additions require true',
     'expected_object_count': 'exact integer 1–5000 after reopening',
-    'expected_dimensions': 'nonempty map of unique final object name to world bounding-box [x,y,z]; finite 0–1000000',
+    'expected_dimensions': 'nonempty map of unique final object name to world bounding-box [x,y,z]; finite 0–1000000. Size differences require user review of usable results; invalid measurements fail.',
+    'dimension_warnings': 'Dimension differences are quality findings: finish the native model and preview, preserve expected/measured XYZ, tolerance and units in checks.json, then require user review before dependent work. Highlight the preview and request accept-as-is or correction feedback. Do not automatically accept, repair, or treat size differences as broken execution. Invalid geometry, missing files, wrong units and preservation violations remain separate checks.',
+    'dimension_evidence': 'Expected dimensions describe the final object, not its input boundary or a rounded design target. Derive them from the actual construction algorithm. Independently check clipping, sampling, transforms and interpolation before approving checks. Schema validity alone does not prove geometric consistency. Do not widen tolerances or copy measured failed bounds merely to pass; preserve source fidelity and explain any proposed check correction.',
     'preview': 'resolution [width,height], each 64–1024; optional named_view restores that exact saved camera (use a Top orthographic view for drawings); otherwise shaded parallel perspective',
     'script_max_bytes': 100000,
-    'output_checks': 'rhino.run_python delivery/checks.json is the verification REPORT (before, after, errors, passed), not the input checks specification. Validate the exact INPUT checks JSON selected by checks_sha256 with validate_checks; evaluate the output report against that input and execution receipt. Do not apply validate_checks to delivery/checks.json or replace that report with the input specification.',
+    'output_checks': 'rhino.run_python delivery/checks.json is the verification REPORT (before, after, errors, warnings, passed), not the input checks specification. Validate the exact INPUT checks JSON selected by checks_sha256 with validate_checks; evaluate the output report against that input and execution receipt. Do not apply validate_checks to delivery/checks.json or replace that report with the input specification.',
     'expected_named_views': 'Optional list of 1–10 distinct named views required after reopening; declare the intended render camera when preparing a rendered model',
     'script_api': 'Rhino 7 uses IronPython 2.7; Rhino 8 uses CPython 3; Rhino, rhinoscriptsyntax, scriptcontext and doc supplied. The assigned doc is HEADLESS: doc.Views.ActiveView is None. Modify doc; Relay saves it. No interactive prompts.',
     'camera_api': 'Rhino.Display.RhinoViewport uses SetCameraLocation(Point3d, bool updateTargetLocation) and SetCameraDirection(Vector3d, bool updateTargetLocation): both require two arguments. CameraLocation and CameraDirection are read-only properties; do not assign them. CameraUp is writable. Rhino.DocObjects.ViewportInfo is a different type with different overloads. Verify the receiver type, not just the method name. Reference: https://mcneel.github.io/rhinocommon-api-docs/api/RhinoCommon/html/M_Rhino_Display_RhinoViewport_SetCameraLocation.htm',
@@ -84,17 +86,33 @@ def compare(before, after, checks):
             if before[key] != after[key]:errors.append('Preserved document setting/table changed: ' + key)
     if after['units'] != checks['units']:errors.append('Unexpected model units')
     if len(new) != checks['expected_object_count']:errors.append('Unexpected final object count')
-    for name, expected in checks['expected_dimensions'].items():
+    for name in checks['expected_dimensions']:
         matches = [o for o in new.values() if o['name'] == name]
-        if len(matches) != 1:errors.append('Expected object name is missing or ambiguous: ' + name);continue
-        if any(abs(a-b) > max(after['tolerance'], abs(b)*0.0001, 0.0001) for a, b in zip(matches[0]['dimensions'], expected)):
-            errors.append('Unexpected dimensions: ' + name)
+        if len(matches) != 1:errors.append('Expected object name is missing or ambiguous: ' + name)
+        elif len(matches[0].get('dimensions',[]))!=3 or any(not finite(v) or v<0 for v in matches[0]['dimensions']):
+            errors.append('Missing or invalid dimension measurement: '+name)
     if any(not o['valid'] for o in new.values()):errors.append('Candidate contains invalid geometry')
     for name in checks.get('expected_named_views',[]):
         if name not in after.get('named_views',{}):errors.append('Expected render named view is missing: '+name)
     name=checks['preview'].get('named_view')
     if name and name not in after.get('named_views',{}):errors.append('Preview named view is missing: '+name)
     return errors
+
+
+def dimension_warnings(after, checks):
+    """Measure quality differences; the shared result policy requires user review."""
+    warnings=[]
+    for name, expected in checks['expected_dimensions'].items():
+        matches = [o for o in after['objects'].values() if o['name'] == name]
+        if len(matches)!=1:continue  # Missing/ambiguous objects remain hard failures.
+        if len(matches[0].get('dimensions',[]))!=3 or any(not finite(v) or v<0 for v in matches[0]['dimensions']):continue
+        if any(abs(a-b) > max(after['tolerance'], abs(b)*0.0001, 0.0001) for a, b in zip(matches[0]['dimensions'], expected)):
+            actual = matches[0]['dimensions']
+            tolerances = [max(after['tolerance'], abs(b)*0.0001, 0.0001) for b in expected]
+            warnings.append('Dimensions differ: ' + name + '; expected XYZ=' + str(expected) +
+                          ', measured XYZ=' + str(actual) + ', tolerance XYZ=' + str(tolerances) +
+                          ' ' + after['units'])
+    return warnings
 
 
 RENDER_DESCRIPTION = {

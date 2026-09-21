@@ -1,4 +1,4 @@
-"""Turn a completed native review into a scoped preparation proposal, not a replay."""
+"""Turn native failure evidence or review findings into preparation, not replay."""
 import copy
 import json
 from pathlib import Path
@@ -10,11 +10,58 @@ from orchestrator.runtime import Runtime, ACTIVE
 from . import production_control as pc, production_planning as planning
 
 
+def execution_failure(state, run, rt):
+    """A terminal native failure can be diagnosed before an AI review exists."""
+    from . import production_stages
+    from orchestrator import executors
+    baseline=production_stages.failed_execution_snapshot(state,rt,run,getattr(state,'channel','telegram'))
+    target=next(t for t in baseline['tasks'] if t['status']=='blocked')
+    assessment=planning.host_recovery_assessment(rt,run,target)
+    if not assessment or assessment[2]['action']!='prepare_reviewed_repair':
+        raise ValueError('A confirmed terminal native failure is required for correction preparation.')
+    reviewer=rt.reviewer(run,target['id'])
+    if not reviewer:raise ValueError('The saved independent reviewer is required.')
+    spec=rt.spec(reviewer)
+    plan=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
+    backend=worker_capabilities.backend_for(spec,plan['backend'])
+    tools=executors.validate(backend)
+    if 'python' not in tools and 'shell' not in tools:
+        raise ValueError('Native correction needs the saved code-capable reviewer profile.')
+    attempt=state.db.execute('SELECT frozen FROM production_attempts WHERE id=?',(target['latest'],)).fetchone()
+    original=json.loads(attempt['frozen'])
+    inputs=copy.deepcopy(original['inputs'])
+    for artifact in state.db.execute('SELECT * FROM production_artifacts WHERE attempt=? ORDER BY path',(target['latest'],)):
+        entry=planning.source_entry(rt,artifact['id'],'failed-output/'+artifact['path'],
+            'Unaccepted output and measurements from the failed native attempt','Failure evidence only; not an accepted model or input checks specification.')
+        planning.verify_artifact(rt,entry);inputs.append(entry)
+    return {'kind':'execution_failure','run':run,'target':dict(target),'reviewer':dict(reviewer),
+        'frozen':{'backend':backend,'tools':tools,'inputs':inputs},
+        'result':{'summary':'Native execution finished with a recorded failure; its retained files are unapproved.',
+            'instruction':'Diagnose the exact execution receipt and measured verification report against the original script, input checks and source geometry. Correct the cause, not just the failing threshold.'},
+        'assessment':assessment[2],'tasks':baseline['tasks'],'attempts':baseline['attempts'],
+        'digest':baseline['contract_digest'],'epoch':baseline['control_epoch']}
+
+
 def snapshot(state,run):
     rt=Runtime(pc.root(state),connection=state.db);status=rt.status(run)
     bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
     if (bound[0] if bound else 'telegram')!=getattr(state,'channel','telegram'):
         raise ValueError('Use this production in its original chat.')
+    if status['status']=='awaiting_user' and not any(a['state'] in ACTIVE for a in status['attempts']):
+        candidates=[t for t in status['tasks'] if t['status']=='awaiting_user' and rt.quality_review(t)
+            and rt.spec(t).get('execution',{}).get('capability') in ('rhino.run_python','blender.run_python','rhino3dm.run_python')]
+        if len(candidates)==1:
+            target=candidates[0];reviewer=rt.reviewer(run,target['id'])
+            if reviewer and reviewer['status']=='completed':
+                attempt=state.db.execute('SELECT * FROM production_attempts WHERE id=?',(reviewer['latest'],)).fetchone()
+                frozen=json.loads(attempt['frozen'])
+                if frozen.get('review_target')==target['latest']:
+                    concern=rt.quality_review(target)
+                    return {'kind':'quality_feedback','run':run,'target':target,'reviewer':dict(reviewer),'frozen':frozen,
+                        'quality_review':concern,'result':{'summary':'Usable output awaits user feedback on quality concerns.',
+                            'instruction':'\n'.join(f['message']+' Evidence: '+f['evidence'] for f in concern['findings'])},
+                        'tasks':status['tasks'],'attempts':status['attempts'],'digest':pc.runtime_digest(rt,run),
+                        'epoch':state.get('production-control-epoch:'+run,0)}
     if status['status']!='blocked' or any(a['state'] in ACTIVE for a in status['attempts']):
         raise ValueError('Correction planning requires stopped work with no uncertain execution.')
     matches=[]
@@ -22,7 +69,7 @@ def snapshot(state,run):
         spec=rt.spec(reviewer)
         if not spec.get('review_of') or not reviewer['latest']:continue
         target=rt.task(run,spec['review_of']);target_spec=rt.spec(target)
-        if target_spec.get('execution',{}).get('capability') not in ('rhino.run_python','blender.run_python'):continue
+        if target_spec.get('execution',{}).get('capability') not in ('rhino.run_python','blender.run_python','rhino3dm.run_python'):continue
         if target['status'] not in ('awaiting_review','blocked'):continue
         attempt=state.db.execute('SELECT * FROM production_attempts WHERE id=?',(reviewer['latest'],)).fetchone()
         frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
@@ -39,6 +86,7 @@ def snapshot(state,run):
             or opreceipt.get('operation',{}).get('outcome')!='completed'
             or json.loads(operation['frozen']).get('execution')!=target_spec['execution']):continue
         matches.append({'target':dict(target),'reviewer':dict(reviewer),'frozen':frozen,'result':result})
+    if not matches:return execution_failure(state,run,rt)
     if len(matches)!=1:raise ValueError('One completed native operation and its exact correction review are required.')
     result=matches[0];result['run']=run
     if any(t['status']=='blocked' and t['id'] not in (result['target']['id'],result['reviewer']['id']) for t in status['tasks']):
@@ -53,19 +101,23 @@ def details(state,run):
     """Read-only UI explanation, including legacy collection errors."""
     try:record=snapshot(state,run)
     except (ValueError,OSError,KeyError,TypeError):return None
-    return {'summary':record['result']['summary'],'instruction':record['result']['instruction'],
+    return {'kind':record.get('kind','review'),'summary':record['result']['summary'],'instruction':record['result']['instruction'],
             'reviewer':record['reviewer']['id'],'target':record['target']['id'],
-            'next_action':'Choose Plan correction. Relay will propose a focused script correction and independent review. Start preparation approves that work; changed Rhino/Blender code needs a separate execution Start. Existing files and inspection results stay available.'}
+            'next_action':('Inspect the files/previews and accept these exact outputs as-is, or reply with correction feedback. ' if record.get('kind')=='quality_feedback' else '')+'Choose Plan correction to propose a focused script correction and independent review. Start preparation approves that work; changed Rhino/Blender code needs a separate execution Start. Existing files and inspection results stay available.'}
 
 
 def text(state,run):
     value=details(state,run)
     if not value:return ''
-    return ('Review finished — corrections needed. The model and preview exist, but are not approved.\n'+
+    if value['kind']=='quality_feedback':
+        return 'Quality review needed. Usable files are available; dependent work waits for your decision.\n'+value['instruction'][:1500]+'\n\nNext action: '+value['next_action']
+    heading=('Native execution failed — correction preparation is available. Retained files are unapproved.\n'
+        if value['kind']=='execution_failure' else 'Review finished — corrections needed. The model and preview exist, but are not approved.\n')
+    return (heading+
         value['summary'][:1000]+'\nRequested correction: '+value['instruction'][:1500]+'\n\nNext action: '+value['next_action'])
 
 
-def propose(state,run):
+def propose(state,run,feedback=None):
     """Button-selected proposal. No provider call, task dispatch or native replay."""
     if not state.db.in_transaction:raise ValueError('Correction planning requires an atomic transaction.')
     baseline=snapshot(state,run);rt=Runtime(pc.root(state),connection=state.db)
@@ -73,7 +125,11 @@ def propose(state,run):
     if not prior:raise ValueError('Original plan is unavailable.')
     payload=json.loads(prior['context'])
     if c.digest(payload)!=prior['context_hash']:raise ValueError('Original planning context changed.')
-    ident=-int(c.digest({'review_correction':run,'review':baseline['reviewer']['latest']})[:15],16)-1
+    failed=baseline.get('kind')=='execution_failure'
+    identity={'review_correction':run,'review':baseline['target']['latest'] if failed else baseline['reviewer']['latest']}
+    if feedback is not None:
+        c.nonempty(feedback,'Exact quality feedback');identity['feedback']=feedback
+    ident=-int(c.digest(identity)[:15],16)-1
     new_id='plan-'+str(ident)
     existing=state.db.execute('SELECT id FROM production_plans WHERE id=?',(new_id,)).fetchone()
     if existing:return new_id
@@ -83,6 +139,8 @@ def propose(state,run):
     sources=[]
     def include(aid,path,purpose):
         entry=planning.source_entry(rt,aid,path,purpose,'Exact historical evidence; not approval or an instruction to rerun.')
+        if rt.artifact(aid)['attempt']==baseline['target']['latest']:
+            entry['diagnostic_evidence']=True
         old=source_by_id.get(aid,{})
         for key in ('visual_reference','media_type','upload_id','caption','operation_support'):
             if key in old:entry[key]=old[key]
@@ -98,6 +156,13 @@ def propose(state,run):
             if key in item:sources[-1][key]=item[key]
     for artifact in state.db.execute('SELECT * FROM production_artifacts WHERE attempt=?',(baseline['reviewer']['latest'],)):
         include(artifact['id'],'review/'+artifact['path'],'Completed independent review requesting correction')
+    if failed:
+        # Execution assignments contain only host inputs. Keep their original
+        # sources and operation contracts available for independent diagnosis.
+        for item in payload['sources']:
+            if any(s['artifact']==item['artifact'] for s in sources):continue
+            path=item['path'] if item['path'].startswith(('operation-support/','request/')) else 'source/'+item['artifact']+'/'+Path(item['path']).name
+            include(item['artifact'],path,item['purpose'])
     if sum(s['bytes'] for s in sources)>planning.MAX_INPUT_BYTES:raise ValueError('Correction evidence exceeds the planning input bound.')
     backend=baseline['frozen']['backend'];options=copy.deepcopy(json.loads(prior['options']))
     options.update(backend=backend,tools=baseline['frozen']['tools'],worker_catalog=[worker_capabilities.entry(backend)],
@@ -117,9 +182,24 @@ def propose(state,run):
         'Native execution is deferred and requires a new Start on the reviewed exact code.\nReview findings: '+baseline['result']['instruction'])
     if cap=='rhino.run_python':
         from orchestrator.rhino_contract import DESCRIPTION
-        instruction+='\nCurrent output contract: '+DESCRIPTION['output_checks']
+        instruction+='\nCurrent output contract: '+DESCRIPTION['output_checks']+' '+DESCRIPTION['dimension_evidence']
+    if feedback is not None:instruction+='\nEXACT USER QUALITY FEEDBACK (within original scope):\n'+feedback
+    if failed:
+        instruction=(preparation_guidance(cap)+'Read evidence/failed-output/, evidence/ and source/ plus the original request and operation contracts. '
+            'Diagnose the terminal failure against the exact original script SHA-256 '+operation['parameters']['script_sha256']+
+            ' and INPUT checks SHA-256 '+operation['parameters']['checks_sha256']+'. Output verification reports are measurements, never input checks. '
+            'Prepare a scoped corrected script and input checks. Preserve user requirements, source geometry, units, datum, scope and output types. '
+            'Never widen tolerances, omit required geometry, or copy failed measurements into expectations merely to make verification pass. '
+            'If a check itself is wrong, propose its correction with independently derived expected values, exact before/after values and reproducible evidence; '
+            'preserve every unaffected check. If evidence or permissions are insufficient, explain the required decision rather than inventing geometry. '
+            'Write delivery/model.py, delivery/checks.json and delivery/diagnosis.md. The diagnosis must identify whether the script, checks or both are defective, '
+            'cite measured failures, justify each change and state remaining uncertainties. Validate syntax/schema and independently calculate numerical expectations '
+            'where possible without importing or executing native host code. No Rhino/Blender launch, network, installation or modification of original files. '
+            'Preparation and review only; revised script AND checks require selection and a new exact-code Start before native execution.')
+        if cap=='rhino.run_python':instruction+=' '+DESCRIPTION['dimension_evidence']+' '+DESCRIPTION['output_checks']
     outputs=[{'path':'delivery/'+name,'purpose':purpose} for name,purpose in (
         ('model.py','Scoped corrected native script'),('checks.json','Unchanged exact selected input checks specification'),('diagnosis.md','Evidence-backed diagnosis and proposed changes'))]
+    if failed:outputs[1]['purpose']='Proposed input checks; every change must be independently justified'
     author={'id':'prepare_correction','role':'producer','objective':'Prepare a focused correction from the saved independent review',
         'instruction':instruction,'criteria':['Preserve original scope, design and exact input checks; diagnose review claims against contracts.',
         'Validate syntax and checks without running native code; describe the exact correction and remaining uncertainty.'],
@@ -132,21 +212,41 @@ def propose(state,run):
             'path':'candidate/'+Path(o['path']).name,'purpose':o['purpose'],'authority':'Unaccepted correction'} for o in outputs],
         'outputs':[{'path':'review.md','purpose':'Independent correction review'}],
         'dependencies':['prepare_correction'],'review_of':'prepare_correction','limits':limits,'max_attempts':2,'tools':options['tools']}
-    result={'decision':'ready','message':'Prepare and review a focused correction; retain completed native execution and inspection evidence.',
+    if failed:
+        author['criteria']=['Diagnose the exact failed attempt using its receipt, measurements and original source requirements.',
+            'Preserve user scope and source fidelity; independently justify every changed script section and input check with reproducible evidence, not a relaxed pass condition.',
+            'Validate syntax/schema and derived numerical expectations without native execution; disclose any unresolved contradiction.']
+        reviewer['criteria']=author['criteria']
+        author['objective']='Diagnose native failure and prepare a scoped correction'
+        reviewer['instruction']=instruction+' Independently compare original and candidate script AND checks. Reject unsupported expectation changes; do not edit the candidate.'
+    from orchestrator import executors
+    for task in (author,reviewer):
+        task['limits']=copy.deepcopy(limits)
+        executors.code_budgets(task,backend)
+    result={'decision':'ready','message':'Prepare and review a focused correction; retain exact prior execution and inspection evidence.',
         'input_basis':{'mode':'modify_existing','artifacts':[next(s['artifact'] for s in sources if s['sha256']==operation['parameters']['script_sha256'])]},
         'deferred_operations':{key:'Reviewed exact correction must be selected and approved before native execution.' for key in capabilities},
         'plan':{'brief':'Prepare and independently review a focused correction to the existing native model script. Native execution remains pending.',
                 'tasks':[author,reviewer]}}
+    geometry=json.loads(prior['plan']).get('origin',{}).get('geometry_basis')
+    if geometry is not None:result['geometry_basis']=copy.deepcopy(geometry)
     if options.get('deliverables'):
         result['deliverable_map']={key:{'deferred_operation':cap} for key in options['deliverables']}
     payload.update(options=options,sources=sources,required_artifacts=[s['artifact'] for s in sources],available_sources=[],
-        review_correction_origin={'run':run,'baseline':baseline,'scope':'Preparation only; no native replay'},
+        review_correction_origin={'run':run,'baseline':baseline,'scope':'Preparation only; no native replay','feedback':feedback},
         original_request=prior['request'])
     payload.pop('previous_stage',None)
+    payload.pop('execution_recovery',None)
+    # This successor prepares corrected code; it is not an execution selection.
+    if payload.pop('operation_builder',None):
+        from . import operation_builders, planning_contract
+        payload['response_contract']=planning_contract.contract(options)
+        payload['planner_instructions']=payload['planner_instructions'].replace('\n'+operation_builders.INSTRUCTIONS,'')
     # Original exact request is retained; correction directions are system-labelled.
     values=dict(prior);values.update(id=new_id,request_id=ident,parent_id=prior['id'],options=c.encoded(options),
         context=c.encoded(payload),context_hash=c.digest(payload),status='ready',calls=0,token=secrets.token_hex(12),
         event_id=None,expires=time.time()+86400,run=None,error=None,created=time.time())
+    if feedback is not None:values['request']=prior['request']+'\n\nEXACT USER QUALITY FEEDBACK:\n'+feedback
     result,plan=planning.validate_result(c.encoded(result),values)
     values.update(result=c.encoded(result),plan=c.encoded(plan),plan_hash=c.digest(plan))
     state.db.execute('INSERT INTO production_plans('+','.join(values)+') VALUES ('+','.join('?' for _ in values)+')',tuple(values.values()))

@@ -28,7 +28,7 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         for name in ('pptx_document.py','slide_templates.py','handoff_contracts.py'):
             if frozen.get('runtime_sources',{}).get(name)!=file_hash(Path(__file__).with_name(name)):
                 raise ValueError('PPTX implementation changed after dispatch was frozen.')
-    if frozen['execution']['capability']=='images.collect' or (frozen['execution']['capability']=='pptx.create' and any(i['media_type']=='application/zip' for i in frozen['inputs'])):
+    if frozen['execution']['capability'] in ('images.collect','images.fetch') or (frozen['execution']['capability']=='pptx.create' and any(i['media_type']=='application/zip' for i in frozen['inputs'])):
         if frozen.get('runtime_sources',{}).get('image_sources.py')!=file_hash(Path(__file__).with_name('image_sources.py')):
             raise ValueError('Image-source implementation changed after dispatch was frozen.')
     documents=[];total=0
@@ -36,26 +36,23 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         path=safe_file(workspace,item['path']);total+=path.stat().st_size
         if total>spec['input_bytes']:raise ValueError('Registered operation input byte limit exceeded.')
         if file_hash(path)!=item['sha256']:raise ValueError('Frozen input content changed.')
-        text=None if item['media_type'] in ('application/x-blender','application/vnd.rhino','image/png','image/jpeg','image/webp','application/zip') else path.read_bytes().decode('utf-8')
+        from orchestrator.native_apps import NATIVE_MEDIA
+        text=None if item['media_type'].startswith(('audio/','video/','font/')) or item['media_type'] in (*NATIVE_MEDIA,'application/octet-stream','image/png','image/jpeg','image/webp','application/zip') else path.read_bytes().decode('utf-8')
         documents.append({'artifact':item['artifact'],'path':item['path'],'sha256':item['sha256'],
                           'purpose':item['purpose'],'authority':item['authority'],'text':text})
-    if frozen['execution']['capability'].startswith('rhino.'):
-        from orchestrator.rhino_execution import execute as rhino_execute
-        return rhino_execute(frozen,control,documents)
-    if frozen['execution']['capability']=='blender.inspect':
-        from orchestrator.blender_inspection import execute as inspect_host
-        return inspect_host(frozen,control,documents)
-    if frozen['execution']['capability']=='blender.run_python':
-        from orchestrator.blender_edit import execute as edit_host
-        return edit_host(frozen,control,documents)
-    if frozen['execution']['capability']=='blender.import_asset':
-        from orchestrator.blender_assets import execute as import_host
-        return import_host(frozen,control,documents)
-    if frozen['execution']['capability']=='blender.animate':
-        from orchestrator.blender_animation import execute as animate_host
-        return animate_host(frozen,control,documents)
+    if frozen['execution']['capability'].startswith('hyperframes.'):
+        from orchestrator.hyperframes_project import execute as execute_project
+        return execute_project(frozen,control,documents)
+    if frozen['execution']['capability']=='media.compose':
+        from orchestrator.reel_document import execute as execute_reel
+        return execute_reel(frozen,control,documents)
+    if frozen['execution']['capability']=='rhino3dm.create':
+        from orchestrator.rhino3dm_document import execute as execute_library
+        return execute_library(frozen,control,documents)
     if spec['kind']=='host':
-        from orchestrator.blender_host import execute as execute_host
+        from orchestrator.native_apps import execute as execute_host
+        if frozen.get('runtime_sources',{}).get('native_apps.py')!=file_hash(Path(__file__).with_name('native_apps.py')):
+            raise ValueError('Native adapter registry changed after dispatch')
         return execute_host(frozen,control,documents)
     usage={};upstream=None;validation=None
     if frozen['execution']['capability'] in execution.CLOUD_MEDIA:
@@ -68,7 +65,7 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         result,upstream,usage=cloud_media.generate(frozen['execution']['capability'],frozen['execution']['parameters'],
             references,control,frozen['limits']['seconds'],frozen['limits']['output_bytes'],client=client)
         print(c.encoded({'type':'turn.completed','usage':usage}),flush=True)
-    elif frozen['execution']['capability']=='images.collect':
+    elif frozen['execution']['capability'] in ('images.collect','images.fetch'):
         from orchestrator import image_sources
         from task_relay import orchestrator_web
         if frozen.get('runtime_sources',{}).get('task_relay/orchestrator_web.py')!=file_hash(Path(orchestrator_web.__file__)):
@@ -77,8 +74,15 @@ def execute(frozen,control,client_factory=None,config_reader=None):
             import os
             with (control/'image-requests.jsonl').open('a') as stream:
                 stream.write(c.encoded(value)+'\n');stream.flush();os.fsync(stream.fileno())
-        result,validation=image_sources.collect(frozen['execution']['parameters']['subjects'],
-            seconds=frozen['limits']['seconds'],max_bytes=frozen['limits']['output_bytes'],record=record)
+        if frozen['execution']['capability']=='images.fetch':
+            from orchestrator import browser_images
+            if frozen.get('runtime_sources',{}).get('browser_images.py')!=file_hash(Path(browser_images.__file__)):
+                raise ValueError('Browser image implementation changed after dispatch was frozen')
+            result,validation=browser_images.fetch_bundle(json.loads(documents[0]['text']),
+                seconds=frozen['limits']['seconds'],max_bytes=frozen['limits']['output_bytes'],record=record)
+        else:
+            result,validation=image_sources.collect(frozen['execution']['parameters']['subjects'],
+                seconds=frozen['limits']['seconds'],max_bytes=frozen['limits']['output_bytes'],record=record)
     elif frozen['execution']['capability']=='pptx.create':
         from orchestrator import pptx_document
         manifest=next(d for d,i in zip(documents,frozen['inputs']) if i['media_type']=='application/json')
@@ -148,6 +152,12 @@ def execute(frozen,control,client_factory=None,config_reader=None):
              'request_sha256':file_hash(control/'request.json') if spec['kind']=='api' else None,
              'response_sha256':file_hash(control/'response.json') if spec['kind']=='api' else None}
     if validation is not None:details['validation']=validation
+    if frozen['execution']['capability'] in ('images.collect','images.fetch') and not any(
+            s['status']=='found' for s in validation['subjects']):
+        reasons='; '.join(dict.fromkeys(s.get('reason','No usable image') for s in validation['subjects']))
+        details.update(outcome='failed',reason='No usable photos collected. Diagnostic ZIP retained. '+reasons[:1500])
+        atomic(control/'operation.json',details)
+        raise ValueError(details['reason'])
     atomic(control/'operation.json',details)
     report={'assignment_id':frozen['assignment_id'],'summary':'Registered '+frozen['execution']['capability']+' completed.',
             'decision':'delivered','instruction':'','checks':[{'criterion':1,'passed':True,

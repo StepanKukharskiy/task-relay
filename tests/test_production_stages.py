@@ -14,6 +14,28 @@ from tests import test_production_planning as fixtures
 
 
 class Tests(unittest.TestCase):
+    def test_execution_button_recovers_saved_blocked_plan_once_without_dispatch(self):
+        self.selected()
+        with self.state.db:
+            p=json.loads(self.state.db.execute("SELECT plan FROM production_runs WHERE id='production-1'").fetchone()[0])
+            p['deferred_operations']={'rhino.run_python':'Pending native execution'}
+            self.state.db.execute("UPDATE production_runs SET plan=? WHERE id='production-1'",(json.dumps(p),))
+        row=self.next_plan()
+        with self.state.db:
+            self.state.db.execute("UPDATE production_plans SET status='blocked',error='Prior validation failure' WHERE id=?",(row['id'],))
+            self.state.db.execute("UPDATE production_plan_calls SET error='Prior validation failure' WHERE plan_id=?",(row['id'],))
+        calls=len(self.factory.calls)
+        with patch.object(planning.Worker,'tick',side_effect=AssertionError('No provider retry')):
+            with transaction(self.state.db):first=status.plan_execution(self.state,'production-1')
+            with transaction(self.state.db):second=status.plan_execution(self.state,'production-1')
+        successor=self.state.db.execute('SELECT * FROM production_plans WHERE parent_id=?',(row['id'],)).fetchone()
+        self.assertEqual(successor['status'],'ready');self.assertIsNone(successor['run'])
+        self.assertIn(successor['id'],first);self.assertIn(successor['id'],second)
+        self.assertEqual(self.row(2)['status'],'blocked')
+        self.assertEqual(len(self.factory.calls),calls)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],1)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plan_calls').fetchone()[0],2)
+
     def test_pending_execution_button_preserves_selection_and_queues_only_one_plan(self):
         card,mid=self.selected()
         with self.state.db:

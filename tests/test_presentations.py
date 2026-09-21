@@ -282,7 +282,10 @@ class PlanningTests(unittest.TestCase):
     def test_review_recovery_reuses_completed_research_without_replay(self):
         self.check_exhausted_review_recovery(completed_sources=True)
 
-    def check_exhausted_review_recovery(self,completed_sources=False):
+    def test_review_recovery_refreshes_registered_pptx_criteria(self):
+        self.check_exhausted_review_recovery(criteria_update=True)
+
+    def check_exhausted_review_recovery(self,completed_sources=False,criteria_update=False):
         from task_relay.pipelines import transaction
         from task_relay import production_review_recovery as recovery, production_stages
         row=dict(self.queue(action=self.action(step_capabilities=['pptx.create'])))
@@ -316,9 +319,17 @@ class PlanningTests(unittest.TestCase):
         self.factory.finish(first);self.rt.tick(run)
         self.factory.finish(self.rt.task(run,'review')['latest'],decision='revise');self.rt.tick(run)
         before=[dict(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))]
+        if criteria_update:
+            current=copy.deepcopy(execution.REGISTRY['pptx.create'])
+            current['criteria']=['Current registered PPTX file verification.']
+            updated=patch.dict(execution.REGISTRY,{'pptx.create':current});updated.start();self.addCleanup(updated.stop)
         with transaction(self.state.db):ident=recovery.prepare(self.state,run,'Fix the reviewed draft and continue the saved workflow.')
         repaired=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
         value=json.loads(repaired['plan']);context=json.loads(repaired['context'])
+        if criteria_update:
+            self.assertEqual(value['tasks'][2]['criteria'],current['criteria'])
+            self.assertEqual(value['tasks'][3]['criteria'],current['criteria'])
+            self.assertEqual(context['registered_criteria_updates'][0]['capability'],'pptx.create')
         self.assertEqual([t['id'] for t in value['tasks']],['produce','review','deck','deck-review'])
         self.assertEqual([t['max_attempts'] for t in value['tasks']],[3,3,2,2])
         self.assertEqual(value['tasks'][2]['execution'],next(t['execution'] for t in plan['tasks'] if t['id']=='deck'))

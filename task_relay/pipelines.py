@@ -19,14 +19,9 @@ writing a narrative plan. Infer the necessary stages from the request and availa
 capabilities; no particular sequence, application or domain is mandatory. Simple
 single operations still use their direct actions. Do not create a pipeline for a
 status question. Preserve explicitly named providers and user decision boundaries.
-Action: {kind:"plan_pipeline", contract_version:1, title:string, planning_only:boolean, stages:[
-{id:string, instruction:string, route:"conversation"|"production"|"browser_research"|"image",
- gate:"none"|"choice"|"selection", capabilities:[registered graph operation IDs],
- visual_intent?:"reference"|"synthetic",
- deliverables:{stable_id:description},
- handoff:{outputs:{deliverable_id:{media_type:string,max_bytes?:integer|null,slides?:integer|null,companions?:[deliverable_id]}},
- inputs:[{stage:earlier_stage_id,deliverable:earlier_deliverable_id,media_type:string,consumer:"context"|selected_capability_id}]}}]}.
-New workflows require contract_version:1 and a handoff contract for EVERY stage.
+For new proposals use snapshot.workflow_builder_schema: kind="plan_pipeline", title,
+planning_only and stage_details. Relay constructs canonical stages, contract version,
+deliverables, output descriptors and handoffs from those semantic details.
 Preserve all explicitly requested quantities. A requested 600-slide single PPTX must
 declare slides:600; never reduce it, split it into separate final decks or omit the
 quantity to pass validation. The builder supports 50 slides per deck, 50 MB; larger
@@ -38,6 +33,17 @@ For a managed image stage the direct consumer is gemini.image.
 For that route, the output is exactly image/png, even for photorealistic imagery;
 never declare JPEG unless an explicit later conversion produces JPEG. Rhino native
 outputs use application/vnd.rhino; Blender native outputs use application/x-blender.
+rhino3dm.run_python exposes the full installed rhino3dm Python API, including new
+and existing File3dm documents, without a Relay geometry whitelist. Prepare/review
+and select script/checks before separate exact-code execution Start; select target
+file version explicitly (7 for Rhino 7). Library verification is not native Rhino
+verification; native commands/plugins/rendering are separate scopes.
+rhino3dm.create also produces application/vnd.rhino through a standalone library:
+bounded points/polylines/meshes, layers and units, with library verification JSON.
+It supplies no preview or render and does not establish native Rhino verification.
+Use it when supported geometry meets a new-file request. Explicit native execution,
+Rhino commands/plugins/rendering and existing approved rhino.* stages retain that
+route; no automatic substitution or fallback. Never promise unsupported geometry.
 Unknown byte sizes remain null; do not claim estimated sizes are verified. Companion outputs must be
 passed together. Output types must match the actual selected capability contracts.
 Use 2–12 ordered stages, each with its own scope, covering ALL requested outcomes.
@@ -52,8 +58,14 @@ website research, image for one managed visualization. Specify named providers i
 stage instructions. planning_only=true only when execution was not requested.
 For factual research, identification, real examples and documentary presentations,
 default to authentic sourced photos, not invented illustrations. Use production with
-images.collect and visual_intent:"reference" after research establishes the named
-subjects; pass reviewed exact images and attribution to the presentation stage.
+visual_intent:"reference" after research establishes named subjects. Select the
+sourcing operation from snapshot.capabilities.image_sourcing and user constraints;
+pass reviewed exact images and attribution to the presentation stage.
+For available browser discovery, use a production stage with images.fetch. Its browser worker exports observed
+image URLs to a declared image-sources.json; the registered downloader returns ZIP.
+Both images.collect and images.fetch return application/zip containing images AND manifest.json.
+Declare the ZIP as a deliverable and pass that exact ZIP downstream, not a JSON
+manifest in place of the image files. A separate JSON summary is optional.
 Plants are one example of this universal rule, not a special workflow. Use botanical
 names from research for species photos. Missing photos are explicit gaps; never
 replace them with generated images. Honor permission to omit them while retaining text.
@@ -94,6 +106,11 @@ plan was queued: reuse the exact saved plan_production routing response and froz
 workflow sources. Do not repeat completed research or images, or ask for rephrasing.
 '''
 
+
+from .image_sourcing_policy import INSTRUCTIONS as IMAGE_SOURCING_INSTRUCTIONS
+INSTRUCTIONS += "\n" + IMAGE_SOURCING_INSTRUCTIONS
+from .workflow_builder import INSTRUCTIONS as BUILDER_INSTRUCTIONS
+INSTRUCTIONS += "\n" + BUILDER_INSTRUCTIONS
 
 def initialize(db):
     from . import procedures
@@ -136,6 +153,8 @@ def generates_images(stage):
 
 
 def validate(action, snap):
+    from .workflow_builder import build
+    action,_=build(action,snap)
     kind=action.get('kind')
     if kind=='plan_pipeline':
         if (set(action)-{'contract_version'}!={'kind','title','planning_only','stages'} or not bounded(action['title'],200)
@@ -156,8 +175,8 @@ def validate(action, snap):
                     or any(not bounded(k,80) or not bounded(v,500) for k,v in s['deliverables'].items())):
                 raise PipelineValidationError('Invalid workflow stage, capability or deliverable.')
             if generates_images(s) and s.get('visual_intent')!='synthetic':
-                raise PipelineValidationError('Reference imagery requires image sourcing (images.collect), not image generation. Declare synthetic intent only for requested concepts, illustrations or renders.')
-            if 'images.collect' in s['capabilities'] and s.get('visual_intent')=='synthetic':
+                raise PipelineValidationError('Reference imagery requires image sourcing (images.collect or images.fetch), not image generation. Declare synthetic intent only for requested concepts, illustrations or renders.')
+            if set(s['capabilities'])&{'images.collect','images.fetch'} and s.get('visual_intent')=='synthetic':
                 raise PipelineValidationError('Separate authentic reference collection from synthetic visualization.')
             if s['route'] in ('conversation','browser_research') and s['capabilities']:
                 raise PipelineValidationError('Only production/image stages declare graph operations.')
@@ -266,6 +285,8 @@ def guard(state, job, action):
 
 
 def dispatch(state,job,action,snap):
+    from .workflow_builder import build
+    action,builder_receipt=build(action,snap)
     from . import relay_channels
     validate(action,snap)
     if not state.db.in_transaction:raise ValueError('Workflow dispatch requires an atomic transaction.')
@@ -276,14 +297,29 @@ def dispatch(state,job,action,snap):
         if old:
             if old['spec']!=encoded(action) or old['request']!=job['prompt']:raise ValueError('Workflow identity conflict.')
             return 'Workflow already saved: '+pid,None
+        # A stage request has a new ID. Preserve the original request's exact
+        # attachments now instead of expecting later planners to rediscover them.
+        from . import attachment_batches,routing_inputs,production_control as pc
+        from orchestrator.runtime import Runtime
+        uploads=routing_inputs.freeze_uploads(state,job,attachment_batches.selected(state,job['id']))
+        captured={f['id']:f for f in snap.get('uploaded_files',[])}
+        input_sources=[]
+        for item in uploads:
+            original=captured.get(item['upload_id'])
+            if not original or any(item[k]!=original[k] for k in ('sha256','bytes')):
+                raise ValueError('Workflow attachment changed after request capture.')
+            aid=Runtime(pc.root(state),connection=state.db).register(item['path'],item['role'],
+                run=pid,path='request-uploads/'+str(item['upload_id'])+'/'+Path(item['name']).name)
+            input_sources.append(artifact_source(state,aid))
         channel=relay_channels.request_channel(state,job['id'])
         state.db.execute('INSERT INTO relay_pipelines VALUES (?,?,?,?,?,?,?,?,?,?)',
             (pid,job['id'],job['prompt'],action['title'],encoded(action),channel,job['provider'],job['model'],
              'planned' if action['planning_only'] else 'active',time.time()))
         for i,s in enumerate(action['stages']):
             state.db.execute('INSERT INTO relay_pipeline_steps(pipeline,position,id,status) VALUES (?,?,?,?)',(pid,i,s['id'],'pending'))
+        if builder_receipt:event(state,pid,None,'workflow_compiled',builder_receipt)
         from .production_repairs import POLICY
-        event(state,pid,None,'created',{**action,'automatic_task_seconds':1800,'automatic_task_attempts':2,'automatic_local_correction':1,'automatic_script_repair':POLICY})
+        event(state,pid,None,'created',{**action,'input_sources':input_sources,'automatic_task_seconds':1800,'automatic_task_attempts':2,'automatic_local_correction':1,'automatic_script_repair':POLICY})
         if action.get('contract_version')==1:
             from orchestrator.handoff_contracts import compile_workflow
             report=compile_workflow(action['stages'],snap.get('capabilities',{}).get('graph_operations',[]),True)
@@ -526,7 +562,10 @@ def enqueue_step(state,p,s):
     # Stable identity + intent in the SAME commit as the queue. No provider here.
     ident=-int(hashlib.sha256((p['id']+':'+s['id']).encode()).hexdigest()[:15],16)-1
     prior=[dict(r) for r in state.db.execute("SELECT id,result,sources FROM relay_pipeline_steps WHERE pipeline=? AND position<? ORDER BY position",(p['id'],s['position']))]
-    sources={a['artifact']:a for r in prior for a in json.loads(r['sources'])}
+    created=state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created' ORDER BY id LIMIT 1",(p['id'],)).fetchone()
+    initial=json.loads(created[0]).get('input_sources',[]) if created else []
+    sources={a['artifact']:a for a in initial}
+    sources.update({a['artifact']:a for r in prior for a in json.loads(r['sources'])})
     for a in sources.values():
         if artifact_source(state,a['artifact'])!=a:raise ValueError('An upstream artifact changed; workflow stopped.')
     inputs={'prior_results':[dict(id=r['id'],result=r['result']) for r in prior], 'sources':list(sources.values())}
@@ -580,7 +619,7 @@ def check_plan(state,p,s,row):
     from orchestrator.worker_capabilities import needs_approval as worker_approval
     context=json.loads(row['context'] or '{}') if 'context' in row.keys() else {}
     # A fresh recovery budget is not covered by the original stage grant.
-    caps=set(spec['capabilities']);needs_approval=worker_approval(plan) or bool(context.get('execution_recovery') or context.get('review_correction_origin'))
+    caps=set(spec['capabilities']);needs_approval=worker_approval(plan) or bool(context.get('execution_recovery') or context.get('review_correction_origin') or context.get('stage_type_recovery'))
     receipt=state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created' ORDER BY id LIMIT 1",(p['id'],)).fetchone()
     grant=json.loads(receipt[0]) if receipt else {}
     automatic_seconds=grant.get('automatic_task_seconds',600)
@@ -643,6 +682,26 @@ def advance_running(state,p,s):
         advance_production(state,p,s,row['run'],row['id'])
     elif s['target_kind']=='production_run':
         advance_production(state,p,s,s['target'])
+
+
+def production_pause_text(state,step,error):
+    """Keep machine recovery codes stable while showing the actual failed task."""
+    text='Workflow paused: '+str(error)
+    if not str(error).startswith('Production '):return text
+    run=step['target'] if step['target_kind']=='production_run' else None
+    if step['target_kind']=='plan_production':
+        plan=state.db.execute('SELECT run FROM production_plans WHERE id=?',(step['target'],)).fetchone()
+        run=plan['run'] if plan else None
+    if not run:return text
+    from . import production_control as pc
+    from .production_activity import blocker_lines
+    for view in pc.inspect(state,run,include_files=False):
+        # focus prioritizes the run; inspect also returns other recent runs.
+        if view['name']!=run:continue
+        for task in view['tasks']:
+            if task['status'] not in ('blocked','uncertain','cancelling'):continue
+            text+='\n\nTask: '+task['id']+'\n'+'\n'.join(blocker_lines(task))
+    return text
 
 
 def advance_production(state,p,s,run,plan_id=None):
@@ -731,7 +790,7 @@ def reconcile_completed_production(state):
                 p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(row['id'],)).fetchone()
                 if p['status']!='blocked':continue
                 s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status!='completed' ORDER BY position LIMIT 1",(p['id'],)).fetchone()
-                if not s or s['status']!='blocked' or s['error']!='Production blocked; no attempts reset.':continue
+                if not s or s['status']!='blocked' or s['error'] not in ('Production blocked; no attempts reset.','Production uncertain; no attempts reset.'):continue
                 plan_id=None
                 if s['target_kind']=='plan_production':
                     plan=state.db.execute('SELECT * FROM production_plans WHERE id=?',(s['target'],)).fetchone()
@@ -742,7 +801,14 @@ def reconcile_completed_production(state):
                 bound=state.db.execute("SELECT channel FROM relay_channel_bindings WHERE kind='production' AND entity=? ORDER BY after_row DESC LIMIT 1",(run,)).fetchone()
                 if (bound[0] if bound else 'telegram')!=p['channel']:continue
                 scoped=relay_channels.ScopedState(state,p['channel'])
-                if Runtime(pc.root(scoped),connection=state.db).status(run)['status']!='completed':continue
+                status=Runtime(pc.root(scoped),connection=state.db).status(run)['status']
+                if status=='blocked' and s['error']=='Production uncertain; no attempts reset.':
+                    error='Production blocked; no attempts reset.'
+                    state.db.execute('UPDATE relay_pipeline_steps SET error=? WHERE pipeline=? AND id=?',(error,p['id'],s['id']))
+                    event(state,p['id'],s['id'],'production_uncertainty_resolved',{'run':run,'previous_error':s['error'],'attempts_reset':False})
+                    notice(scoped,p['id'],s['id'],'uncertainty-resolved',production_pause_text(scoped,s,error))
+                    continue
+                if status!='completed':continue
                 # Validate/freeze exact selected artifacts before clearing the blocker.
                 # A failure rolls this transaction back; no candidate is substituted.
                 advance_production(scoped,p,s,run,plan_id)
@@ -796,7 +862,7 @@ def tick(state):
                 state.db.execute("UPDATE relay_pipeline_steps SET status='blocked',error=? WHERE pipeline=? AND id=?",(str(exc),p['id'],s['id']))
                 state.db.execute("UPDATE relay_pipelines SET status='blocked' WHERE id=?",(p['id'],))
                 event(state,p['id'],s['id'],'blocked',{'error':str(exc)})
-                notice(state,p['id'],s['id'],'blocked','Workflow paused: '+str(exc))
+                notice(state,p['id'],s['id'],'blocked',production_pause_text(scoped,s,exc))
     from .workflow_files import sync_recent
     sync_recent(state)
     from . import result_handoff
