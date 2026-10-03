@@ -16,7 +16,6 @@ from tests.test_response_data import DATA,response
 class Tests(unittest.TestCase):
     def setUp(self):
         stage_fixture.Tests.setUp(self)
-        del self.fail
     tearDown=stage_fixture.Tests.tearDown
     row=stage_fixture.Tests.row
 

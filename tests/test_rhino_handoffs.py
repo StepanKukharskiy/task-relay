@@ -28,7 +28,6 @@ class Tests(unittest.TestCase):
         fixture.Tests.setUp(self)
         idle=patch('task_relay.rhino_host.running_instances',return_value=[])
         idle.start();self.addCleanup(idle.stop)
-        del self.fail
         self.app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
         self.app.start()
         self.signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'})

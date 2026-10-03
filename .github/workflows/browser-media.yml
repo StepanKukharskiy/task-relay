@@ -33,3 +33,4 @@ jobs:
           tests.test_shared_code_workers tests.test_app_access
           tests.test_browser_screenshots
           tests.test_mixed_planning tests.test_channel_policy
+          tests.test_messages_storage tests.test_codex_inputs tests.test_package_entrypoints

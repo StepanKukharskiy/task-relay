@@ -24,7 +24,6 @@ def policy(**kw):
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail
     tearDown=fixtures.Tests.tearDown
 
     def create(self,p=None):

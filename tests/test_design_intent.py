@@ -104,7 +104,6 @@ class IntentTests(unittest.TestCase):
 class PlanningTests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
-        del self.fail
     tearDown=fixture.Tests.tearDown
     request=fixture.Tests.request
     action=fixture.Tests.action
@@ -266,7 +265,6 @@ class ReviewRecoveryTests(unittest.TestCase):
 
     def setUp(self):
         self._fixture.setUp(self)
-        if isinstance(getattr(self,'fail',None),bool):del self.fail
 
     def action(self,**kwargs):
         return fixture.Tests.action(self,design_intent=True,**kwargs)

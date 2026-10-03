@@ -13,8 +13,6 @@ import re
 import stat
 import zipfile
 
-import yaml
-
 MAX_BYTES = 240_000
 MAX_FILES = 24
 MAX_CONTEXT = 60_000
@@ -45,8 +43,21 @@ def slug(value):
     return value
 
 
-class UniqueLoader(yaml.SafeLoader):
+def yaml_module():
+    # YAML belongs to the optional plugin extra; core startup must not need it.
+    try:
+        import yaml
+    except ImportError as exc:
+        raise PortableError('Install Task Relay with the plugin extra to use portable YAML documents.') from exc
+    return yaml
+
+
+def unique_loader(yaml):
     """Reject ambiguous headers instead of silently replacing metadata."""
+    class UniqueLoader(yaml.SafeLoader):
+        pass
+    UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
+    return UniqueLoader
 
 
 def unique_mapping(loader, node, deep=False):
@@ -59,14 +70,12 @@ def unique_mapping(loader, node, deep=False):
     return result
 
 
-UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
-
-
 def frontmatter(content):
     text(content)
     match = re.match(r'\A---\r?\n(.*?)\r?\n---\r?\n(.*)\Z', content, re.S)
     if not match or len(match[1]) > 12_000:
         raise PortableError('The file needs a bounded YAML frontmatter header and Markdown body.')
+    yaml = yaml_module()
     try:
         # Aliases can expand small headers into unexpectedly large structures.
         depth = 0
@@ -81,7 +90,7 @@ def frontmatter(content):
             elif isinstance(token, (yaml.tokens.FlowMappingEndToken, yaml.tokens.FlowSequenceEndToken,
                                     yaml.tokens.BlockEndToken)):
                 depth -= 1
-        header = yaml.load(match[1], Loader=UniqueLoader)
+        header = yaml.load(match[1], Loader=unique_loader(yaml))
     except yaml.YAMLError as exc:
         raise PortableError('The YAML frontmatter is invalid.') from exc
     if not isinstance(header, dict) or not match[2].strip():
@@ -184,7 +193,7 @@ def propose(request, intent='make_reusable', skill=None, work=None, bases=None):
                     'title': text(work['title']), 'revision': base_work['revision'] + 1 if base_work else 1,
                     'request': request, 'prepared_at': datetime.now(timezone.utc).isoformat(),
                     'based_on_sha256': base_work['sha256'] if base_work else None}
-        content = '---\n' + yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True) + '---\n' + text(work['markdown'])
+        content = '---\n' + yaml_module().safe_dump(metadata, sort_keys=False, allow_unicode=True) + '---\n' + text(work['markdown'])
         item = work_document(content)
         item['base'] = base_work
         candidates.append(item)

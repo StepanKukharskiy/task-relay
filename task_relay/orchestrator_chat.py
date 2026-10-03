@@ -600,6 +600,14 @@ def handle(bridge, message, text, update_id):
             bridge.send('Use '+command.split('@')[0]+' followed by what you want to generate. You can name a production preview or reply to its message.')
             return True
     reply_id = message.get('reply_to_message', {}).get('message_id')
+    # Continuations of a Codex album retain its recorded owner even when the
+    # later Telegram parts have no reply card. Let the attachment path resolve
+    # conflicts and preserve that ownership before generic upload intake.
+    if (not (explicit or browser_explicit or media_reply) and message.get('media_group_id')
+            and any(message.get(k) for k in ('document', 'photo', 'audio', 'video', 'voice', 'animation', 'video_note', 'sticker'))
+            and state.db.execute('SELECT 1 FROM codex_input_albums WHERE chat_id=? AND album_id=?',
+                                 (message['chat']['id'], message['media_group_id'])).fetchone()):
+        return False
     reply = state.db.execute('SELECT focus FROM orchestrator_messages WHERE chat_id=? AND message_id=?',
                              (message['chat']['id'], reply_id)).fetchone() if reply_id is not None else None
     if reply_id is None and message.get('media_group_id'):

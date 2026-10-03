@@ -310,7 +310,8 @@ class Tests(unittest.TestCase):
         unchained['plan']['tasks'][2]['dependencies']=['produce']
         unchained['plan']['tasks'][2]['inputs']=[i for i in unchained['plan']['tasks'][2]['inputs']
                                                if i.get('from_task')!='review']
-        with self.assertRaisesRegex(ValueError,'producer/reviewer pair'):
+        # The copied-baseline exception requires a fully chained reviewed pair.
+        with self.assertRaisesRegex(ValueError,'Every declared baseline'):
             planning.validate_result(json.dumps(unchained),row)
         copied.write_bytes(b'different workbook bytes')
         changed_id=self.rt.register(copied,'Different request copy',path='request/pilot.xlsx')

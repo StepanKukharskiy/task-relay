@@ -73,7 +73,7 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
                     'revision': 1, 'request': 'Understand deliberately connected work.'}}
                 blocked = client.post('/mcp', json=payload, headers=read_headers)
                 self.assertTrue(blocked.json()['result']['isError'])
-                self.assertIn('required Relay scope', blocked.json()['result']['content'][0]['text'])
+                self.assertIn('required Task Relay scope', blocked.json()['result']['content'][0]['text'])
                 prepared = client.post('/mcp', json=payload, headers=full_headers)
                 self.assertFalse(prepared.json()['result'].get('isError', False))
                 self.assertEqual(prepared.json()['result']['structuredContent']['model_calls'], 0)

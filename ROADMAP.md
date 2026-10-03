@@ -33,6 +33,14 @@ app restart were independently verified. Bundled Python checks and 15 controlled
 installer tests pass. This establishes local runtime readiness; no new model task
 or messenger test was dispatched. Verification remains in ignored local records.
 
+PR validation repairs (2026-10-03): source fixes remove optional YAML from core
+startup, retain Codex attachment album ownership and allow only inert initialized
+provider defaults during offline consolidation. Nondefault provider state still
+requires review, and backups retain exact source records. Controlled fixtures use
+isolated project catalogs and current intake/file contracts; original proposal
+scope and no-replay checks remain enforced. Validation logs are local in
+`outputs/pr12-*.log`. These source fixes have not been installed in the local app.
+
 ## Product direction
 
 Task Relay aims to be a reliable job runtime that any authorized agent,

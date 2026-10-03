@@ -24,7 +24,6 @@ class Tests(unittest.TestCase):
 
     def setUp(self):
         routing.Tests.setUp(self)
-        del self.fail  # Routing's fake desktop flag shadows unittest.TestCase.fail.
         self.entries=[dict(worker_capabilities.entry(b),available=True) for b in (OPENAI,GEMINI)]
         for mock in (patch.object(executors,'catalog',side_effect=lambda *_:copy.deepcopy(self.entries)),
                      patch.object(executors,'available')):

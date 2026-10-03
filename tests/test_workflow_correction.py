@@ -19,7 +19,7 @@ def proposal(bad=False):
 
 class Tests(unittest.TestCase):
     def setUp(self):
-        fixtures.Tests.setUp(self);del self.fail
+        fixtures.Tests.setUp(self)
     tearDown=fixtures.Tests.tearDown
 
     def run_request(self, responses, prompt='Research then model, render and create a three-slide deck.'):

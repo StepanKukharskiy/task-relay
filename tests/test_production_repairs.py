@@ -14,7 +14,6 @@ from tests import test_rhino_planning as fixtures, test_rhino_operations as nati
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail
         self.signature = patch('task_relay.host_evidence.application_signature', return_value={'path': '/fixture/rhino'})
         self.signature.start()
 

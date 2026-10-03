@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from tests import intake_fixtures as intake
 from unittest.mock import patch
 
 from task_relay import orchestrator_context as context
@@ -176,20 +177,22 @@ class ContextTests(unittest.TestCase):
         class Client:
             def request(self, endpoint, request):
                 requests.append(copy.deepcopy(request))
+                if len(requests)==1:return intake.response('gemini')
                 return {'candidates': [{'finishReason': 'STOP', 'content': {'role': 'model', 'parts': [
-                    {'text': fixture.result()}]}}]}
+                    {'text': json.dumps({**json.loads(fixture.result()),'next_options':[]})}]}}]}
         with patch.object(chat, 'snapshot', return_value=snap), \
              patch.object(chat.gemini, 'DATA', Path(fixture.temp.name)), \
              patch.object(chat.gemini, 'read_config', return_value={'api_key': 'test-only'}), \
              patch.object(chat.gemini, 'Client', return_value=Client()):
             chat.Worker(fixture.state).tick()
-        self.assertEqual(len(requests), 1)
+        self.assertEqual(len(requests), 2)
         sent = json.loads(requests[0]['contents'][0]['parts'][0]['text'])
         row = fixture.state.db.execute('SELECT * FROM orchestrator_chats').fetchone()
         self.assertEqual(sent['user_message'], row['prompt'])
-        self.assertEqual(row['status'], 'answered')
+        self.assertEqual(row['status'], 'answered',[dict(r) for r in fixture.state.db.execute('SELECT * FROM orchestrator_chat_errors')])
         self.assertLessEqual(len(context.encoded(sent).encode()), context.MAX_OVERVIEW)
-        self.assertIn('context_read', json.dumps(requests[0]['tools']))
+        self.assertEqual(requests[0]['tools'][0]['functionDeclarations'][0]['name'],'relay_intake')
+        self.assertIn('context_read', json.dumps(requests[1]['tools']))
         self.assertIn('context_overview', json.loads(row['snapshot']))
         self.assertEqual(fixture.state.db.execute('SELECT count(*) FROM workflow_dispatches').fetchone()[0], 0)
         self.assertEqual(fixture.state.db.execute('SELECT count(*) FROM orchestrator_proposals').fetchone()[0], 0)

@@ -12,6 +12,8 @@ from task_relay import workflows
 
 class Tests(unittest.TestCase):
     def setUp(self):
+        projects=patch('task_relay.task_creation.projects',return_value=[])
+        projects.start();self.addCleanup(projects.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.state = State(Path(self.temp.name) / 'state.sqlite')
         self.telegram = TelegramFake()

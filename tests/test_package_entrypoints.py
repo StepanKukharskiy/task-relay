@@ -12,6 +12,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageEntrypoints(unittest.TestCase):
+    def test_all_core_modules_import_without_optional_site_packages(self):
+        # Match a --no-deps wheel install: extras must not be startup requirements.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            env = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1',
+                   'TASK_RELAY_DATA_DIR': str(root / 'data'),
+                   'TASK_RELAY_WORKSPACE_DIR': str(root / 'projects'),
+                   'TASK_RELAY_GENERATED_DIR': str(root / 'generated')}
+            code = ("import importlib, pathlib, sys; sys.path.insert(0, sys.argv[1]); "
+                    "[importlib.import_module('task_relay.' + p.stem) "
+                    "for p in pathlib.Path(sys.argv[1], 'task_relay').glob('*.py') "
+                    "if p.stem != '__main__']; "
+                    "from task_relay import portable_work; "
+                    "assert 'yaml' not in sys.modules\n"
+                    "try: portable_work.frontmatter('---\\nname: fixture\\n---\\nBody')\n"
+                    "except portable_work.PortableError as exc: print(str(exc))\n"
+                    "else: raise AssertionError('Missing YAML must produce a capability error')")
+            result = subprocess.run([sys.executable, '-S', '-B', '-c', code, str(ROOT)],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('Install Task Relay with the plugin extra', result.stdout)
+
     def test_module_children_ignore_unrelated_bare_modules_and_keep_data_binding(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()

@@ -35,7 +35,10 @@ function send(){
 class ExtensionDOMTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from playwright.sync_api import sync_playwright
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("The optional browser extra is not installed.") from None
         cls.runtime = sync_playwright().start()
         cls.browser = cls.runtime.chromium.launch(headless=True)
 

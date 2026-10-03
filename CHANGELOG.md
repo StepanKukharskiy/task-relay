@@ -1,3 +1,19 @@
+## Unreleased — PR validation repairs (2026-10-03)
+
+- Load optional YAML support when a portable document operation needs it, so
+  baseline package startup and core imports work without the plugin extra.
+- Preserve recorded Codex album ownership before generic attachment intake,
+  including continuations without a reply card and conflicting explicit replies.
+- Consolidate unused provider bootstrap records with backup/receipt evidence;
+  retain the target account revision and handoff boundary. Nondefault settings
+  still stop migration for review before any import commits.
+- Isolate controlled fixtures from installed Codex projects, include mandatory
+  intake and output-byte contracts, and remove the fake Desktop flag that shadowed
+  unittest failure reporting. Clarification tests now verify a fresh unstarted
+  proposal without changing its parent's scope or launching workers.
+- Include migration, attachment albums and dependency-free import regressions in
+  the controlled CI job so these failures are checked on subsequent changes.
+
 ## Unreleased — Task Relay Chrome extension 0.1.10 (2026-10-03)
 
 - Fix job downloads rejecting a reference back to the captured conversation.

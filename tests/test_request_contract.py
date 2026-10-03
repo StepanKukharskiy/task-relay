@@ -18,9 +18,6 @@ CONTRACT=work([outcome('articles',5,checks=['nonempty','utf8','fenced_code'])])
 class Tests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
-        # The routing fixture's Desktop failure flag shadows unittest.fail.
-        # This suite exercises production workers, never that Desktop adapter.
-        del self.fail
     tearDown=fixture.Tests.tearDown
     def queue(self,ident=1,action=None,text=REQUEST,contract=CONTRACT):
         self.bridge.process({'update_id':ident,'message':{'text':'/orchestrator '+text,'from':{'id':7},'chat':{'id':7,'type':'private'}}})

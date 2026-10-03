@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import unittest
+from tests import intake_fixtures as intake
 import uuid
 from unittest.mock import patch
 
@@ -108,10 +109,10 @@ class FlowTests(unittest.TestCase):
         data=copy.deepcopy(DATA);data['research_advice']['recommended_mode']='sources';data['research_advice']['requirement']='required';data['answer']='A documented interface is described in [the primary page](https://docs.example/read).'
         first={'candidates':[{'finishReason':'STOP','content':{'role':'model','parts':[{'functionCall':{'name':'web_fetch','args':{'url':'https://docs.example/read','offset':0,'limit':1000}}}]}}]}
         with patch.object(chat,'snapshot',return_value={'capabilities':fixture.CATALOG,'production_runs':[],'codex_tasks':[],'uploaded_files':[]}),patch.object(chat.gemini,'DATA',self.paths.data),patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}),patch.object(chat.gemini,'Client') as client,patch.object(web,'download',return_value=('https://docs.example/read',b'<title>Interface</title><p>Primary interface documentation.</p>','text/html','utf-8')):
-            client.return_value.request.side_effect=[first,response('gemini',data)]
+            client.return_value.request.side_effect=[intake.response('gemini'),first,response('gemini',data)]
             chat.Worker(self.state).tick()
-            self.assertEqual(client.return_value.request.call_count,2)
-            definition=client.return_value.request.call_args_list[0].args[1]['tools'][0]['functionDeclarations'][-1]
+            self.assertEqual(client.return_value.request.call_count,3)
+            definition=client.return_value.request.call_args_list[1].args[1]['tools'][0]['functionDeclarations'][-1]
             self.assertEqual(definition['parametersJsonSchema']['properties']['action_json']['type'],'null')
         projected=desktop_workspace.chat_detail(self.ident,self.paths)
         stage=projected['flow']['stages'][0]

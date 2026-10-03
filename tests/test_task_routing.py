@@ -12,9 +12,11 @@ from task_relay import orchestrator_chat as chat
 
 class Tests(unittest.TestCase):
     def setUp(self):
+        projects=patch('task_relay.task_creation.projects',return_value=[])
+        projects.start();self.addCleanup(projects.stop)
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve()
         self.state=State(self.root/'state.sqlite');self.telegram=TelegramFake()
-        self.tasks=[];self.calls=[];self.fail=False;self.on_open=None
+        self.tasks=[];self.calls=[];self.submit_fails=False;self.on_open=None
         for i in range(2):
             path=self.root/f'task{i}.jsonl';path.write_text(json.dumps({'type':'event_msg','payload':{'type':'task_complete','turn_id':'old'}})+'\n')
             self.tasks.append(dict(id=f't{i}',name=f'Video task {i}',title='Existing video production',cwd=str(self.root),rollout_path=str(path),updated_at=1))
@@ -30,7 +32,7 @@ class Tests(unittest.TestCase):
                 return 'owner'
             def start(self,tid,prompt,owner):
                 test.calls.append((tid,prompt))
-                if test.fail:raise TimeoutError('uncertain')
+                if test.submit_fails:raise TimeoutError('uncertain')
         self.bridge=Bridge(self.state,self.telegram,{},Desktop)
         self.worker=routing.Worker(self.state,Desktop,lambda:self.tasks)
         self.catalog_patch=patch('task_relay.bridge.local_tasks',side_effect=lambda:self.tasks);self.catalog_patch.start()
@@ -93,7 +95,7 @@ class Tests(unittest.TestCase):
         self.worker.tick();self.assertEqual(self.calls,[])
 
     def test_uncertain_ipc_not_replayed_after_restart(self):
-        self.request({'kind':'route_task','task_id':'t0'});self.fail=True
+        self.request({'kind':'route_task','task_id':'t0'});self.submit_fails=True
         self.worker.tick();self.worker.started=False;self.worker.tick()
         self.assertEqual(len(self.calls),1)
         self.assertEqual(self.state.db.execute('SELECT status FROM task_routes').fetchone()[0],'uncertain')
@@ -160,8 +162,8 @@ class Tests(unittest.TestCase):
         self.worker.tick();self.assertEqual([c[0] for c in self.calls],['t1','t0'])
 
     def test_uncertain_destination_does_not_block_its_peer(self):
-        self.request({'kind':'route_task','task_id':'t0'});self.fail=True;self.worker.tick()
-        self.fail=False
+        self.request({'kind':'route_task','task_id':'t0'});self.submit_fails=True;self.worker.tick()
+        self.submit_fails=False
         self.request({'kind':'route_task','task_id':'t1'},ident=2)
         self.request({'kind':'route_task','task_id':'t0'},ident=3)
         self.worker.tick()

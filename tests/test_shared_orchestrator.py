@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 import unittest
+from tests import intake_fixtures as intake
 from unittest.mock import patch
 
 from tests import test_desktop_plans as desktop_fixture
@@ -75,9 +76,9 @@ class SharedTests(unittest.TestCase):
         raw=json.dumps(REPLY)
         response={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':raw}]}}]}
         with patch.object(chat,'snapshot',side_effect=snapshot), patch.object(chat.gemini,'DATA',self.paths.data), patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), patch.object(chat.gemini,'Client') as client:
-            client.return_value.request.return_value=response
+            client.return_value.request.side_effect=[intake.response("gemini"),response,intake.response("gemini"),response]
             worker=chat.Worker(self.state);worker.tick();worker.tick()
-            self.assertEqual(client.return_value.request.call_count,2)
+            self.assertEqual(client.return_value.request.call_count,4)
             for call in client.return_value.request.call_args_list:
                 sent=call.args[1];payload=json.loads(sent['contents'][0]['parts'][0]['text'])
                 self.assertEqual(payload['user_message'],REQUEST)
@@ -112,11 +113,11 @@ class SharedTests(unittest.TestCase):
         responses=[{'candidates':[{'content':{'parts':[{'functionCall':{'name':'web_search','args':{'query':'controller documentation'}}}]}}]},
                    {'candidates':[{'content':{'parts':[{'text':raw}]}}]}]
         with patch.object(chat,'snapshot',return_value={'capabilities':CATALOG}), patch.object(chat.gemini,'DATA',self.paths.data), patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), patch.object(chat.gemini,'Client') as client, patch('task_relay.orchestrator_web.Session.execute',return_value=searched):
-            client.return_value.request.side_effect=responses
+            client.return_value.request.side_effect=[intake.response("gemini"),*responses]
             worker=chat.Worker(self.state);worker.tick();worker.tick()
-            self.assertEqual(client.return_value.request.call_count,2,'No provider replay after the search and rejected answer.')
+            self.assertEqual(client.return_value.request.call_count,3,'No provider replay after the search and rejected answer.')
         row=self.state.db.execute('SELECT * FROM orchestrator_chats').fetchone()
-        self.assertEqual(row['status'],'failed');self.assertEqual(row['response'],raw)
+        self.assertEqual(row['status'],'failed');self.assertEqual(json.loads(row['response']),{**value,'request_contract':intake.ANSWER})
         self.assertIn('without recorded page reads',row['answer'])
         self.assertIn('no automatic retry',row['answer'])
         self.assertEqual(orchestrator_advice.disclosure(self.paths.data,row['id'])['sources'][0]['kind'],'search_result')
@@ -133,7 +134,7 @@ class SharedTests(unittest.TestCase):
         payload={'user_message':REQUEST,'snapshot':{'capabilities':CATALOG},'entry_context':{'research_mode':'none'}}
         value=copy.deepcopy(REPLY);value['next_options']=[OPTIONS[1]]
         with patch.object(chat.gemini,'DATA',self.paths.data), patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), patch.object(chat.gemini,'Client') as client:
-            client.return_value.request.return_value={'candidates':[{'content':{'parts':[{'text':json.dumps(value)}]}}]}
+            client.return_value.request.side_effect=[intake.response('gemini'),{'candidates':[{'content':{'parts':[{'text':json.dumps(value)}]}}]}]
             chat.generate({'id':'no-web','provider':'gemini','model':'fixture'},payload)
             definitions=client.return_value.request.call_args.args[1]['tools'][0]['functionDeclarations']
             self.assertFalse(any(d['name'].startswith('web_') for d in definitions))

@@ -13,7 +13,6 @@ from tests import test_production_planning as fixtures
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail
         app=dict(available=True,blocker=None,evidence='Controlled fixture',version='fixture',interpreter='CPython',executable='/fixture/python',library_runtime={'version':'fixture'})
         from orchestrator import rhino3dm_script
         mock=patch.object(rhino3dm_script,'discover',return_value=app)

@@ -13,7 +13,6 @@ from tests.test_gemini_executor import CONFIG, BACKEND
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail  # Routing fixture's boolean would shadow unittest.fail.
     tearDown=fixtures.Tests.tearDown
     request=fixtures.Tests.request
     action=fixtures.Tests.action

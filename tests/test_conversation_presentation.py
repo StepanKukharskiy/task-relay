@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import unittest
+from tests import intake_fixtures as intake
 from unittest.mock import patch
 
 from task_relay import orchestrator_advice as advice, orchestrator_chat as chat, desktop_workspace, desktop_plans
@@ -50,7 +51,7 @@ class PresentationTests(unittest.TestCase):
         value['claim_sources']=[{'statement':'A small controller could provide a fun interface for an external assistant.','source_urls':[]}]
         raw=json.dumps(value)
         with patch.object(chat,'snapshot',return_value={'capabilities':fixture.CATALOG,'production_runs':[],'codex_tasks':[],'uploaded_files':[]}), patch.object(chat.gemini,'DATA',self.paths.data), patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), patch.object(chat.gemini,'Client') as client:
-            client.return_value.request.return_value={'candidates':[{'content':{'parts':[{'text':raw}]}}]}
+            client.return_value.request.side_effect=[intake.response('gemini'),{'candidates':[{'content':{'parts':[{'text':raw}]}}]}]
             if fail_notice:
                 original_notice=chat.queue_notice
                 notices=0
@@ -62,8 +63,9 @@ class PresentationTests(unittest.TestCase):
                 with patch.object(chat,'queue_notice',side_effect=notice):chat.Worker(self.state).tick()
                 self.assertEqual(notices,2)
             else:chat.Worker(self.state).tick()
-            client.return_value.request.assert_called_once()
-        return value,raw,dict(self.state.db.execute('SELECT * FROM orchestrator_chats').fetchone())
+            self.assertEqual(client.return_value.request.call_count,2)
+        from task_relay import request_contract
+        return value,request_contract.seal(raw,intake.ANSWER),dict(self.state.db.execute('SELECT * FROM orchestrator_chats').fetchone())
 
     def test_compact_answer_and_projection_are_atomic_without_execution(self):
         value,raw,row=self.answer()
