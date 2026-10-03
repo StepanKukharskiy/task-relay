@@ -31,6 +31,30 @@ def contract(options, builder=None, *, bindings=False):
     if not options.get('executor_locked'):
         ids=[x['id'] for x in options.get('worker_catalog',[])]
         if ids:worker['executor']={'type':'string','enum':ids}
+    execution=obj({'capability':text,'version':integer,'parameters':opaque},
+                  ('capability','version','parameters'))
+    browser=obj({'profile':text,'origins':array(text),'interaction_scope':text,
+                 'max_tabs':integer,'max_actions':integer,'uploads':array(text),
+                 'downloads':array(text),'screenshots':array(text),
+                 'session_source':text,'visual_inputs':array(text),
+                 'image_sources':array(opaque)},
+                ('profile','origins','interaction_scope','max_tabs','max_actions',
+                 'uploads','downloads'))
+    operations=set(options.get('step_capabilities',[])) | (set(options.get('optional_research_capabilities',[])) & {'web.sources'})
+    if 'web.sources' in operations:
+        web=obj({'capability':{'type':'string','enum':['web.sources']},
+                 'version':{'type':'integer','enum':[1]},
+                 'parameters':obj({'queries':array(text),'domains':array(text),
+                                   'model':text},('queries','domains'))},
+                ('capability','version','parameters'))
+        others=sorted(operations-{'web.sources'})
+        # Optional research still coexists with other frozen operations. Never
+        # let web.sources fall through the opaque generic parameters branch.
+        if others:
+            execution['properties']['capability']={'type':'string','enum':others}
+            execution={'anyOf':[web,execution]}
+        else:
+            execution=web
     task=obj({
         'id':text, 'role':text, 'objective':text, 'instruction':text,
         'inputs':array({'anyOf':[source,upstream]}),
@@ -42,9 +66,15 @@ def contract(options, builder=None, *, bindings=False):
                      ('seconds','tool_calls','output_bytes')),
         'max_attempts':integer, 'review_of':text, 'user_gate':text,
         'selection_outputs':array(text), 'tools':array(text),
-        'worker':obj(worker, ('requires',)), 'browser':opaque,
-        'execution':obj({'capability':text,'version':integer,'parameters':opaque},
-                        ('capability','version','parameters')),
+        'worker':obj(worker, ('requires',)), 'browser':browser,
+        'computer':{'anyOf':[obj({'selection':text},('selection',)),
+                    obj({'selection':text,'url':text,'allowed_urls':array(text),'max_seconds':integer},
+                        ('selection','url','allowed_urls','max_seconds'))]},
+        'execution':execution,
+        'research':{'anyOf':[obj({'mode':{'type':'string','enum':['profile']}},('mode',)),
+            obj({'mode':{'type':'string','enum':['discovery']},'parameters':obj({
+                'entity_type':text,'required_fields':array(text),'max_records':integer},
+                ('entity_type','required_fields','max_records'))},('mode','parameters'))]},
     }, ('id','role','objective','instruction','outputs',
         'criteria','limits','max_attempts'))
     if bindings:
@@ -60,11 +90,18 @@ def contract(options, builder=None, *, bindings=False):
         'input_basis':obj({'mode':{'type':'string','enum':['new','modify_existing']},
                            'artifacts':array(text)}, ('mode','artifacts')),
         'geometry_basis':opaque,
+        'design_intent':opaque,
         'deferred_operations':obj({}, additional=text),
         'deliverable_map':obj({}, additional={'anyOf':[
             obj({'task':text,'output':text}, ('task','output')),
             obj({'deferred_operation':text}, ('deferred_operation',))]}),
     }, ('decision','message','plan'))
+    if options.get('research_advice_version') == 1:
+        schema['properties']['research_advice']=obj({
+            'recommended_mode':{'type':'string','enum':['none','sources']},
+            'requirement':{'type':'string','enum':['unnecessary','optional','required']},
+            'reason':text,'questions':array(text)}, ('recommended_mode','requirement','reason','questions'))
+        schema['required'].append('research_advice')
     if builder:
         from .operation_builders import plan_schema
         schema['properties']['plan']={'anyOf':[plan_schema(builder,options),{'type':'null'}]}
@@ -143,4 +180,20 @@ def prepare(result, payload, options, *, compiled=False):
         from .operation_builders import ContractError
         field,_,expected=str(exc).partition(': ')
         raise ContractError('missing_input' if expected=='required field is missing.' else 'invalid_detail',field,expected) from None
+    if isinstance(tasks,list):
+        operation=next((item for item in payload.get('graph_operations',[])
+                        if item.get('id')=='web.sources'),None)
+        for index,task in enumerate(tasks):
+            execution=task.get('execution') if isinstance(task,dict) else None
+            if not isinstance(execution,dict) or execution.get('capability')!='web.sources':
+                continue
+            params=execution.get('parameters')
+            if isinstance(params,dict) and 'model' not in params:
+                model=operation.get('configured_model') if operation else None
+                if not operation or not operation.get('available') or not isinstance(model,str) or not model:
+                    raise ValueError('The frozen web.sources model is unavailable; no model was inferred.')
+                params['model']=model
+                bindings.append({'path':'$.plan.tasks['+str(index)+'].execution.parameters.model',
+                                 'value':model,'source':'graph_operations.web.sources.configured_model',
+                                 'reason':'exact frozen model'})
     return proposal, bindings

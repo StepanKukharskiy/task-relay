@@ -45,6 +45,28 @@ agents use the same form. See [typed contract builders](typed-contract-builders.
 
 ## Result disposition
 
+Since local 0.13.144, text factual reviews may freeze a `source_verification` contract with
+criterion numbers, candidate input paths and independent source input paths. The
+typed form accepts `claims`, each with the whole literal candidate passage,
+candidate path, supported/unsupported/uncertain verdict, reason, and supporting
+input paths/hashes/literal quotes. Canonical reports encode that object in the
+criterion's evidence string. API and Codex workers receive the same instructions.
+
+Before acceptance, the worker and supervisor validate the contract, exact input
+hashes, distinct candidate claims, allowed independent paths and literal passage
+membership. Each of up to 40 claims per criterion needs source support. An
+unsupported/uncertain claim, empty audit, section-reference-only evidence, wrong
+hash or invented quote cannot pass. Workers can report revise/blocked with their
+limitations instead. API finish corrections stay within the existing attempt and
+budgets; no external operation is replayed. Original files and report receipts
+remain preserved, and model acceptance still cannot select a user's output.
+
+These checks establish citation binding. Source quality, whole-claim support,
+contradictions and exhaustive material claim coverage remain reviewer judgments.
+They do not certify compilation, electrical safety, physical measurements or
+semantic truth. Unverified work must remain explicit. This contract is applied
+only to new matching plans; historical assignments retain their original scope.
+
 All workers share the [result policy](result-policy.md). Usable outputs with typed
 quality findings pause for explicit user acceptance or correction feedback. An AI
 review cannot substitute for that decision. Technical failures and uncertainty
@@ -163,7 +185,7 @@ with text artifacts; media rendering and browser checks are job-specific.
 - Workspaces use the Codex `workspace-write` sandbox and isolated copied inputs. Temporary directories are also writable; reads are not confined to a confidential-data container. The file/shell tool profile and restrictions on outside reads, messaging and additional agents are assignment policy, not a complete tool-authorization firewall.
 - The supervisor enforces elapsed-time limits and stops after the observed tool-start count exceeds the bound. Already-started tools may run before cancellation is processed. There is no hard token, dollar, memory, disk or network quota.
 - Uncertain launch or process-inspection results retain their identity and resource lock. No automatic retry or inferred recovery from a model's “done” message occurs. An intact completion receipt can later reconcile the same attempt.
-- Plans can be authored through JSON/templates or proposed by the bounded planner. Telegram supports exact-plan approval, registered-stage starts, bounded revisions, reference collection, output delivery, [selection, pause/resume/cancel and next-stage planning](production-selections.md). Next-stage planning carries exact selections and prior instructions into another bounded producer/reviewer pair. Arbitrary multi-stage graphs, branching successors and additional execution backends remain separate work. Selection/cancellation and explicit future-assignment changes also exist in the local CLI.
+- Production plans can be authored through JSON/templates or proposed by the bounded planner. Telegram supports exact-plan approval, registered-stage starts, bounded revisions, reference collection, output delivery, [selection, pause/resume/cancel and next-stage planning](production-selections.md). Next-stage planning carries exact selections and prior instructions into another bounded producer/reviewer pair. A separate [request-derived pipeline](request-derived-pipelines.md) can coordinate multiple ordered stages across existing routes; it is not a general parallel branching graph. Selection/cancellation and explicit future-assignment changes also exist in the local CLI.
 - The current replay tests routing and receipts. Human listening acceptance, additional real carousel/competition stages, model-requested revision on actual production, and measured coordination burden remain to validate.
 
 
@@ -210,3 +232,16 @@ dispatch. Completed dependencies are reused as exact artifact references. This
 iteration wires Rhino and Blender native scripts; other recovery paths retain
 their existing policies. A new adapter needs reliable execution/effect evidence
 and bounded recovery integration, not a list of error-message strings.
+
+## Safari workers
+
+`computer.use` resolves to a configured `*-computer` profile. The planner references
+a bundled new-window launcher or a saved host selection; Relay freezes the exact
+helper, initial URL and bounded URL list. An approved pipeline stage creates the worker
+through the shared API executor. A visible native panel precedes provider work and
+the managed launcher opens, foregrounds and binds a dedicated default-profile
+Safari window automatically. It never reclaims focus after user takeover. The panel
+provides Pause / Stop / Take over. Tools observe visible text, navigate approved
+URLs and scroll one viewport. A live-page refresh returns `action_executed=false`
+and a new token, requiring a new worker decision. Unknown outcomes are never
+replayed. See [the native contract and qualification limits](computer-use.md).

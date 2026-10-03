@@ -1,0 +1,44 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "relay-work",
+  "version": "0.4.2",
+  "description": "Turn useful ChatGPT conversations into reusable Skills and work you can pick up again.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skills",
+    "work",
+    "reuse",
+    "portable"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Task Relay",
+        "shortDescription": "Make useful work reusable",
+        "longDescription": "Turn useful ChatGPT conversations into reusable Skills and work you can pick up again.\n\nUse Make this reusable after useful discussion. ChatGPT proposes general instructions as a standard Agent Skill and instance-specific progress as a work snapshot. Review, edit, save or ignore each independently. Nothing is saved automatically.\n\nIn a fresh chat, attach or select your saved Skill/work files and state the new request. Continue using those files without the original conversation. Update saved work and Improve Skill are reviewed separately.\n\nThis skills-only plugin uses ChatGPT\u2019s native conversation and file capabilities. It has no custom panel, Relay server, separate Relay account, Relay Desktop requirement, full-history access or cloud synchronization. File creation and selection depend on the host capabilities available in your chat.",
+        "developerName": "Stepan Kukharskiy",
+        "category": "Productivity",
+        "defaultPrompt": [
+          "Make this conversation reusable with Task Relay.",
+          "Continue using my selected Skill and saved work.",
+          "Update saved work and propose Skill improvements separately."
+        ],
+        "brandColor": "#253DE8",
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/logo.png",
+        "websiteURL": "https://task-relay-website-production.up.railway.app/chatgpt",
+        "supportURL": "https://task-relay-website-production.up.railway.app/chatgpt/support",
+        "privacyPolicyURL": "https://task-relay-website-production.up.railway.app/chatgpt/privacy",
+        "termsOfServiceURL": "https://task-relay-website-production.up.railway.app/chatgpt/terms"
+      },
+      "publication": {
+        "countries": [],
+        "release_notes": "Task Relay uses native ChatGPT conversation and file capabilities. Independently review reusable standard Skills and work snapshots, then select saved files in a new chat to continue. No Relay MCP server, tunnel, account or custom panel is required."
+      },
+      "onboardingSkill": "./skills/make-reusable/SKILL.md"
+    }
+  },
+  "author": {
+    "name": "Stepan Kukharskiy"
+  }
+}

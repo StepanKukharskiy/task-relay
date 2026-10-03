@@ -121,7 +121,9 @@ def main():
         updated['ProgramArguments'] = [str(INSTALLED / 'Contents/MacOS/task-relay-desktop'), '--messages-service']
         updated['AssociatedBundleIdentifiers'] = ['com.taskrelay.desktop']
         updated['EnvironmentVariables']['TASK_RELAY_MESSAGES_OWNER'] = 'task-relay-app'
-        updated_telegram = dict(specs[0], ProgramArguments=package_args)
+        updated_telegram = dict(specs[0], ProgramArguments=package_args,
+                                AssociatedBundleIdentifiers=['com.taskrelay.desktop'],
+                                LimitLoadToSessionType='Aqua')
         retired = []
         for path in args.retire:
             path = path.absolute()
@@ -237,7 +239,9 @@ def main():
             health = {}
             if old_loaded[LABELS[0]]:
                 with sqlite3.connect(DB.as_uri() + '?mode=ro', uri=True, timeout=5) as db:
-                    for key in ('health:poll', 'health:scan', 'health:production', 'health:orchestrator-chat'):
+                    keys = ['health:desktop', 'health:desktop-plans', 'health:scan', 'health:production', 'health:orchestrator-chat']
+                    if (DATA / 'config.json').exists(): keys.append('health:poll')
+                    for key in keys:
                         row = db.execute('SELECT value FROM kv WHERE key=?', (key,)).fetchone()
                         health[key] = json.loads(row[0]).get('last_success', 0) if row else 0
             if old_loaded[LABELS[1]]:

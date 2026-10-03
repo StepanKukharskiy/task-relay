@@ -1,8 +1,9 @@
 # Shared code and document workers
 
-Included in the locally installed 0.13.25 app. Packaged runtime and native sandbox
-checks pass; paid-provider execution has not been live-qualified. A new public
-release has not been published by this local update.
+Updated 2026-10-02 against source 0.13.152. This feature was introduced in local
+0.13.25. Packaged runtime and native sandbox checks are recorded separately from
+paid-provider execution; see the [roadmap](../ROADMAP.md) for later installed
+versions and qualification. The public beta remains 0.13.89.
 
 Relay uses its bundled Python and document libraries. Users do not install Docker,
 Python, or packages to use this feature in the desktop app. Code and document tools are on by default. Relay runs fixed local qualification
@@ -54,7 +55,10 @@ Code is limited to 100 KB per call and at most 120 seconds within the task deadl
 The profile permits up to 100 MB of inputs and outputs; lower stage/task ceilings
 still apply. CPU and per-file limits, guardian wall-clock limits and output/log
 monitoring are enforced. This is not a hard RAM or disk-quota isolation guarantee.
-Eight API rounds and 24 total tool calls remain the provider-worker ceilings.
+The API loop defaults to eight requests; explicitly frozen assignments can permit
+up to 24 requests, with 24 total tool calls as the API profile ceiling. New code
+assignments derive missing request/response budgets before approval; lower bounds
+remain in force. See [execution provider bounds](execution-providers.md#profile-and-assignment-bounds).
 
 A trusted guardian owns the code child. Closing the worker's lifetime pipe,
 including a forced worker termination, kills and reaps that child. The child cannot

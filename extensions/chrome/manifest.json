@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Task Relay",
+  "version": "0.1.9",
+  "description": "Keep useful web work as evidence, reusable know-how and work you can continue. You choose what to keep. No cloud account required.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
+  "optional_permissions": ["nativeMessaging"],
+  "background": {"service_worker": "worker.js", "type": "module"},
+  "action": {"default_title": "Keep with Task Relay", "default_icon": {"128": "logo.png"}},
+  "icons": {"128": "logo.png"},
+  "side_panel": {"default_path": "panel.html"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"}
+}

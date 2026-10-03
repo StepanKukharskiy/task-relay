@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Relay · Keep the work</title>
+  <style>/* RELAY_WORK_STYLE */</style>
+</head>
+<body>
+  <header><div><span class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></span><p>Keep the work, not just the conversation.</p></div><button id="refresh">Refresh</button></header>
+  <div id="status" role="status" aria-live="polite">This is Task Relay's interface component. Open it through a connected MCP host to load work.</div>
+  <div class="layout">
+    <aside><h2>Work</h2><div id="projects"></div>
+      <details><summary>Start work</summary><form id="create-form"><label>Title<input id="create-title" required maxlength="240"></label><label>What do you want to do?<textarea id="create-request" required></textarea></label><button>Create work</button></form></details>
+    </aside>
+    <main>
+      <div id="empty"><h1>Pick up where you left off.</h1><p>Connect or import a project to see its decisions, versions and open issues together.</p></div>
+      <section id="work" hidden>
+        <div class="work-heading"><div><span class="eyebrow">Current state</span><h1 id="title"></h1></div><label class="topic-label">Workstream<select id="topic"><option value="">All work</option></select></label></div>
+        <nav aria-label="Work views"><button id="tab-current" aria-pressed="true">Current</button><button id="tab-sources" aria-pressed="false">Sources</button><button id="tab-history" aria-pressed="false">History</button><button id="tab-graph" aria-pressed="false">Graph</button></nav>
+        <div id="current-view">
+          <section class="understanding-area" aria-labelledby="understanding-heading">
+            <section class="card state-overview"><div class="state-heading"><h2 id="understanding-heading">Task Relay understanding</h2><button id="understand-work" class="primary">Update current state with ChatGPT</button></div><p id="understanding-state" class="freshness" role="status"></p><p id="understanding-meta" class="muted"></p><h2>Objective</h2><div id="understanding-objective"></div><h2>Current conclusions</h2><div id="conclusions"></div></section>
+            <section class="card next"><h2>Suggested next</h2><p id="next-summary" class="muted"></p><div id="next-actions"></div><details id="more-actions" hidden><summary>More suggestions</summary><div id="other-actions"></div></details></section>
+            <section class="card"><h2 id="questions-heading">Open questions</h2><div id="issues"></div><div id="understood-questions"></div><details><summary>Proposed decisions and imported statements</summary><div id="understood-decisions"></div><div id="proposals"></div><p id="proposal-count" class="muted"></p></details></section>
+          </section>
+          <section class="reviewed-area" aria-labelledby="reviewed-state-heading"><h2 id="reviewed-state-heading">Reviewed state</h2><p class="muted">Decisions, artifact selections and issue resolutions explicitly reviewed in this work.</p><div class="columns"><section class="card"><h2>Decisions</h2><div id="decisions"></div></section><section class="card"><h2>Selected artifacts</h2><div id="current-artifacts"></div></section></div><details class="card"><summary id="resolved-heading">Resolved issues</summary><div id="resolved-issues"></div></details></section>
+          <details class="card candidate-state"><summary id="candidate-summary">Artifact candidates</summary><p class="muted">These versions have not been selected for current work.</p><div id="artifacts"></div></details>
+        </div>
+        <section id="sources-view" hidden><details class="card"><summary id="held-summary">Evidence needing review</summary><div id="held-issues"></div></details><section class="card"><h2>Connected sources</h2><div id="source-coverage" class="coverage-metrics"></div><p id="sources-summary" class="muted"></p><label>Find a source<input id="source-filter" type="search" placeholder="Search connected titles…"></label><div id="sources"></div><button id="more-sources" hidden>Show more sources</button><details><summary>Original work request</summary><p id="objective" class="objective"></p></details></section><details class="card"><summary>Connect material</summary><form id="connect-form"><label>Source title<input id="source-title" required maxlength="240"></label><label>Material you choose to share<textarea id="source-text" required maxlength="100000" placeholder="A brief, selected conversation excerpt or project note…"></textarea></label><label>Connection request<input id="source-request" required maxlength="1000" placeholder="Use this material to understand the project."></label><button>Connect this material</button></form><p class="muted">Only the material you supply is saved.</p></details></section>
+        <section id="graph-view" class="card" hidden><h2>Connections behind the work</h2><p id="graph-note" class="muted"></p><div id="graph"></div></section>
+        <section id="history-view" class="card" hidden><h2>Decision and execution history</h2><div id="history"></div></section>
+        <section class="card continue"><span class="eyebrow">Continue from here</span><h2>What would you like to do next?</h2><label for="continue-request" class="sr-only">Continuation request</label><textarea id="continue-request" placeholder="Your next request…"></textarea><button id="prepare-context" class="primary">Continue this work</button><div id="packet" hidden><p id="packet-summary"></p><details><summary>Inspect the context</summary><pre id="packet-preview"></pre></details><button id="send-context" class="primary">Use this context in ChatGPT</button></div></section>
+        <details class="card"><summary>Capture a continuation result</summary><form id="capture-form"><label>Saved continuation ID<input id="capture-packet" required></label><label>Result notes to retain<textarea id="capture-notes" required maxlength="20000"></textarea></label><label>New unresolved questions, one per line<textarea id="capture-questions"></textarea></label><button>Capture result notes</button></form><p class="muted">Result notes remain reports. New decisions and selected artifact versions require their own review.</p></details>
+        <details class="card"><summary>Record a decision or issue</summary><form id="change-form"><label>Record<select id="change-kind"><option value="decision">Decision</option><option value="issue">Open issue</option></select></label><label>Exact statement<textarea id="change-text" required></textarea></label><label>Replace a decision?<select id="supersedes"><option value="">Keep existing decisions</option></select></label><button>Review change</button></form></details>
+        <section id="review" class="card review" hidden><h2>Review this change</h2><pre id="review-preview"></pre><p>Confirmation records this exact change. Text-output confirmation also starts its bounded worker.</p><button id="confirm-change" class="primary">Confirm change</button><button id="cancel-change">Cancel</button></section>
+        <details class="card"><summary>Coverage and limits</summary><div id="limitations"></div></details>
+      </section>
+      <section id="provenance" class="card" hidden><button id="close-provenance">Close</button><h2 id="provenance-title">Source details</h2><p id="provenance-authority" class="muted"></p><div id="statement-sources"></div><pre id="provenance-body"></pre><details><summary>Inspect the saved record and references</summary><pre id="provenance-text"></pre></details></section>
+    </main>
+  </div>
+  <script>/* RELAY_WORK_SCRIPT */</script>
+</body>
+</html>

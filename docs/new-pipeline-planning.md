@@ -1,8 +1,74 @@
 # O03 — natural request to a new bounded workflow
 
-Status: **bounded implementation complete, extended by O05/O06**. Live end-to-end Telegram interaction is tracked separately from implementation tests and service health. Priority and dependencies are defined in [ROADMAP.md](../ROADMAP.md). Same-scope continuation remains a separate operation. The default is one producer/reviewer stage; explicit mixed text scope supports the registered operations described below.
+Status: **bounded implementation complete, extended by O05/O06**. Live end-to-end Telegram interaction is tracked separately from implementation tests and service health. Priority and dependencies are defined in [ROADMAP.md](../ROADMAP.md). Same-scope continuation remains a separate operation. The default is one producer/reviewer stage; explicit mixed text scope supports the registered operations described below. Local 0.13.94 permits a bounded, reviewed browser research step or selected `web.sources` operation followed by a separate file producer when the request requires article-specific external verification. Without either research route or selected catalog evidence, planning returns `needs_input` before dispatch. This path has controlled and installed-runtime checks; it has not completed the motorcycle-parts translation pilot.
 
 ## Typed artifact and workflow details
+
+Local 0.13.144 freezes `text_evidence_policy_version=1` for new requests.
+Planner instructions preserve the user's requested level of work: ideas and
+feasibility can be a concise answer saved as text, while an explicitly requested
+starter project retains implementation scope. A deliberately narrow wording guard
+recognizes common exploratory questions and rejects proposed blueprint/BOM/wiring
+requirements. This is not a complete intent classifier; explicit deliverable
+wording takes precedence, and other cases still depend on planner judgment.
+
+Text criteria promising recognized technical/factual verification or current
+prices need independent inputs supplied to both author and reviewer. They can use
+selected source documents or declared outputs of scoped browser/computer or
+`web.sources` research. The candidate, request, operation-support files and notes
+written by another file-only worker cannot supply that basis. Such promises permit
+a bounded mixed research graph even when the user did not explicitly say research;
+the proposed website/actions and costs still need their existing exact Start.
+Missing sources reject the proposal before dispatch. The planner can correct it
+within its existing two-call budget, by supplying research or honestly proposing
+unverified ideas. This does not authorize an unrequested build or hardware test.
+
+The reviewer gets a frozen `source_verification` contract described in
+[worker runtime](worker-runtime.md). Existing saved requests do not acquire this
+policy on inspection, restart or approval.
+
+Local 0.13.145 adds an explicit Desktop research choice without modifying the
+verbatim request. Suggest research when useful remains the default; the user can
+instead choose existing knowledge/supplied files or a source-backed answer.
+The choice is committed with the planning request identity, frozen into its
+context, and cannot change during an unchanged receipt retry. No-new-research
+excludes browser/computer/web.sources producers. A source-backed text answer needs
+independent inputs for author and reviewer even if the planner tries to replace
+verification criteria with disclaimers. Supplied documentation can satisfy that
+choice without a browser step. Otherwise a bounded research/review stage must
+feed the author and reviewer, or planning returns a blocker. Review and Start still
+approve the exact proposed websites, actions, external transfers and budgets.
+
+Local 0.13.146 makes the default Desktop choice a recorded orchestrator judgment
+within the same planning response: `research_advice` declares the recommended
+approach, whether research is unnecessary/optional/required, a request-specific
+reason and up to four questions source checking would resolve. Creative work can
+recommend a quick answer without research. Explorations can offer optional checks;
+evidence-dependent requests can propose source-backed work. The graph must follow
+that recommendation, with the same source handoff/review contract and frozen
+capabilities. Explicit choices override this default; operation-builder scopes
+retain their existing contracts. Missing or inconsistent advice uses the existing
+bounded structural correction, never dispatch. Advice is saved with the plan and
+shown with contextual alternatives that open new drafts. It is model judgment,
+not a semantic proof that research is necessary or sufficient. Historical plans
+receive no retroactive advice; the original request and choice stay exact.
+
+Local 0.13.147 also covers direct conversational answers on Telegram and Messages.
+Those replies do not necessarily create a production plan. The live generator
+requires request-specific research advice in the same response; the service saves
+it and appends relevant recommendations and source-check questions. Exploratory
+answers remain bounded and reject recognized unsolicited blueprint wording. A
+missing recommendation preserves the exact provider reply and stops without an
+automatic retry or workflow dispatch. Historical answer parsing remains compatible.
+Actual web links come from hash-checked successful tool results in that request's
+read journals; fetched pages and search references have different labels. No
+recorded lookup and incomplete receipt coverage are stated honestly. New stage
+actions can carry `research_mode` and use the same frozen planning/evidence
+contract as Desktop; recommendation never authorizes Start or source acceptance.
+
+Exploration stays concise and engaging. State unknowns beside the relevant claims;
+a documented specification and an untested implementation are different kinds of
+evidence. A whole-document unverified label does not supply factual verification.
 
 New planner schemas expose compact artifact selectors and compile input metadata,
 reviewer coverage and companion selection. New workflow actions use `stage_details`
@@ -123,7 +189,7 @@ Planning-only requests expose no Start button. A later explicit execution reques
 
 `production_planning.py` stores requests, frozen instructions, template origin/version/changes, source hashes, raw model responses, usage, validation errors and stage receipts in the existing `private/state.sqlite` (`production_plans` and `production_plan_*` tables). Frozen files live under `private/production-planning/`; artifact bytes use the existing runtime registry. Selected packs reuse registered artifact IDs without making another complete copy during planning. Worker workspaces still copy their inputs.
 
-The default scope is exactly two dependent workers, one attempt each, at most **600 seconds / 60 observed tool calls / 100 MB outputs per worker**. O06 adds explicit `step_capabilities` for [mixed text graphs](mixed-execution.md) of 2–6 steps with smaller registered-operation limits. Complete selected reference bundles travel to all steps; **150 MB total distinct selected inputs** is the overall limit, and each operation enforces its smaller input bound. Oversized bundles stop rather than silently dropping dependencies. Separate selected research, guides, conversation and exact current request are required inputs as well. These bounds do not establish a token or dollar cap for agent execution.
+The default scope is exactly two dependent workers, one attempt each, at most **600 seconds / 60 observed tool calls / 100 MB outputs per worker**. O06 adds explicit `step_capabilities` for [mixed text graphs](mixed-execution.md) of 2–6 steps with smaller registered-operation limits. A sequential file-only graph may contain 2–6 producer/reviewer pairs when each later producer depends on the preceding review; normal graph, input, budget and review validation still applies, and Start is required. This graph shape does not grant browser or registered operations. Complete selected reference bundles travel to all steps; **150 MB total distinct selected inputs** is the overall limit, and each operation enforces its smaller input bound. Oversized bundles stop rather than silently dropping dependencies. Separate selected research, guides, conversation and exact current request are required inputs as well. These bounds do not establish a token or dollar cap for agent execution.
 
 The planner uses the conversation's configured provider/model. Existing stages and
 clarifications retain their frozen worker backend; an explicit executor choice takes
@@ -180,6 +246,12 @@ outputs. Colliding aliases are rejected, and frozen assignments retain the stric
 reserved-directory check. If an unexecuted execution plan was blocked by validation,
 click **Plan execution** on its preparation card to revalidate the saved proposal.
 A valid recovery presents a new plan for **Start**, without another provider call.
+For a standalone blocked, unstarted Telegram proposal,
+`/orchestrator recover-plan PLAN_ID` runs the same saved-response validator against the current local code.
+It preserves the failed plan and provider receipts, checks selected artifact hashes,
+and publishes a new plan card only if a saved response now validates. It makes no
+provider call and starts no workers. A planning-only recovered card still requires
+an explicit request to execute, followed by Start approval.
 
 Generated, known-template and adapted-template plans use the same validator. Template snapshots and actual modifications are retained; reusable templates are unchanged. O05 adds `previous_run` for a completed stage with recorded selections: exact selected versions, prior instructions and original job identity become required inputs to both workers. One successor is retained per stage; clarification uses `parent_id` on its saved proposal. See [stage control and progress](production-selections.md). Telegram transport and approval paths have controlled tests; they do not establish deployed Telegram delivery.
 
@@ -214,7 +286,7 @@ Add one durable planner operation between a request/reference pack and stage reg
 
 The planner receives a capability description, not credentials or arbitrary access. First execution backend: existing `codex-cli`, with its supported files/shell profile. Use the configured planning model; additional model selection is not part of O03.
 
-Prefer a compatible existing template when it fits; adapt or generate only as the request requires. A generated plan and an adapted template pass the same contract checks. Save the resulting plan and origin without modifying the reusable source template. A request already served by a direct capability stays on that route; O03 does not require a graph for every job. The broader [job/pipeline/capability model](../ROADMAP.md#jobs-pipelines-and-capabilities--design-requirements) adds no requirement to rebuild existing queues or implement the complete O05 job view first.
+Prefer a compatible existing template when it fits; adapt or generate only as the request requires. A generated plan and an adapted template pass the same contract checks. Save the resulting plan and origin without modifying the reusable source template. A request already served by a direct capability stays on that route; O03 does not require a graph for every job. The historical [job/pipeline/capability model](../ROADMAP-HISTORY.md#jobs-pipelines-and-capabilities--design-requirements) added no requirement to rebuild existing queues or implement the complete O05 job view first.
 
 ## Planner result
 

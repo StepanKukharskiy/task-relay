@@ -1,9 +1,12 @@
 # Website work through a Codex desktop task
 
-The supervised pilot below passed, but repeated browser approvals made it too
-interactive for routine research. The current P01 priority is the
-[standalone Perplexity worker](perplexity-browser.md), which has controlled tests
-and still needs live extension qualification. These remain separate paths.
+Updated 2026-10-02. The supervised delegated pilot below passed, but repeated
+browser approvals made it too interactive for routine research. The separate
+[Perplexity worker](perplexity-browser.md) now documents managed Chrome and
+standalone connection routes alongside its older extension pilot. General
+[browser workers](general-browser.md) and native [Safari research](computer-use.md)
+have their own contracts and qualification. Use the [roadmap](../ROADMAP.md) for
+current priorities and recorded deployment evidence.
 
 Relay can send website work to an existing Codex desktop task and return its
 answer through the normal task reply watcher. The desktop task supplies Browser
@@ -17,8 +20,9 @@ delivered its completed answer and saved conversation link to Telegram.
 ## Use the qualified path
 
 1. Keep Codex and the browser running on the connected Mac. Sign in to the site.
-2. Select the intended existing Codex task with `/use TASK_ID`, or reply to its
-   Relay task card. `/use` directs subsequent ordinary messages to that task.
+2. Reply to the intended existing Codex task's Relay card to continue that task.
+   `/use TASK_ID` selects a target for commands; new ordinary messages still go
+   to the orchestrator. A routing request can explicitly name the intended task.
 3. Ask it to run the research in Perplexity Search and return the answer and
    conversation URL. Include the actual research question.
 4. If Codex asks for browser access, approve the desired scope in Codex. Relay's

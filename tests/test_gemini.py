@@ -446,6 +446,20 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM speech_tasks').fetchone()[0], 0)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_tasks').fetchone()[0], 1)
 
+    def test_task_video_keeps_first_frame_and_rejects_extra_inputs(self):
+        path=self.root/'first-frame.png';path.write_bytes(PNG)
+        with self.state.db:gemini.artifact(self.state,self.tid,None,'input',path,path.name,'image/png')
+        jid=self.queued('/video Animate the supplied image')
+        run=self.state.db.execute('SELECT * FROM gemini_runs WHERE job_id=?',(jid,)).fetchone()
+        job=self.state.db.execute('SELECT * FROM backend_jobs WHERE id=?',(jid,)).fetchone()
+        self.assertEqual(gemini_runner.make_request(self.state,job,run)['instances'][0]['image'],
+            dict(bytesBase64Encoded=base64.b64encode(PNG).decode(),mimeType='image/png'))
+        other=self.root/'other.png';other.write_bytes(PNG+b'other')
+        with self.state.db:gemini.artifact(self.state,self.tid,None,'input',other,other.name,'image/png')
+        with self.assertRaisesRegex(ValueError,'at most one'):
+            gemini.prepare_run(self.state,'another-job',self.tid,'video')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0],1)
+
     def test_video_saved_operation_restart_only_gets_and_downloads(self):
         jid = self.queued('/video Camera moves through a courtyard')
         run = self.state.db.execute('SELECT * FROM gemini_runs WHERE job_id=?', (jid,)).fetchone()
@@ -615,6 +629,19 @@ class Tests(unittest.TestCase):
             self.assertEqual(caught.exception.detail,{})
             self.assertEqual(str(caught.exception),'Gemini request failed (400)')
             self.assertTrue(stream.closed)
+
+    def test_field_violations_are_bounded_redacted_and_allowlisted(self):
+        fields=[{'field':'generation_config.response_json_schema',
+                 'description':'bad secret/+ secret%2F%2B https://private.example/?key=other Bearer unknown'}]*12
+        body={'error':{'message':'Invalid argument','status':'INVALID_ARGUMENT','details':[
+            {'@type':'type.googleapis.com/google.rpc.BadRequest','fieldViolations':fields},
+            {'@type':'private.debug','stack':'secret/+','fieldViolations':fields}]}}
+        result=gemini.error_detail(io.BytesIO(json.dumps(body).encode()),'secret/+')
+        self.assertEqual(len(result['field_violations']),5)
+        self.assertEqual(result['field_violations'][0]['field'],'generation_config.response_json_schema')
+        for secret in ('secret','private.example','unknown','stack'):
+            self.assertNotIn(secret,json.dumps(result))
+        self.assertLess(len(json.dumps(result)),6000)
 
     def test_audio_multipart_and_document_fallback(self):
         path = self.root / 'speech.mp3'

@@ -17,6 +17,14 @@ application hooks are optional platform integrations. They must not be prerequis
 for starting the core, connecting an API provider or running an eligible CLI worker.
 Local operation on any supported OS does not imply distributed multi-machine execution.
 
+Relay Desktop is the reference product for creating, inspecting and revising jobs.
+It is a client of the runtime, not the owner of the `.relay` format or job rules.
+Job capture, SQLite/JSON export, completeness checks, revision decisions and
+recovery contracts must remain callable without Tauri or desktop IPC. The same
+versioned `.relay` view can be inspected by a CLI or another host UI. A job view
+is read-only while `state.sqlite` remains authoritative; moving authority into
+per-job storage requires a separate transaction and recovery migration.
+
 ## Boundaries to introduce
 
 | Interface | Responsibility | Proposed implementations / qualification |

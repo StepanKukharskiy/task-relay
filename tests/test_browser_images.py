@@ -66,7 +66,7 @@ class Tests(unittest.TestCase):
         return json.loads((self.ws/'sources.json').read_text())
 
     def test_observed_export_cannot_invent_urls_or_write_reserved_manifest(self):
-        with self.assertRaisesRegex(ValueError,'browser_image_source'):self.files.call('file_write',dict(path='sources.json',text='{}'))
+        with self.assertRaisesRegex(ValueError,'browser_image_source'):self.files.call('file_write',dict(path='sources.json',text=json.dumps({'findings':'Observed image source fixture'})))
         for change in (dict(subject='unapproved'),dict(ref='9'),dict(path='other.json')):
             with self.assertRaises(ValueError):self.session.call('bad','browser_image_source',{**self.args(),**change})
         result=self.session.call('export','browser_image_source',self.args())

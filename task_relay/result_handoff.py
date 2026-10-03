@@ -8,6 +8,8 @@ from . import workflow_files as files
 
 
 def initialize(db):
+    from . import job_ownership
+    job_ownership.initialize(db)
     # Existing installations must not send a backlog of historical completions.
     db.execute('CREATE TABLE IF NOT EXISTS result_handoff_epoch (id INTEGER PRIMARY KEY, after_created REAL NOT NULL)')
     db.execute('INSERT OR IGNORE INTO result_handoff_epoch SELECT 1,COALESCE(max(created),0) FROM production_decisions')
@@ -54,18 +56,24 @@ def snapshot(state,run):
         original=state.db.execute('SELECT request FROM production_plans WHERE id=?',(identity,)).fetchone()
         pid='job-'+hashlib.sha256(identity.encode()).hexdigest()[:24]
         stage=dict(id='results',position=0,status=status,result='',sources=[],runs=sorted(runs),plans=sorted(plans),target=run)
-        report=dict(format_version=2,id=pid,title=plan['brief'],request=original[0] if original else plan['brief'],status=status,
+        report=dict(format_version=2,kind='production_result',id=pid,title=plan['brief'],request=original[0] if original else plan['brief'],status=status,
                     plan=plan,stages=[stage],artifacts=[],missing_artifacts=[])
         aids=set()
         for ident in plans:
             q=state.db.execute('SELECT context FROM production_plans WHERE id=?',(ident,)).fetchone()
             aids.update(s['artifact'] for s in json.loads(q[0]).get('sources',[]))
-        return files.collect_artifacts(state,report,runs,aids)
+        return files.collect_artifacts(state,report,runs,plans,aids)
 
 
 def sync(state,run):
     owner=files.owner_for_run(state,run)
     if owner:return files.sync(state,owner['id'])
+    identity, _, _ = ancestry(state, run)
+    if state.db.execute('SELECT 1 FROM production_plans WHERE id=?', (identity,)).fetchone():
+        from . import job_ownership
+        with transaction(state.db):
+            job_ownership.record_standalone(state.db, identity, run,
+                                             getattr(state, 'channel', 'telegram'))
     report=snapshot(state,run);pid=report['id']
     from .host import HOST
     from .production_folders import checked_directory

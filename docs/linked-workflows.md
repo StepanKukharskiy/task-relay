@@ -46,8 +46,10 @@ tasks or overrides an explicitly addressed task reply.
 Conversation requests run in a separate worker with a five-message queue;
 an interrupted provider request is reported without automatic replay. The `/workflow`
 controls below target linked desktop workflows. The conversational interface also
-supports registered CLI production starts/revisions and reference collection; see
-[worker runtime](worker-runtime.md). It cannot yet create a new production plan from chat.
+supports registered production starts/revisions and reference collection; see
+[worker runtime](worker-runtime.md). Bounded new production planning from chat is
+available through the separate [plan/review/Start contract](new-pipeline-planning.md);
+a planning response alone never authorizes execution.
 
 ```text
 /workflow

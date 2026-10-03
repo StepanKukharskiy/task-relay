@@ -85,7 +85,7 @@ class LocalInstallTests(unittest.TestCase):
         before = self.plists[0].read_bytes()
         self.prepare()
         manifest = json.loads((self.recovery / 'install-manifest.json').read_text())
-        self.assertEqual(manifest['updated_telegram_spec'], spec)
+        self.assertEqual(manifest['updated_telegram_spec'], {**spec, 'AssociatedBundleIdentifiers':['com.taskrelay.desktop'], 'LimitLoadToSessionType':'Aqua'})
         self.assertEqual(self.plists[0].read_bytes(), before)
 
     def test_older_manifest_is_refused_before_service_or_bundle_changes(self):

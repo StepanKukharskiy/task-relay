@@ -68,15 +68,16 @@ class Tests(unittest.TestCase):
             with self.subTest(raw=raw),self.assertRaises(ValueError):chat.interpret(chat.recover_answer_only(raw),{})
 
     def test_answer_length_limit_still_applies(self):
-        raw='{"answer":"'+('x'*12001)+'\n","action":null}'
+        from task_relay.orchestrator_advice import MAX_DIRECT_ANSWER_CHARACTERS
+        raw='{"answer":"'+('x'*(MAX_DIRECT_ANSWER_CHARACTERS+1))+'\n","action":null}'
         with self.assertRaises(ValueError):chat.interpret(chat.recover_answer_only(raw),{})
 
     def test_long_valid_code_answer_is_delivered_in_parts_once(self):
         from task_relay import telegram_text
-        answer='Blender script example:\n```python\n'+('print("tower")\n'*580)+'```'
+        answer='Blender script example:\n```python\n'+('print("tower")\n'*1100)+'```'
         raw=json.dumps({'answer':answer,'action':None})
         row=self.run_response(raw)
-        self.assertGreater(len(answer),6000)
+        self.assertGreater(len(answer),12000)
         self.assertEqual(row['status'],'answered');self.assertEqual(row['response'],raw)
         self.telegram.sent.clear()
         self.bridge.flush(False)

@@ -20,6 +20,10 @@ class Tests(unittest.TestCase):
         idle=patch('task_relay.rhino_host.running_instances',return_value=[])
         idle.start();self.addCleanup(idle.stop)
         self.rhino=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'));self.rhino.start()
+        library=self.rt.root/'Grasshopper.dll';library.write_text('controlled library fixture')
+        gh=patch('task_relay.host_apps.grasshopper',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture',
+            major=8,grasshopper_libraries=[str(library)]))
+        gh.start();self.addCleanup(gh.stop)
 
     def tearDown(self):self.rhino.stop();fixture.Tests.tearDown(self)
     request=fixture.Tests.request
@@ -33,13 +37,16 @@ class Tests(unittest.TestCase):
     def test_preparation_contract_reaches_both_workers_and_rejects_provisional_checks(self):
         from task_relay import production_control as pc
         from orchestrator.rhino_contract import validate_checks, validate_render
+        from orchestrator.grasshopper_contract import validate_checks as validate_grasshopper
+        from tests.test_grasshopper import checks as grasshopper_checks
         cases=[('rhino.run_python',dict(mode='create',units='Meters',changed_objects=[],allow_additions=True,
                     expected_object_count=1,expected_dimensions={'Core':[8,8,160]},preview={'resolution':[320,240]}),
                 {'mode':'create','units':'Meters','changed_objects':[],'allow_additions':True,
                     'expected_object_count':50,'expected_dimensions':{'x':38.4,'y':38.4,'z':160.3,'tolerance':0.02},
                     'preview':{'width':800,'height':600,'view':'Perspective','display_mode':'Shaded'}}),
                ('rhino.render',dict(version=1,engine='rhino_render',named_view='Overview',resolution=[320,240]),
-                dict(version=1,engine='viewport',named_view='Overview',resolution=[320,240]))]
+                dict(version=1,engine='viewport',named_view='Overview',resolution=[320,240])),
+               ('rhino.grasshopper',grasshopper_checks(),dict(grasshopper_checks(),mode='edit'))]
         for ident,(cap,valid,invalid) in enumerate(cases,1):
             with self.subTest(cap=cap):
                 self.queue(ident=ident,action=self.action(step_capabilities=[cap]),text='Prepare a Rhino tower script and checks. Do not execute Rhino.')
@@ -59,17 +66,17 @@ class Tests(unittest.TestCase):
                 for attempt in (producer,reviewer):
                     frozen=self.factory.sessions[attempt]['frozen']
                     workspace=Path(frozen['workspace']);support=workspace/'operation-support'/cap
-                    self.assertIn('frozen authoritative Rhino contract',frozen['instruction'])
+                    self.assertIn('frozen authoritative '+('Grasshopper' if cap=='rhino.grasshopper' else 'Rhino')+' contract',frozen['instruction'])
                     contract=json.loads((support/'contract.json').read_text())
                     self.assertEqual(contract['id'],cap)
-                    self.assertIn('checks_schema' if cap=='rhino.run_python' else 'render_schema',contract)
-                    if cap=='rhino.run_python':
+                    self.assertIn('render_schema' if cap=='rhino.render' else 'checks_schema',contract)
+                    if cap in ('rhino.run_python','rhino.grasshopper'):
                         checks_file=workspace/'valid-checks.json';checks_file.write_text(json.dumps(valid))
                         script_file=workspace/'oversized.py';script_file.write_bytes(b'#'+b' '*100000)
                         result=subprocess.run([sys.executable,'-E','-S',str(support/'validate.py'),str(checks_file),str(script_file)],cwd=workspace,capture_output=True,text=True)
                         self.assertNotEqual(result.returncode,0)
                         self.assertIn('100001',result.stderr)
-                    validator=validate_checks if cap=='rhino.run_python' else validate_render
+                    validator=validate_checks if cap=='rhino.run_python' else validate_grasshopper if cap=='rhino.grasshopper' else validate_render
                     for value,success in ((valid,True),(invalid,False)):
                         candidate=workspace/'contract-fixture.json';candidate.write_text(json.dumps(value))
                         result=subprocess.run([sys.executable,'-E','-S',str(support/'validate.py'),str(candidate)],
@@ -81,11 +88,14 @@ class Tests(unittest.TestCase):
                 self.factory.finish(reviewer,decision='accept');worker.tick()
 
     def setup_plan(self,capability="rhino.run_python"):
-        row=self.queue(action=self.action(step_capabilities=[capability]),text='Create a Rhino tower; leave Grasshopper paused.')
+        row=self.queue(action=self.action(step_capabilities=[capability]),text='Create a Grasshopper definition.' if capability=='rhino.grasshopper' else 'Create a Rhino tower; leave Grasshopper paused.')
         root=self.rt.root/'rhino-inputs';root.mkdir()
         if capability=='rhino.render':
             from types import SimpleNamespace
             host=rhino_operations.Tests.render_op(SimpleNamespace(root=root,rt=self.rt))
+        elif capability=='rhino.grasshopper':
+            from tests.test_grasshopper import inputs as grasshopper_inputs
+            host=grasshopper_inputs(self.rt,root)
         else:host=inputs(self.rt,root)
         host['user_gate']='Select the Rhino candidate'
         host['limits']={'seconds':600,'tool_calls':1,'output_bytes':10000000 if capability=='rhino.render' else 100000000}
@@ -104,6 +114,26 @@ class Tests(unittest.TestCase):
         planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
         row=self.row();self.assertEqual(row['status'],'ready',row['error'])
         return row
+
+    def test_rhino7_preparation_validator_accepts_legacy_syntax_and_preserves_bounds(self):
+        from tests.test_grasshopper import checks
+        app=dict(available=True,executable='/fixture/rhino',evidence='controlled Rhino 7 fixture',
+                 major=7,version='7.32',interpreter='IronPython 2.7',grasshopper_libraries=[str(self.rt.root/'Grasshopper.dll')])
+        with patch('task_relay.host_apps.grasshopper',return_value=app):
+            row=self.queue(action=self.action(step_capabilities=['rhino.grasshopper']),text='Prepare a Grasshopper definition for Rhino 7. Do not execute Rhino.')
+        payload=json.loads(row['context'])
+        root=self.rt.root/'rhino7-support';root.mkdir()
+        for source in payload['sources']:
+            if source['path'].startswith('operation-support/rhino.grasshopper/'):
+                (root/Path(source['path']).name).write_bytes(Path(self.rt.artifact(source['artifact'])['blob']).read_bytes())
+        self.assertEqual(json.loads((root/'contract.json').read_text())['interpreter'],'IronPython 2.7')
+        selected=root/'checks.json';selected.write_text(json.dumps(checks()))
+        script=root/'legacy.py'
+        for data,success in ((b'print "Rhino 7"\n',True),(b'#'+b' '*100000,False),(b'\x00',False)):
+            script.write_bytes(data)
+            result=subprocess.run([sys.executable,'-E','-S',str(root/'validate.py'),str(selected),str(script)],capture_output=True,text=True)
+            self.assertEqual(result.returncode==0,success,result.stderr)
+        self.assertEqual(self.factory.calls,[])
 
     # The same delivered-script and atomic-Start boundary must hold for Rhino.
     test_exact_script_delivery_required_before_atomic_start=blender_planning.Tests.test_delivered_exact_script_card_authorizes_only_after_documents_arrive
@@ -132,6 +162,41 @@ class Tests(unittest.TestCase):
             row=self.setup_plan();response=copy.deepcopy(self.prepared_response)
             response['plan']['tasks'][0].pop('user_gate')
             with self.assertRaisesRegex(ValueError,'selection gate'):planning.validate_result(json.dumps(response),row)
+
+    def test_grasshopper_start_is_atomic_and_both_definitions_reach_review_once(self):
+        from task_relay import production_control as pc
+        from orchestrator.step_runner import execute
+        from tests.test_grasshopper import Tests as GrasshopperFixture
+        with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
+            row=self.setup_plan('rhino.grasshopper')
+            response=copy.deepcopy(self.prepared_response);response['plan']['tasks'][0].pop('user_gate')
+            with self.assertRaisesRegex(ValueError,'selection gate'):planning.validate_result(json.dumps(response),row)
+            with self.state.db,self.assertRaises(ValueError):planning.apply(self.state,row['token'],'start')
+            self.assertEqual(self.state.db.execute('SELECT COUNT(*) FROM production_runs').fetchone()[0],0)
+            with self.state.db:
+                self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?',(row['event_id'],))
+                self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE event_id=?",(row['event_id'],))
+                planning.apply(self.state,row['token'],'start')
+                self.assertEqual(self.factory.calls,[])
+            run=self.row()['run'];worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+            aid=self.rt.task(run,'app')['latest'];session=self.factory.sessions[aid]
+            control=Path(session['session']['control']);control.mkdir(parents=True)
+            with patch('task_relay.rhino_host.run',side_effect=lambda *a:GrasshopperFixture.native(self,*a)):
+                self.assertEqual(execute(session['frozen'],control)['outcome'],'completed')
+            session['status']={'status':'finished','exit_code':0,'reason':None,'usage':[]}
+            worker.tick()
+            review=self.rt.task(run,'review')['latest']
+            for suffix in ('gh','ghx'):
+                candidate=self.rt.output(run,'app','delivery/candidate.'+suffix)
+                selected=next(i for i in self.factory.sessions[review]['frozen']['inputs'] if i['path'].endswith('.'+suffix))
+                self.assertEqual(selected['sha256'],candidate['sha256'])
+            self.factory.finish(review,decision='accept');worker.tick();worker.tick()
+            self.assertEqual(self.rt.status(run)['status'],'awaiting_user')
+            for suffix in ('gh','ghx'):
+                candidate=self.rt.output(run,'app','delivery/candidate.'+suffix)
+                rows=self.state.db.execute('SELECT filename FROM media_outbox WHERE path=?',(candidate['blob'],)).fetchall()
+                self.assertEqual(len(rows),1)
+                self.assertTrue(rows[0]['filename'].endswith('.'+suffix))
 
     def failed_host(self):
         from task_relay import production_control as pc
@@ -221,15 +286,15 @@ class Tests(unittest.TestCase):
                 planning.prepare_host_repair(self.state,run,old,'Repair the verifier.',runtime_repair=True)
             self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],1)
 
-    def test_planning_preserves_request_and_exposes_no_gh_operation(self):
+    def test_planning_preserves_request_and_keeps_gh_separate(self):
         from orchestrator.execution import catalog
         with patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'}):
             row=self.setup_plan()
         self.assertEqual(row['request'],'Create a Rhino tower; leave Grasshopper paused.')
-        self.assertIn('Grasshopper is paused',planning.preview(row))
+        self.assertIn('Grasshopper requires the separate rhino.grasshopper operation',planning.preview(row))
         ids={e['id'] for e in catalog()}
         self.assertTrue({'rhino.startup','rhino.inspect','rhino.run_python'} <= ids)
-        self.assertFalse(any('grasshopper' in i for i in ids))
+        self.assertIn('rhino.grasshopper',ids)
 
     def test_native_candidate_reaches_review_and_delivery_queue_once(self):
         from task_relay import production_control as pc

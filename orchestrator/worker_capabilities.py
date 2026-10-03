@@ -14,6 +14,7 @@ CAPABILITIES = {
     'files.text': 'Read declared text and write text deliverables.',
     'files.binary': 'Inspect or produce binary files using local file/code tools; format libraries must be checked separately.',
     'code.execute': 'Execute local code within the selected adapter boundaries (Codex shell or isolated Python); native registered operations remain separate.',
+    'computer.use': 'Create, foreground and bind a dedicated Safari window (or use an explicit selection), then observe, navigate and scroll approved URLs with visible ownership; no focus reclamation after takeover.',
     'browser.use': 'Use browser tools with an explicit origin, action and transfer contract.',
     'browser.capture': 'Save explicitly granted viewport PNG screenshots and provenance; inspect PNG metadata, not visual content.',
 }
@@ -26,6 +27,7 @@ def abilities(backend):
     result = ['files.text']
     if 'shell' in tools or 'python' in tools:result += ['files.binary', 'code.execute']
     if backend['type']=='codex-cli':result += ['images.view']
+    if 'computer' in tools:result += ['computer.use']
     if 'browser' in tools:result += ['browser.use','browser.capture']
     return result
 
@@ -73,6 +75,8 @@ def matches(task, required, backend):
     caps = set(abilities(backend))
     if any(i.get('visual_reference') for i in task.get('inputs',[])) and 'images.view' not in caps:return False
     # Never grant website access merely to satisfy a text-only role.
+    if ('computer.use' in caps) != ('computer.use' in required):return False
+    if task.get('computer') and 'computer.use' not in required:return False
     if ('browser.use' in caps) != ('browser.use' in required):return False
     if any(i['path'].startswith('operation-support/') and i['path'].endswith('/validate.py')
            for i in task.get('inputs',[])) and 'code.execute' not in caps:return False
@@ -133,6 +137,8 @@ def validate(task):
     profile = executors.validate(backend)
     if worker['executor'] != backend['type'] or task.get('tools') != profile or not matches(task,required,backend):
         raise ValueError('Frozen worker capabilities, inputs or tools do not match its executor.')
+    if 'computer.use' in required and not task.get('computer'):
+        raise ValueError('Computer workers require an explicit selected-window contract.')
     if 'browser.use' in required and not task.get('browser'):
         raise ValueError('Browser workers require an explicit browser contract.')
 

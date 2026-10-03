@@ -337,6 +337,12 @@ def build(rt, row, state):
         spec['instruction']+='Keep the declared output scope, criteria and user decision gate. Assess dated sources and disclose remaining unsupported claims; importing research is not fact verification. '
         spec['instruction']+='The earlier block is historical; evaluate whether the new inputs resolve it. No media generation, rendering, publication or later stage is authorized by this continuation.'
     plan=copy.deepcopy(original_plan);plan.update(id=child,tasks=specs,concurrency=1)
+    intent=next((s['design_intent_state'] for s in specs if s.get('design_intent_state')),None)
+    if intent:
+        from .design_intent import feedback_record, bind
+        intent=feedback_record(intent,row['request'],'continuation:'+str(row['id']))
+        bind(specs,intent)
+        plan.setdefault('origin',{})['design_intent']=intent
     plan['brief']+=' Continuation using the exact new user request and current supplied sources; stop at the same user decision boundary.'
     plan=contracts.plan(plan)
     rt.create(plan)

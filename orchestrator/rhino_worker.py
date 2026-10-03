@@ -238,6 +238,10 @@ def perform(request):
         raise ValueError('Rhino runtime version differs from the frozen application')
     if mode == 'startup':
         return {'rhino_version':str(Rhino.RhinoApp.Version), 'python_version':__import__('sys').version}
+    if mode in ('gh_build', 'gh_verify'):
+        if request['rhino_major'] not in (7, 8):raise ValueError('Grasshopper authoring requires Rhino 7/8')
+        from grasshopper_worker import perform as grasshopper_perform
+        return grasshopper_perform(request)
     if mode == 'render':return render(request)
     if mode == 'inspect':
         doc = Rhino.RhinoDoc.OpenHeadless(request['source'])

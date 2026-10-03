@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Direct Rhino modeling contract. Grasshopper execution is deliberately absent."""
+"""Direct Rhino modeling contract; Grasshopper has its own operation and contract."""
 import math
 import uuid
 
@@ -30,7 +30,7 @@ DESCRIPTION = {
     'script_api': 'Rhino 7 uses IronPython 2.7; Rhino 8 uses CPython 3; Rhino, rhinoscriptsyntax, scriptcontext and doc supplied. The assigned doc is HEADLESS: doc.Views.ActiveView is None. Modify doc; Relay saves it. No interactive prompts.',
     'camera_api': 'Rhino.Display.RhinoViewport uses SetCameraLocation(Point3d, bool updateTargetLocation) and SetCameraDirection(Vector3d, bool updateTargetLocation): both require two arguments. CameraLocation and CameraDirection are read-only properties; do not assign them. CameraUp is writable. Rhino.DocObjects.ViewportInfo is a different type with different overloads. Verify the receiver type, not just the method name. Reference: https://mcneel.github.io/rhinocommon-api-docs/api/RhinoCommon/html/M_Rhino_Display_RhinoViewport_SetCameraLocation.htm',
     'named_view_example': 'from System.Drawing import Size\nvp = Rhino.Display.RhinoViewport()\nvp.Size = Size(1024,832)\nvp.SetProjection(Rhino.Display.DefinedViewportProjection.Top,"Drawing",False)\nvp.ZoomBoundingBox(Rhino.Geometry.BoundingBox(Rhino.Geometry.Point3d(-1,-1,-1),Rhino.Geometry.Point3d(11,9,1)))\nview = Rhino.DocObjects.ViewInfo(vp)\nview.Name = "Drawing"\nif doc.NamedViews.Add(view) < 0: raise ValueError("Cannot save named view")\n# Use the actual drawing bounds plus margins; never access an active UI viewport.',
-    'scope': 'Geometry/attributes of untouched objects, units, tolerance, layers and materials are preserved on edits. Blocks, worksessions, external textures and custom user data are unsupported. New/deleted objects must be declared. Preview is a viewport capture, not a production render. Grasshopper is paused.',
+    'scope': 'Geometry/attributes of untouched objects, units, tolerance, layers and materials are preserved on edits. Blocks, worksessions, external textures and custom user data are unsupported. New/deleted objects must be declared. Preview is a viewport capture, not a production render. Grasshopper authoring requires the separate rhino.grasshopper operation.',
 }
 
 

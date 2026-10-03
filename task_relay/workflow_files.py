@@ -90,8 +90,11 @@ def _snapshot(state, pid):
         p = state.db.execute('SELECT * FROM relay_pipelines WHERE id=?', (pid,)).fetchone()
         if not p or p['channel'] != getattr(state, 'channel', 'telegram'):
             raise ValueError('Workflow is not available in this channel.')
-        report = {'format_version':2, 'id':pid, 'title':p['title'], 'request':p['request'], 'status':p['status'],
+        report = {'format_version':2, 'kind':'pipeline', 'id':pid, 'title':p['title'], 'request':p['request'], 'status':p['status'],
                   'plan':json.loads(p['spec']), 'stages':[], 'artifacts':[], 'missing_artifacts':[]}
+        from .research_campaign import ledger
+        campaign=ledger(state,pid)
+        if campaign:report['research_campaign']=campaign
         from . import procedures
         procedure = procedures.run_context(state, pid)
         if procedure:report['procedure'] = procedure
@@ -136,10 +139,88 @@ def _snapshot(state, pid):
             for r in state.db.execute('SELECT inputs FROM relay_pipeline_requests WHERE pipeline=? AND step=?', (pid,row['id'])):
                 artifact_ids.update(s['artifact'] for s in json.loads(r[0]).get('sources',[]))
             report['stages'].append(stage)
-        return collect_artifacts(state, report, runs, artifact_ids)
+        return collect_artifacts(state, report, runs, plans, artifact_ids)
 
 
-def collect_artifacts(state, report, runs, artifact_ids):
+def collect_artifacts(state, report, runs, plans, artifact_ids):
+    from . import fact_revisions
+    report['facts'] = fact_revisions.records(state.db, report['id'])
+    from . import translation_revisions
+    report['translations'] = translation_revisions.records(state.db, report['id'])
+    from . import presentation_revisions
+    report['presentations'] = presentation_revisions.records(state.db, report['id'])
+    from . import native_links
+    report['native_links'] = native_links.records(state.db, report['id'])
+    from . import impact_handoff
+    report['impact_handoffs'] = impact_handoff.records(state.db, report['id'])
+    from . import agent_candidate
+    report['agent_candidates'] = agent_candidate.records(state.db, report['id'])
+    report['computer_packs'] = [dict(r) for r in state.db.execute(
+        'SELECT * FROM relay_computer_packs WHERE job=? ORDER BY created,id', (report['id'],))] if state.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='relay_computer_packs'").fetchone() else []
+    report['computer_reviews'] = [dict(r) for r in state.db.execute(
+        'SELECT * FROM relay_computer_reviews WHERE job=? ORDER BY created,id', (report['id'],))] if state.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='relay_computer_reviews'").fetchone() else []
+    from . import revision_bundle
+    report['revision_bundles'] = revision_bundle.records(state.db, report['id'])
+    from . import bundle_continuation
+    report['bundle_continuations'] = bundle_continuation.records(state.db, report['id'])
+    from . import reviewed_links
+    report['reviewed_links'] = reviewed_links.from_records(report['facts'], report['translations'],
+                                                           report['presentations'], report['native_links'])
+    report['reviewed_impacts'] = reviewed_links.saved_impacts(state.db, report['id'])
+    for binding in report['facts']['bindings']:
+        artifact_ids.update((binding['source_artifact'], binding['output_artifact']))
+    for coverage in report['facts']['coverage']:
+        artifact_ids.add(coverage['output_artifact'])
+    for revision in report['facts']['revisions']:
+        artifact_ids.update((revision['baseline_artifact'], revision['candidate_artifact'],
+                             revision['old_source'], revision['replacement_source']))
+    artifact_ids.update(s['candidate_artifact'] for s in report['facts']['selections'])
+    for link in report['translations']['links']:
+        artifact_ids.update((link['source_artifact'], link['output_artifact'],
+                             link['review_report_artifact']))
+    for revision in report['translations']['revisions']:
+        artifact_ids.update((revision['baseline_artifact'], revision['candidate_artifact'],
+                             revision['old_source'], revision['replacement_source']))
+    artifact_ids.update(s['candidate_artifact'] for s in report['translations']['selections'])
+    for link in report['presentations']['links']:
+        artifact_ids.update((link['source_artifact'], link['output_artifact']))
+    for cover in report['presentations']['coverage']:
+        artifact_ids.add(cover['output_artifact'])
+    for link in report['native_links']['links']:
+        artifact_ids.update((link['source_artifact'], link['output_artifact']))
+    for cover in report['native_links']['coverage']:
+        artifact_ids.add(cover['output_artifact'])
+    for handoff in report['impact_handoffs']:
+        artifact_ids.add(handoff['baseline_artifact'])
+        try:
+            replacement_artifact = json.loads(handoff['inputs']).get('replacement_artifact')
+        except (ValueError, TypeError, AttributeError):
+            replacement_artifact = None
+        if isinstance(replacement_artifact, str):
+            artifact_ids.add(replacement_artifact)
+    for candidate in report['agent_candidates']['candidates']:
+        artifact_ids.add(candidate['candidate_artifact'])
+    artifact_ids.update(p['artifact'] for p in report['computer_packs'] if p['artifact'])
+    artifact_ids.update(r['artifact'] for r in report['computer_reviews'] if r['artifact'])
+    for item in report['agent_candidates']['inputs']:
+        artifact_ids.add(item['artifact'])
+    for plan in report['revision_bundles']['plans']:
+        try:
+            artifact_ids.update(item['baseline_artifact']
+                for item in json.loads(plan['plan'])['companions'])
+        except (ValueError, TypeError, KeyError):
+            pass
+    for file in report['revision_bundles']['files']:
+        artifact_ids.update((file['baseline_artifact'], file['candidate_artifact']))
+    for item in report['bundle_continuations']['candidates']:
+        artifact_ids.update((item['pptx_artifact'], item['slides_artifact'],
+                             item['photo_manifest_artifact']))
+    for revision in report['presentations']['revisions']:
+        artifact_ids.update((revision['baseline_artifact'], revision['candidate_artifact'],
+                             revision['old_source'], revision['replacement_source']))
+    artifact_ids.update(s['candidate_artifact'] for s in report['presentations']['selections'])
     report['productions'] = []
     for run in sorted(runs):
         artifact_ids.update(r[0] for r in state.db.execute('SELECT id FROM production_artifacts WHERE run=?',(run,)))
@@ -153,9 +234,9 @@ def collect_artifacts(state, report, runs, artifact_ids):
         report['productions'].append({'run':run,'tasks':tasks,'attempts':attempts,'decisions':decisions})
     for aid in sorted(artifact_ids):
         if aid.startswith('media-'):
-            a = state.db.execute("SELECT job_id AS run,NULL AS task,NULL AS attempt,filename AS path,'Generated media' AS purpose,sha256,size AS bytes,path AS blob FROM artifacts WHERE id=? AND role='output'",(aid[6:],)).fetchone()
+            a = state.db.execute("SELECT job_id AS run,NULL AS task,NULL AS attempt,filename AS path,'Generated media' AS purpose,NULL AS source,sha256,size AS bytes,path AS blob FROM artifacts WHERE id=? AND role='output'",(aid[6:],)).fetchone()
         else:
-            a = state.db.execute('SELECT id,run,task,attempt,path,purpose,sha256,bytes,blob FROM production_artifacts WHERE id=?',(aid,)).fetchone()
+            a = state.db.execute('SELECT id,run,task,attempt,path,purpose,source,sha256,bytes,blob FROM production_artifacts WHERE id=?',(aid,)).fetchone()
         if not a:
             report['missing_artifacts'].append(aid)
             continue
@@ -165,6 +246,15 @@ def collect_artifacts(state, report, runs, artifact_ids):
         name = re.sub(r'[^A-Za-z0-9._-]+','-',Path(a['path'] or 'artifact').name).strip('.-')[:150] or 'artifact'
         a['copy_path'] = 'files/'+a['id']+'/'+name
         report['artifacts'].append(a)
+    from orchestrator import artifact_replacements
+    replacements = {}
+    for run in sorted(runs):
+        if state.db.execute('SELECT 1 FROM production_runs WHERE id=?',(run,)).fetchone():
+            view = artifact_replacements.view(state.db,run)
+            replacements[view['scope']] = view
+    report['replacements'] = [replacements[key] for key in sorted(replacements)]
+    from . import job_record
+    report['process'] = job_record.collect(state.db, report, plans, runs)
     return report
 
 def _name(value):
@@ -182,6 +272,13 @@ def _layout(report, old):
     """Derive folders from recorded stages and decisions, independently of tools."""
     versions = dict(old.get('versions', {}))
     selected = {s['artifact'] for stage in report['stages'] for s in stage['sources']}
+    latest_revision_selection = {}
+    for selection in sorted((*report.get('facts', {}).get('selections', []),
+                             *report.get('translations', {}).get('selections', []),
+                             *report.get('presentations', {}).get('selections', [])),
+                            key=lambda item: (item['created'], item['id'])):
+        latest_revision_selection[selection['baseline_artifact']] = selection['candidate_artifact']
+    selected.update(latest_revision_selection.values())
     # Keep the latest decision for each producer/path; old acceptance remains in receipts.
     by_id = {a['id']: a for a in report['artifacts']}
     latest = {}
@@ -194,6 +291,44 @@ def _layout(report, old):
                     latest[key] = d
     selected_keys = {(by_id[aid]['task'], by_id[aid]['path']) for aid in selected if aid in by_id}
     selected.update(d['artifact'] for key,d in latest.items() if key not in selected_keys)
+    bundle_records = report.get('revision_bundles', {})
+    selected_bundles = {item['bundle_id'] for item in
+                        bundle_records.get('selections', [])}
+    bundle_by_id = {item['id']: item for item in bundle_records.get('bundles', [])}
+    candidate_by_artifact = {item['candidate_artifact']: item for item in
+                             report.get('agent_candidates', {}).get('candidates', [])}
+    handoff_by_id = {item['id']: item for item in report.get('impact_handoffs', [])}
+    for bundle_id in selected_bundles:
+        bundle = bundle_by_id.get(bundle_id)
+        if not bundle:
+            continue
+        native = bundle['pptx_candidate']
+        candidate = candidate_by_artifact.get(native)
+        handoff = handoff_by_id.get(candidate['handoff_id']) if candidate else None
+        if not handoff:
+            continue
+        selected.discard(handoff['baseline_artifact'])
+        selected.add(native)
+        for member in bundle_records.get('files', []):
+            if member['bundle_id'] == bundle_id:
+                selected.discard(member['baseline_artifact'])
+                selected.add(member['candidate_artifact'])
+    followon = report.get('bundle_continuations', {})
+    followon_by_id = {item['id']: item for item in followon.get('candidates', [])}
+    followon_plans = {item['id']: item for item in followon.get('plans', [])}
+    for selection in sorted(followon.get('selections', []),
+                            key=lambda item: (item['created'], item['candidate_id'])):
+        candidate = followon_by_id.get(selection['candidate_id'])
+        plan = followon_plans.get(candidate['plan_id']) if candidate else None
+        parent = bundle_by_id.get(plan['parent_bundle']) if plan else None
+        if not parent:
+            continue
+        selected.discard(parent['pptx_candidate'])
+        for member in bundle_records.get('files', []):
+            if member['bundle_id'] == parent['id']:
+                selected.discard(member['candidate_artifact'])
+        selected.update((candidate['pptx_artifact'], candidate['slides_artifact'],
+                         candidate['photo_manifest_artifact']))
     occupied = {}
     for stage in report['stages']:
         stage['folder'] = f'{stage["position"]+1:02d}-{_name(stage["id"])}'
@@ -270,6 +405,20 @@ def sync(state, pid):
         return _sync(state,pid,report)
 
 
+def job_state_for_pipeline(state, pid):
+    """Read a versioned job view from committed records without exporting files."""
+    from . import job_state
+    report = _snapshot(state, pid)
+    _layout(report, {})
+    report['snapshot'] = hashlib.sha256(encoded(report)).hexdigest()
+    return job_state.project(report)
+
+
+def context_for_stage(state, pid, stage_id):
+    from . import job_state
+    return job_state.stage_context(job_state_for_pipeline(state, pid), stage_id)
+
+
 def _sync(state, pid, report):
     from .production_folders import checked_directory
     from . import production_control as pc
@@ -290,7 +439,18 @@ def _sync(state, pid, report):
         if not path.is_file():return None
         st=path.stat()
         return [st.st_size,st.st_mtime_ns,st.st_ctime_ns]
+    saved_job_state = (_inside(root,'.relay/snapshots/'+old['snapshot']+'/job-state.json')
+                       if old.get('snapshot') else None)
+    saved_job_sqlite = (_inside(root,'.relay/snapshots/'+old['snapshot']+'/job.sqlite')
+                        if old.get('snapshot') else None)
+    current_job_sqlite = _inside(root,'.relay/job.sqlite')
     if (old.get('format_version')==2 and old.get('state_signature') == state_signature and not old.get('errors')
+            and saved_job_state and saved_job_state.is_file()
+            and hashlib.sha256(saved_job_state.read_bytes()).hexdigest()==old.get('job_state_sha256')
+            and saved_job_sqlite and saved_job_sqlite.is_file()
+            and hashlib.sha256(saved_job_sqlite.read_bytes()).hexdigest()==old.get('job_sqlite_sha256')
+            and current_job_sqlite.is_file()
+            and hashlib.sha256(current_job_sqlite.read_bytes()).hexdigest()==old.get('job_sqlite_sha256')
             and all(stamp(a)==old.get('file_stats',{}).get(a['id']) and stamp(a) is not None for a in report['artifacts'])):
         return root
     previous = dict(old.get('paths', {}))
@@ -337,6 +497,15 @@ def _sync(state, pid, report):
     signature = hashlib.sha256(encoded(report)).hexdigest()
     report['snapshot'] = signature
     archive = '.relay/snapshots/'+signature
+    from . import job_state
+    job_state_bytes = encoded(job_state.project(report))
+    if _put(root/archive/'job-state.json',job_state_bytes)=='user_modified':
+        raise ValueError('Versioned job-state snapshot changed; registered records remain unchanged.')
+    from . import job_sqlite
+    job_sqlite_bytes = job_sqlite.projection_bytes(report)
+    if _put(root/archive/'job.sqlite',job_sqlite_bytes)=='user_modified':
+        raise ValueError('Versioned job SQLite snapshot changed; registered records remain unchanged.')
+    _inside(root,archive+'/job.sqlite').chmod(0o400)
     _put(root/'request.txt',preamble_request(report))
     hashes = dict(old.get('managed_hashes', {}))
     if old.get('readme_sha256'):hashes.setdefault('README.md',old['readme_sha256'])
@@ -372,8 +541,14 @@ def _sync(state, pid, report):
     _put(root/archive/'manifest.json',encoded(report))
     _owned(root,'manifest.json',encoded(report),hashes)
     if errors or report['missing_artifacts']:lines+=['','Some recorded files are unavailable; see manifest.json.']
-    lines+=['', '[Full file manifest](manifest.json)', '']
+    lines+=['', '[Full file manifest](manifest.json)',
+            '[Versioned job state]('+archive+'/job-state.json)',
+            '[Queryable job view]('+archive+'/job.sqlite)', '']
     _owned(root,'README.md','\n'.join(lines).encode(),hashes)
+    _owned(root,'.relay/job.sqlite',job_sqlite_bytes,hashes)
+    if not current_job_sqlite.is_file() or hashlib.sha256(current_job_sqlite.read_bytes()).digest() != hashlib.sha256(job_sqlite_bytes).digest():
+        raise ValueError('Queryable job view was modified; committed records remain unchanged.')
+    current_job_sqlite.chmod(0o400)
     # Retain old indexes, receipts and any user edits without cluttering the results.
     if old.get('format_version')!=2:
         for name in ('files','stages','records','snapshots'):
@@ -385,6 +560,8 @@ def _sync(state, pid, report):
                 destination.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
                 source.rename(destination)
     old.update(format_version=2, snapshot=signature, state_signature=state_signature,
+               job_state_sha256=hashlib.sha256(job_state_bytes).hexdigest(),
+               job_sqlite_sha256=hashlib.sha256(job_sqlite_bytes).hexdigest(),
                errors=bool(errors or report['missing_artifacts']), versions=versions,
                paths={a['id']:a['copy_path'] for a in report['artifacts']}, managed_hashes=hashes)
     old['file_stats']={a['id']:stamp(a) for a in report['artifacts']}

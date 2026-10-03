@@ -47,6 +47,8 @@ route; no automatic substitution or fallback. Never promise unsupported geometry
 Unknown byte sizes remain null; do not claim estimated sizes are verified. Companion outputs must be
 passed together. Output types must match the actual selected capability contracts.
 Use 2–12 ordered stages, each with its own scope, covering ALL requested outcomes.
+The explicit research_campaign builder is the bounded exception: Relay compiles
+up to 12 discovery/assessment pairs plus 1–4 final delivery stages from that grant.
 Stage IDs are unique: 1–50 letters/digits/underscores/hyphens, starting with a letter
 or digit (for example 3d_model). Preserve these IDs throughout the workflow.
 A stage can use all earlier exact outputs. Split at genuine dependencies/decisions,
@@ -75,6 +77,30 @@ Generic requests for research, visuals or a PPTX do not imply synthetic imagery.
 Separate reference collection from synthetic visualization in mixed workflows.
 A saved pipeline automatically advances within its scope after completion/selection.
 Native scripts still need exact-code Start; unknown future code is not approved.
+
+For multi-person or multi-page research, the workflow owns batching. Plan the
+complete requested outcome as one durable pipeline, with bounded discovery,
+deduplication, evidence research, independent review and final consolidation stages.
+Do not ask the user to divide the people or manually request each next batch.
+Choose batch sizes from the frozen runtime limits, not a fixed business template.
+Preserve the requested total; a batch cap is not permission to reduce it. Retain
+rejections, holds and shortfalls instead of inventing enough qualified people.
+Safari sessions allow 300 seconds, 20 native actions and 10 exact URLs; production
+plans allow at most 12 tasks including reviewers, and ordinary pipelines at most
+12 stages. A research_campaign grant compiles its own bounded batch slots.
+Each Safari producer needs its own raw-evidence reviewer and literal citations.
+Discover identities/URLs before planning workers that will navigate to them. Pass
+reviewed discovery records between stages and avoid revisiting completed subjects.
+Budget request/response space for setup reads, refreshes, writing and finish as well
+as browsing. Split independent discovery queries across small workers/stages rather
+than using one large browser session. When a subject batch contains several Safari
+workers, use one producer/reviewer pair per subject and sequential review pairs
+within the existing task limit. Intermediate evidence can use gate none after
+independent review; preserve explicit user choices and final selection. Never infer
+acceptance, reset failed attempts, expand exact URL grants or silently retry an
+uncertain action. If the whole requested workflow cannot fit supported bounds,
+report the specific missing capability before dispatch; do not run only a first
+fragment and describe it as the whole job.
 
 snapshot.pipeline_step, when present, is the current saved stage, not a new user
 request. Complete ONLY that stage. Use its declared capabilities/deliverables in
@@ -113,10 +139,40 @@ from .workflow_builder import INSTRUCTIONS as BUILDER_INSTRUCTIONS
 INSTRUCTIONS += "\n" + BUILDER_INSTRUCTIONS
 
 def initialize(db):
+    from . import research_campaign
+    research_campaign.initialize(db)
+    from . import computer_sessions
+    computer_sessions.initialize(db)
+    from . import computer_evidence
+    computer_evidence.initialize(db)
+    from . import computer_review
+    computer_review.initialize(db)
+    from . import job_ownership
+    job_ownership.initialize(db)
     from . import procedures
     procedures.initialize(db)
     from . import production_repairs
     production_repairs.initialize(db)
+    from . import fact_revisions
+    fact_revisions.initialize(db)
+    from . import translation_revisions
+    translation_revisions.initialize(db)
+    from . import presentation_revisions
+    presentation_revisions.initialize(db)
+    from . import native_links
+    native_links.initialize(db)
+    from . import impact_handoff
+    impact_handoff.initialize(db)
+    from . import agent_candidate
+    agent_candidate.initialize(db)
+    from . import revision_bundle
+    revision_bundle.initialize(db)
+    from . import bundle_continuation
+    bundle_continuation.initialize(db)
+    from . import reviewed_links
+    reviewed_links.initialize(db)
+    from . import revision_review
+    revision_review.initialize(db)
     db.executescript('''CREATE TABLE IF NOT EXISTS relay_pipelines(
         id TEXT PRIMARY KEY, request_id INTEGER UNIQUE NOT NULL, request TEXT NOT NULL,
         title TEXT NOT NULL, spec TEXT NOT NULL, channel TEXT NOT NULL,
@@ -157,14 +213,16 @@ def validate(action, snap):
     action,_=build(action,snap)
     kind=action.get('kind')
     if kind=='plan_pipeline':
-        if (set(action)-{'contract_version'}!={'kind','title','planning_only','stages'} or not bounded(action['title'],200)
+        if (set(action)-{'contract_version','research_campaign'}!={'kind','title','planning_only','stages'} or not bounded(action['title'],200)
                 or type(action['planning_only']) is not bool or not isinstance(action['stages'],list)
-                or not 2<=len(action['stages'])<=12):raise PipelineValidationError('Provide a bounded ordered workflow with 2–12 stages.')
+                or not 2<=len(action['stages'])<=(28 if 'research_campaign' in action else 12)):raise PipelineValidationError('Provide a bounded ordered workflow with 2–12 stages, or an explicit compiled research campaign.')
+        from .research_campaign import validate_workflow
+        validate_workflow(action)
         if snap.get('pipeline_step'):raise PipelineValidationError('Continue the saved workflow; do not create a nested one.')
         known={x['id'] for x in snap.get('capabilities',{}).get('graph_operations',[])}
         ids=set()
         for s in action['stages']:
-            if (not isinstance(s,dict) or set(s)-{'visual_intent','handoff'}!={'id','instruction','route','gate','capabilities','deliverables'}
+            if (not isinstance(s,dict) or set(s)-{'visual_intent','handoff','design_intent','campaign_batch'}!={'id','instruction','route','gate','capabilities','deliverables'}
                     or s.get('visual_intent','reference') not in ('reference','synthetic')
                     or not isinstance(s['id'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,49}',s['id'])
                     or s['id'] in ids or not bounded(s['instruction'],3000) or s['route'] not in ROUTES
@@ -176,6 +234,8 @@ def validate(action, snap):
                 raise PipelineValidationError('Invalid workflow stage, capability or deliverable.')
             if generates_images(s) and s.get('visual_intent')!='synthetic':
                 raise PipelineValidationError('Reference imagery requires image sourcing (images.collect or images.fetch), not image generation. Declare synthetic intent only for requested concepts, illustrations or renders.')
+            if 'design_intent' in s and (type(s['design_intent']) is not bool or s['route']!='production'):
+                raise PipelineValidationError('Design intent applies to production stages as a boolean.')
             if set(s['capabilities'])&{'images.collect','images.fetch'} and s.get('visual_intent')=='synthetic':
                 raise PipelineValidationError('Separate authentic reference collection from synthetic visualization.')
             if s['route'] in ('conversation','browser_research') and s['capabilities']:
@@ -247,6 +307,9 @@ def catalog(state):
                 stages[-1].update(setup_recovery_available=True,error='Stage planning setup failed: '+failure['message'][:1500])
         from .workflow_files import folder_path
         result.append(dict(id=r['id'],title=r['title'],status=r['status'],stages=stages,files_path=str(folder_path(state,r['id']))))
+        from .research_campaign import ledger
+        campaign=ledger(state,r['id'])
+        if campaign:result[-1]['research_campaign']={k:campaign[k] for k in ('counts','target','remaining','batches_started','batches_remaining','outcome')}
     return result
 
 
@@ -319,13 +382,16 @@ def dispatch(state,job,action,snap):
             state.db.execute('INSERT INTO relay_pipeline_steps(pipeline,position,id,status) VALUES (?,?,?,?)',(pid,i,s['id'],'pending'))
         if builder_receipt:event(state,pid,None,'workflow_compiled',builder_receipt)
         from .production_repairs import POLICY
-        event(state,pid,None,'created',{**action,'input_sources':input_sources,'automatic_task_seconds':1800,'automatic_task_attempts':2,'automatic_local_correction':1,'automatic_script_repair':POLICY})
+        event(state,pid,None,'created',{**action,**({'request_contract':snap['request_contract']} if snap.get('request_contract') else {}),'input_sources':input_sources,'automatic_task_seconds':1800,'automatic_task_attempts':2,'automatic_local_correction':1,'automatic_script_repair':POLICY})
         if action.get('contract_version')==1:
             from orchestrator.handoff_contracts import compile_workflow
             report=compile_workflow(action['stages'],snap.get('capabilities',{}).get('graph_operations',[]),True)
             event(state,pid,None,'handoff_preflight',report)
         state.db.execute('UPDATE orchestrator_chats SET focus=? WHERE id=?',(pid,job['id']))
         text='Workflow saved: '+action['title']+'\n'+'\n'.join(f'{i+1}. {s["instruction"]}' for i,s in enumerate(action['stages']))
+        if action.get('research_campaign'):
+            policy=action['research_campaign']
+            text+='\nResearch campaign grant: target '+str(policy['target_count'])+'; at most '+str(policy['max_batches'])+' batches of '+str(policy['batch_size'])+' identities. Each batch has discovery and assessment, each with one Safari producer (300s,24 requests/tools) and one saved-evidence reviewer (600s,16 requests/tools), one attempt each, at most 8192 output tokens per response. Planning uses existing bounded planning calls. Stop at target or report shortfall; never reset attempts or replay uncertain work.'
         text+='\n'+('Planning only; use Resume to start.' if action['planning_only'] else 'Relay will continue after completed steps and your selections. Each task has its own planned deadline, up to 30 minutes per attempt. Local drafting includes one review-directed correction. Supported local document builds may correct and rebuild once, with up to three author/review attempts and two build/final-review attempts. Browser and external operations run once. Exact host-code approvals remain separate.')
         text+='\nConfirmed script failures allow one repair cycle per stage using its existing model: preparation, independent review and at most one revision/re-review. Each attempt allows up to 10 minutes, 24 tools and 24 API requests; code authors receive up to 16,384 response tokens and reviewers 4,096. Corrected code waits for a new Start.'
         if action.get('contract_version')==1:
@@ -569,6 +635,11 @@ def enqueue_step(state,p,s):
     for a in sources.values():
         if artifact_source(state,a['artifact'])!=a:raise ValueError('An upstream artifact changed; workflow stopped.')
     inputs={'prior_results':[dict(id=r['id'],result=r['result']) for r in prior], 'sources':list(sources.values())}
+    if created and json.loads(created[0]).get('request_contract'):
+        inputs['request_contract']=json.loads(created[0])['request_contract']
+    from .research_campaign import context as campaign_context
+    campaign=campaign_context(state,p,s)
+    if campaign:inputs['research_campaign']=campaign
     from . import procedures
     procedure=procedures.run_context(state,p['id'])
     if procedure:inputs['procedure']=procedure
@@ -737,7 +808,9 @@ def advance_production(state,p,s,run,plan_id=None):
             if not artifact or artifact['id'] not in ids:raise ValueError('Required output was not delivered/selected: '+ident)
             check_file(Path(artifact['blob']),expected)
             bindings[ident]=artifact_source(state,artifact['id'])
-    complete(state,p,s,[artifact_source(state,i) for i in ids],encoded({'plan':plan_id,'run':run,'user_selected':bool(decisions),**({'deliverables':bindings} if spec.get('handoff') else {})}))
+    from .research_campaign import consume
+    campaign_sources=consume(state,p,s,run,rt,bindings)
+    complete(state,p,s,[artifact_source(state,i) for i in ids]+campaign_sources,encoded({'plan':plan_id,'run':run,'user_selected':bool(decisions),**({'deliverables':bindings} if spec.get('handoff') else {})}))
 
 def attach_continuations(state):
     """Recover workflow ownership only through an explicit registered successor.
@@ -789,7 +862,7 @@ def reconcile_completed_production(state):
             with transaction(state.db):
                 p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(row['id'],)).fetchone()
                 if p['status']!='blocked':continue
-                s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status!='completed' ORDER BY position LIMIT 1",(p['id'],)).fetchone()
+                s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status NOT IN ('completed','skipped') ORDER BY position LIMIT 1",(p['id'],)).fetchone()
                 if not s or s['status']!='blocked' or s['error'] not in ('Production blocked; no attempts reset.','Production uncertain; no attempts reset.'):continue
                 plan_id=None
                 if s['target_kind']=='plan_production':
@@ -832,7 +905,7 @@ def tick(state):
     production_repairs.tick(state)
     for p in state.db.execute("SELECT * FROM relay_pipelines WHERE status='active' ORDER BY created LIMIT 20").fetchall():
         scoped=ScopedState(state,p['channel'])
-        s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status!='completed' ORDER BY position LIMIT 1",(p['id'],)).fetchone()
+        s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status NOT IN ('completed','skipped') ORDER BY position LIMIT 1",(p['id'],)).fetchone()
         try:
             with transaction(state.db):
                 p=state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(p['id'],)).fetchone()
@@ -844,10 +917,15 @@ def tick(state):
                     WHERE c.status IN ('queued','sending') AND COALESCE(ch.channel,'telegram')=?
                     AND NOT EXISTS (SELECT 1 FROM relay_pipeline_requests r WHERE r.request_id=c.id)
                     LIMIT 1''',(p['channel'],)).fetchone():continue
-                s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status!='completed' ORDER BY position LIMIT 1",(p['id'],)).fetchone()
+                s=state.db.execute("SELECT * FROM relay_pipeline_steps WHERE pipeline=? AND status NOT IN ('completed','skipped') ORDER BY position LIMIT 1",(p['id'],)).fetchone()
                 if not s:
-                    state.db.execute("UPDATE relay_pipelines SET status='completed' WHERE id=?",(p['id'],));notice(state,p['id'],None,'completed','Workflow completed: '+p['title']);continue
+                    from .research_campaign import ledger
+                    campaign=ledger(state,p['id'])
+                    detail=('; research '+campaign['outcome']+': '+str(campaign['counts']['qualified'])+'/'+str(campaign['target'])+' qualified' if campaign else '')
+                    state.db.execute("UPDATE relay_pipelines SET status='completed' WHERE id=?",(p['id'],));notice(state,p['id'],None,'completed','Workflow completed: '+p['title']+detail);continue
                 if s['status']=='pending':
+                    from .research_campaign import skip_unused
+                    if skip_unused(scoped,p,s):continue
                     if state.db.execute("SELECT count(*) FROM orchestrator_chats WHERE status IN ('queued','sending')").fetchone()[0]<5:enqueue_step(scoped,p,s)
                 elif s['status']=='running':advance_running(scoped,p,s)
                 elif s['status']=='queued':

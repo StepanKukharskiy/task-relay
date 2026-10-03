@@ -17,8 +17,17 @@ const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",
     "service-status", "service-start", "service-stop", "service-connect", "service-disconnect",
     "tasks", "task-detail", "task-create", "task-send", "task-send-file", "task-stop", "task-approval-decide",
-    "plans", "plan-create", "plan-detail", "plan-prepare", "plan-decide",
-    "workflows", "automation-tools", "approval-inbox", "usage-summary", "storage-breakdown", "cleanup-preview", "cleanup-apply"];
+    "plans", "plan-create", "plan-detail", "plan-prepare", "plan-decide", "workspace-chat", "workspace-chat-source", "conversation-followup",
+    "workspace-jobs", "workspace-detail", "workspace-decide", "workspace-artifact", "workspace-request", "workspace-plan", "workspace-source-changes", "workspace-compare", "workspace-source",
+    "workflows", "pipeline-delete-preview", "pipeline-delete", "pipeline-delete-recover", "pipeline-delete-pending",
+    "job-delete-preview", "job-delete", "job-delete-recover", "job-delete-pending", "job-delete-register",
+    "task-delete-preview", "task-delete", "task-delete-recover", "task-delete-pending",
+    "shared-history-list", "shared-history-preview", "shared-history-forget",
+    "conversation-delete-preview", "conversation-delete", "conversation-delete-recover",
+    "revision-candidates", "revision-detail", "revision-decide",
+    "computer-sessions", "computer-session-detail", "computer-session-control",
+    "computer-setup-status", "computer-request-permissions",
+    "automation-tools", "approval-inbox", "usage-summary", "storage-breakdown", "cleanup-preview", "cleanup-apply"];
 
 fn bridge_command(app: &tauri::AppHandle) -> Result<Command, String> {
     if cfg!(debug_assertions) {
@@ -81,7 +90,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
     // Do not kill them at the ordinary read deadline while they are restoring a service.
     let seconds = if matches!(path, "app-update-download" | "app-update-install" | "app-update-recover") { 240 }
         else if path == "app-update-check" { 120 }
-        else if matches!(path, "code-runtime-configure" | "worker-verify") { 45 }
+        else if matches!(path, "code-runtime-configure" | "worker-verify" | "computer-setup-status" | "computer-request-permissions") { 45 }
         else if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 }
         else { 15 };
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -166,9 +175,25 @@ async fn companion_open(app: tauri::AppHandle, target: String) -> Result<(), Str
             "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles".to_owned()
         },
         "permissions" => "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles".to_owned(),
+        "computer-automation" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation".to_owned(),
+        "computer-accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility".to_owned(),
+        "computer-screen" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture".to_owned(),
         _ => return Err("Unknown companion destination.".into()),
     };
     app.opener().open_url(url, None::<&str>).map_err(|_| "Could not open the selected app.".into())
+}
+
+#[tauri::command]
+async fn companion_reveal_revision(app: tauri::AppHandle, candidate_artifact: String) -> Result<(), String> {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move ||
+        execute(handle, "revision-detail".into(),
+                serde_json::json!({"candidate_artifact": candidate_artifact})))
+        .await.map_err(|_| "Could not check the saved revision candidate.")??;
+    let path = result["candidate_path"].as_str()
+        .ok_or("The verified workbook copy is not available in its workflow folder.")?;
+    app.opener().reveal_item_in_dir(PathBuf::from(path))
+        .map_err(|_| "Could not reveal the verified workbook copy.".into())
 }
 
 fn show_companion(app: &tauri::AppHandle, destination: &str) {
@@ -178,6 +203,36 @@ fn show_companion(app: &tauri::AppHandle, destination: &str) {
         let _ = window.set_focus();
         let _ = window.emit("companion-navigate", destination);
     }
+}
+
+#[tauri::command]
+async fn workspace_reveal_artifact(app: tauri::AppHandle, artifact: String) -> Result<(), String> {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move ||
+        execute(handle, "workspace-artifact".into(), serde_json::json!({"artifact": artifact})))
+        .await.map_err(|_| "Could not verify the registered file.")??;
+    let path = result["path"].as_str().ok_or("Registered file unavailable.")?;
+    app.opener().reveal_item_in_dir(PathBuf::from(path)).map_err(|_| "Could not reveal the verified file.".into())
+}
+
+#[tauri::command]
+async fn workspace_open_source(app: tauri::AppHandle, run: String, source: String) -> Result<(), String> {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move ||
+        execute(handle, "workspace-source".into(), serde_json::json!({"run": run, "source": source})))
+        .await.map_err(|_| "Could not verify the saved source receipt.")??;
+    let url = result["url"].as_str().ok_or("Recorded source unavailable.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|_| "Could not open the recorded source.".into())
+}
+
+#[tauri::command]
+async fn workspace_open_chat_source(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move ||
+        execute(handle, "workspace-chat-source".into(), serde_json::json!({"id": id, "url": url})))
+        .await.map_err(|_| "Could not verify the saved source receipt.")??;
+    let url = result["url"].as_str().ok_or("Recorded source unavailable.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|_| "Could not open the recorded source.".into())
 }
 
 #[tauri::command]
@@ -208,15 +263,16 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            let status = MenuItem::with_id(app, "home", "Connection status…", true, None::<&str>)?;
+            let status = MenuItem::with_id(app, "home", "Open Relay…", true, None::<&str>)?;
+            let new_task = MenuItem::with_id(app, "new-task", "New task…", true, None::<&str>)?;
             let chat = MenuItem::with_id(app, "conversation", "Open Telegram", true, None::<&str>)?;
             let review = MenuItem::with_id(app, "review", "Review decisions…", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
             let channels = MenuItem::with_id(app, "channels", "Channels…", true, None::<&str>)?;
             let pause = MenuItem::with_id(app, "pause-messaging", "Pause all messaging", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit companion (Relay stays running)", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&status, &chat, &review, &channels, &pause, &settings, &separator, &quit])?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Relay window (service stays running)", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&status, &new_task, &chat, &review, &channels, &pause, &settings, &separator, &quit])?;
             TrayIconBuilder::with_id("relay-companion")
                 .icon(tauri::include_image!("icons/menu-template.png"))
                 .icon_as_template(true)
@@ -236,7 +292,7 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![relay_request, companion_open, companion_data_location])
+        .invoke_handler(tauri::generate_handler![relay_request, companion_open, companion_reveal_revision, companion_data_location, workspace_reveal_artifact, workspace_open_source, workspace_open_chat_source])
         .build(tauri::generate_context!())
         .expect("Task Relay desktop window failed to start")
         .run(|app, event| {

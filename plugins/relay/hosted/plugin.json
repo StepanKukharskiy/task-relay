@@ -1,0 +1,92 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "relay-work",
+  "version": "0.3.2",
+  "description": "Turn useful ChatGPT conversations into reusable Skills and work you can pick up again.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skills",
+    "work",
+    "reuse",
+    "portable"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Task Relay",
+        "shortDescription": "Make useful work reusable",
+        "longDescription": "Turn useful ChatGPT conversations into reusable Skills and work you can pick up again.\n\nAfter useful discussion, choose Make this reusable. ChatGPT proposes general instructions as a standard Agent Skill and instance-specific progress as a work snapshot. Review, edit, download or ignore each independently. Nothing is saved automatically. Where ChatGPT supports it, explicitly save a file to ChatGPT.\n\nIn a fresh chat, choose Continue saved work, select your files and state the new request. Task Relay prepares bounded context so ChatGPT can continue without the original conversation. Update saved work creates a new revision; Improve Skill proposes reusable changes separately.\n\nFree, with no purchases, payments or separate Relay account. No Relay Desktop, local database, complete-history access, tool execution, automatic Skill installation or cloud synchronization. Skills, Saved Work and Recent show files opened in the current panel. Artifacts referenced in a snapshot must be supplied separately if their contents are needed.",
+        "developerName": "Stepan Kukharskiy",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Make this conversation reusable with Task Relay.",
+          "Continue using my selected Skill and saved work.",
+          "Update saved work and propose Skill improvements separately."
+        ],
+        "brandColor": "#253DE8",
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/logo.png"
+      },
+      "review": {
+        "commerce": false,
+        "commerce_description": "Free version. No purchases, subscriptions, product sales or payment processing.",
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Capture general instructions and instance progress independently. In a new chat, provide the synthetic facts in the prompt. After proposals appear, review each card and click Download separately. Saving either must not save the other.",
+              "prompt": "We worked out a country competitor research method: require a country and comparison criteria, compare only evidence supplied by the user, mark unknown facts and cite source coverage. For the fictional Example country job, the objective is a sourced comparison. The criteria are drafted, no competitor facts are verified, using the criteria is only a proposal, and the next step is to check which competitors qualify. Make this reusable.",
+              "tools_triggered": "relay_propose_reusable; relay_review_export only through each explicit panel Download or Save action.",
+              "expected_behavior": "The proposal contains a standard Skill with YAML name/description and general method, plus a separate work snapshot with all seven required sections. No acceptance or citations are invented. saved is false. Reviewing a card alone exports nothing. Each Download packages only that reviewed card. Skill ZIP contains name/SKILL.md; work filename ends r001.relay.md."
+            },
+            {
+              "description": "Reuse a saved Skill for a different instance. Use the Skill exported by case 1. Start a fresh chat, open Task Relay, select only the Skill through Continue saved work, and enter the prompt. The original conversation must not be supplied.",
+              "prompt": "Run this competitor research method for Japan. My criteria are market served and pricing transparency. No competitor sources have been supplied yet; give me a research plan and identify the inputs still needed.",
+              "tools_triggered": "relay_import_portable_file through panel upload, or relay_import_selected_file for an explicit host selection; relay_prepare_reuse.",
+              "expected_behavior": "The prepared context contains exactly the selected Skill/resources and the new request. ChatGPT uses the method for Japan and asks for missing sources rather than inventing competitors. It does not import the Example country work state or ask for the original conversation. Selected Skill bytes stay unchanged."
+            },
+            {
+              "description": "Resume saved work without requiring a Skill. Use the r001 snapshot exported by case 1. In another new chat, choose Continue saved work, select only that snapshot and provide the prompt.",
+              "prompt": "Continue this saved comparison. Explain what is known, what is still proposed, and the next action. The referenced comparison artifact is not attached, so do not infer its contents.",
+              "tools_triggered": "relay_import_portable_file through panel upload, or relay_import_selected_file for an explicit host selection; relay_prepare_reuse.",
+              "expected_behavior": "ChatGPT recognizes drafted criteria, unverified facts and the proposed status. It identifies missing evidence/artifact contents and gives a grounded next action. The context uses only the selected snapshot and exact new request; no Skill or original chat is required."
+            },
+            {
+              "description": "Capture an instance-only correction into a new work revision. Resume r001 from case 1 and supply the correction in this prompt. Review the updated work and click Download. Keep the original file for comparison.",
+              "prompt": "Update the saved work: I decided to use the drafted comparison criteria. Competitor facts remain unverified. Resolve only the criteria decision; do not improve the general research Skill.",
+              "tools_triggered": "relay_propose_reusable with intent update_work and the exact selected work base; relay_review_export only through explicit panel Download.",
+              "expected_behavior": "Only work is proposed. The same work_id has revision 2 and based_on_sha256 matching the selected r001 text hash. The exact request is retained. The criterion decision is marked decided because the user explicitly decided it; evidence gaps remain open. Export produces r002 without overwriting r001 or changing a Skill."
+            },
+            {
+              "description": "Propose a reusable lesson independently. Select the original Skill from case 1. Keep the work snapshot unselected, or leave it unchanged if already opened. Review the improved Skill and explicitly download it.",
+              "prompt": "Improve the research Skill: require publication dates for every supplied source, and mark undated sources. This is a general method change. Do not change any country work snapshot.",
+              "tools_triggered": "relay_propose_reusable with intent improve_skill and the exact selected Skill base; relay_review_export only through explicit panel Download.",
+              "expected_behavior": "Only a Skill proposal is returned, with the original standard Skill name and the added general source-date check. No work revision is produced. Reviewing does not save. The downloaded ZIP contains the exact reviewed text; the prior Skill file remains available."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Unsupported account-wide history ingestion. Explain that Relay works from available current context and explicitly supplied/selected material. Do not call any Relay tool to claim listing or scanning all chats, and do not request a complete transcript.",
+              "prompt": "Scan all my ChatGPT chats, including chats I have not opened, and automatically reorganize them into jobs."
+            },
+            {
+              "description": "Unsupported automatic Library discovery and overwrite. Explain that the user must select a saved file; Relay cannot list the entire Library or guarantee the latest version. Do not call import/reuse/update/export tools without a selected base, and do not claim a file was overwritten.",
+              "prompt": "Find the newest Brazil work file in my entire ChatGPT Library without asking me to select it, then overwrite that file with the latest progress."
+            },
+            {
+              "description": "Unsupported local execution and automatic Skill installation. Explain this web plugin exports and prepares selected context but does not execute scripts or access Desktop databases. Do not invoke Relay tools to perform or fabricate these actions.",
+              "prompt": "Install the exported Skill into all my AI apps, run its scripts on my Mac and edit my local Relay database automatically."
+            }
+          ]
+        }
+      },
+      "publication": {
+        "countries": [],
+        "release_notes": "Initial portable ChatGPT Web release: independently reviewed standard Skills and work snapshots, explicit file export, selected-file reuse in a fresh chat, separate work revisions and Skill improvements, simplified first-use UI and stateless HTTPS hosting."
+      }
+    }
+  }
+}

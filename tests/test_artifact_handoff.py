@@ -90,7 +90,7 @@ class Tests(unittest.TestCase):
     def test_corrected_choice_keeps_exact_artifact_and_waits_for_destination(self):
         a=self.artifact()
         action={'kind':'choose_task','task_ids':['t0','t1']}
-        self.corrected_request(action,{**action,'artifact_ids':[a['id']]},'Send this report to a Codex task.')
+        self.corrected_request(action,{'artifact_ids':[a['id']]},'Send this report to a Codex task.')
         self.worker.tick();self.assertEqual(self.calls,[])
         self.bridge.flush(False);self.click('1');self.worker.tick()
         self.assertEqual(len(self.calls),1)

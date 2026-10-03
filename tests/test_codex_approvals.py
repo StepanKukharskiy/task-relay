@@ -237,9 +237,9 @@ class ApprovalTests(unittest.TestCase):
         real_bridge = module.Bridge
         with ExitStack() as stack:
             stack.enter_context(patch.object(module, 'DATA', Path(self.temp.name)))
-            stack.enter_context(patch.object(module, 'read_config', return_value={'token':'test'}))
+            stack.enter_context(patch.object(module, 'service_config', return_value={'token':'test'}))
             stack.enter_context(patch.object(module, 'BackgroundWorkers'))
-            stack.enter_context(patch.object(module, 'Telegram', return_value=telegram))
+            stack.enter_context(patch.object(module, 'service_transport', return_value=telegram))
             stack.enter_context(patch.object(telegram, 'call', side_effect=call))
             stack.enter_context(patch.object(module, 'Bridge', side_effect=lambda s,t,c: real_bridge(s,t,c,RestartingDesktop)))
             stack.enter_context(patch.object(module.signal, 'signal', side_effect=lambda sig,fn: handlers.update({sig:fn})))

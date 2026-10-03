@@ -115,22 +115,29 @@ def safe_file(root, relative):
 
 
 class Runtime:
-    def __init__(self, root, factory=None, connection=None):
-        self.root = Path(root).resolve(); self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.factory = factory or ExecutionFactory()
+    def __init__(self, root, factory=None, connection=None, *, read_only=False):
+        self.root = Path(root).resolve()
+        self.read_only = read_only
+        if not read_only:
+            self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.factory = None if read_only else factory or ExecutionFactory()
         self.owns_connection = connection is None
-        self.db = connection if connection is not None else sqlite3.connect(storage.database_path(self.root), timeout=30, isolation_level=None)
+        path = storage.database_path(self.root)
+        self.db = connection if connection is not None else sqlite3.connect(path.as_uri() + '?mode=ro' if read_only else path, uri=read_only, timeout=30, isolation_level=None)
         self.db.row_factory = sqlite3.Row
-        if self.owns_connection:
+        if self.owns_connection and not read_only:
             self.db.execute('PRAGMA journal_mode=WAL'); self.db.execute('PRAGMA foreign_keys=ON')
         try:
-            storage.initialize(self.db, self.root / 'runtime.sqlite')
+            if not read_only:
+                storage.initialize(self.db, self.root / 'runtime.sqlite')
         except BaseException:
             self.close()
             raise
 
     @contextmanager
     def transaction(self):
+        if self.read_only:
+            raise ValueError('This runtime view is read-only.')
         with storage.transaction(self.db):
             yield
 
@@ -305,8 +312,14 @@ class Runtime:
             safe_file(self.root,str(blob.relative_to(self.root)))
             if blob.stat().st_size!=artifact['bytes'] or file_hash(blob)!=artifact['sha256']:
                 raise ValueError('Registered artifact content changed: '+item['path'])
-            resolved.append({**item,'artifact':artifact['id'],'sha256':artifact['sha256'],
+            resolved.append({**{k:v for k,v in item.items() if k!='native_evidence'},'artifact':artifact['id'],'sha256':artifact['sha256'],
                              'bytes':artifact['bytes'],'blob':blob})
+        from .computer_review_inputs import review_input
+        native_input=review_input(self,run,spec)
+        if native_input:
+            if native_input['path'] in {i['path'] for i in resolved}|{o['path'] for o in spec['outputs']}:
+                raise ValueError('Raw Safari evidence path conflicts with a declared file.')
+            resolved.append(native_input)
         if spec.get('execution'):
             ceiling=execution.REGISTRY[spec['execution']['capability']]['input_bytes']
             if sum(i['bytes'] for i in resolved)>ceiling:
@@ -386,6 +399,10 @@ class Runtime:
                 attempt = uid(); workspace = self.root / 'workspaces' / attempt
                 workspace.mkdir(parents=True, mode=0o700)
                 frozen = copy.deepcopy(spec)
+                frozen.pop('computer_review',None)
+                frozen['inputs']=[{k:v for k,v in item.items() if k not in ('blob','bytes','native_evidence')} for item in resolved_inputs]
+                for item in resolved_inputs:
+                    if 'native_evidence' in item:frozen['computer_review']=item['native_evidence']
                 # Never trust a model-supplied authorization field.
                 frozen.pop('host_code_authorization',None);frozen.pop('authorized_assignment_digest',None)
                 if authorization:
@@ -396,6 +413,8 @@ class Runtime:
                 if not frozen.get('execution'):
                     from .report_builder import freeze as report_form
                     frozen['report_contract']=report_form(frozen)
+                from .operation_records import freeze as freeze_records
+                freeze_records(frozen,self.db)
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
@@ -406,7 +425,7 @@ class Runtime:
                 if spec.get('execution',{}).get('capability','').startswith('sketchup.'):
                     from .sketchup_execution import application_binding
                     frozen['sketchup_application']=application_binding()
-                if frozen.get('execution',{}).get('capability') in ('images.collect','images.fetch'):
+                if frozen.get('execution',{}).get('capability') in ('images.collect','images.fetch','web.sources'):
                     from task_relay import orchestrator_web
                     frozen['runtime_sources']['task_relay/orchestrator_web.py']=file_hash(Path(orchestrator_web.__file__))
                 if frozen.get('execution',{}).get('capability') in execution.CLOUD_MEDIA:
@@ -513,10 +532,16 @@ class Runtime:
                     'purpose':'Exact independent review of the previous candidate',
                     'authority':'Review evidence for correction, not user approval','previous_delivery':True})
         spec = c.assignment(spec)
+        review_spec=self.spec(reviewer) if reviewer else None
+        if spec.get('design_intent_state') and (source=='user' or source.startswith('telegram:')):
+            from task_relay.design_intent import feedback_record, bind
+            record=feedback_record(spec['design_intent_state'],instruction,source)
+            bind([spec]+([review_spec] if review_spec else []),record)
+            spec=c.assignment(spec)
         aid = self.new_assignment(run, spec)
         self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?", (aid, run, tid))
         if reviewer:
-            aid = self.new_assignment(run, self.spec(reviewer))
+            aid = self.new_assignment(run, c.assignment(review_spec))
             self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?", (aid, run, reviewer['id']))
         self.event(run, tid, task['latest'], 'revision_requested', spec['revision'])
 
@@ -548,6 +573,12 @@ class Runtime:
         return result
 
     def collect(self, attempt, receipt):
+        with self.transaction():
+            self._collect(attempt, receipt)
+            from task_relay.execution_capture import notify
+            notify(self.db, 'production_attempt', attempt['id'])
+
+    def _collect(self, attempt, receipt):
         frozen = json.loads(attempt['frozen']); workspace = Path(frozen['workspace'])
         if not self.db.execute("SELECT 1 FROM production_events WHERE attempt=? AND kind='worker_started'", (attempt['id'],)).fetchone():
             self.event(attempt['run'], attempt['task'], attempt['id'], 'worker_started',
@@ -584,6 +615,10 @@ class Runtime:
             validate_captures(frozen,workspace)
             from .host_script import validate_prepared
             validate_prepared(frozen, workspace)
+            from .deliverable_outputs import check_delivery as check_outputs
+            check_outputs(frozen,lambda path:safe_file(workspace,path).read_bytes())
+            from .text_outputs import check_delivery
+            check_delivery(frozen,lambda path:safe_file(workspace,path).read_bytes())
         except (ValueError, OSError) as exc:
             failures.append(str(exc))
         for item in frozen['inputs']:
@@ -601,6 +636,18 @@ class Runtime:
             raw = result_path.read_text()
             self.event(attempt['run'], attempt['task'], attempt['id'], 'first_response', {'text': raw})
             result = c.report(json.loads(raw), frozen)
+            if frozen.get('computer') and result['decision']!='blocked':
+                from .computer_review_inputs import validate_delivery
+                validate_delivery(self.db,attempt['id'])
+                from .research_quality import check_delivery
+                pack=None
+                if frozen.get('research_delivery'):
+                    from .computer_review_inputs import capture_pack
+                    pack=capture_pack(self.db,frozen,self.root/'workers'/attempt['id']/'computer-evidence')
+                check_delivery(frozen,lambda p:safe_file(workspace,p).read_bytes(),pack)
+            if frozen.get('operation_contract') and result['decision']!='blocked':
+                from .operation_records import Store
+                Store(frozen,self.db).verify_export(lambda p:safe_file(workspace,p).read_bytes())
             if failures and result['decision'] != 'blocked':
                 raise ValueError('; '.join(failures))
         except (ValueError, OSError) as exc:
@@ -681,6 +728,10 @@ class Runtime:
                 elif receipt['status'] == 'running' and fresh['state'] == 'launching':
                     self.set_state(fresh, 'running')
                     self.event(run, fresh['task'], fresh['id'], 'worker_started', receipt)
+                current = self.db.execute('SELECT state FROM production_attempts WHERE id=?', (fresh['id'],)).fetchone()[0]
+                if current in ('completed', 'blocked', 'cancelled', 'uncertain'):
+                    from task_relay.execution_capture import notify
+                    notify(self.db, 'production_attempt', fresh['id'])
         while dispatch:
             session = self.claim(run)
             if not session:
@@ -695,6 +746,8 @@ class Runtime:
                     attempt = self.db.execute('SELECT * FROM production_attempts WHERE id=?', (session['id'],)).fetchone()
                     self.set_state(attempt, 'uncertain', str(exc))
                     self.event(run, attempt['task'], session['id'], 'dispatch_uncertain', {'reason': str(exc)})
+                    from task_relay.execution_capture import notify
+                    notify(self.db, 'production_attempt', session['id'])
         return self.status(run)
 
     def pause(self, run):

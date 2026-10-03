@@ -20,6 +20,9 @@ class NativeApp:
     new_model: bool = False
 
     def discover(self):
+        if self.script_operation == 'rhino.grasshopper':
+            from task_relay.host_apps import grasshopper
+            return grasshopper()
         if self.name == 'rhino3dm':
             from .rhino3dm_script import discover
             return discover()
@@ -50,6 +53,10 @@ APPS = {
     'rhino': NativeApp('rhino', 'application/vnd.rhino', '.3dm', 'rhino.run_python',
         'text/x-python', '.py', 'rhino_contract', COMMON + ('rhino_contract.py', 'rhino_execution.py', 'rhino_worker.py',
         '../task_relay/rhino_host.py', '../task_relay/host_apps.py'), True),
+    'grasshopper': NativeApp('rhino', 'application/vnd.grasshopper', '.gh', 'rhino.grasshopper',
+        'text/x-python', '.py', 'grasshopper_contract', COMMON + ('rhino_contract.py', 'rhino_execution.py',
+        'rhino_worker.py', 'grasshopper_contract.py', 'grasshopper_worker.py',
+        '../task_relay/rhino_host.py', '../task_relay/host_apps.py'), True),
     'sketchup': NativeApp('sketchup', 'application/vnd.sketchup.skp', '.skp', 'sketchup.run_ruby',
         'text/x-ruby', '.rb', 'sketchup_contract', COMMON + ('sketchup_contract.py', 'sketchup_execution.py', 'sketchup_worker.rb',
         '../task_relay/sketchup_host.py', '../task_relay/host_apps.py'), True),
@@ -59,6 +66,7 @@ NATIVE_MEDIA = tuple(p.media for p in APPS.values())
 
 
 def profile(capability):
+    if capability == 'rhino.grasshopper':return APPS['grasshopper']
     name = capability.split('.')[0]
     if name not in APPS: raise ValueError('Unknown native application; no fallback')
     return APPS[name]

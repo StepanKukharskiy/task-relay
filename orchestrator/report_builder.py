@@ -33,6 +33,9 @@ def schema(frozen):
                 props['measurements']=obj({m['metric']:obj({'error':{'type':'number'},'evidence':text},('error','evidence'))
                     for m in policy['checks']},[m['metric'] for m in policy['checks']])
             evidence={'anyOf':[text,obj(props,props)]}
+        if index in frozen.get('source_verification',{}).get('criteria',[]):
+            from .source_verification import schema as source_schema
+            evidence={'anyOf':[text,source_schema()]}
         checks['c'+str(index)]={'anyOf':[obj({'passed':{'type':'boolean'},'evidence':evidence},('passed','evidence')),
                                         {'type':'null'}], 'description':criterion}
     return obj({'summary':text,'decision':{'type':'string','enum':['accept','revise','blocked'] if frozen.get('review_of') else ['delivered','blocked']},
@@ -61,6 +64,10 @@ def build(value,frozen):
             continue
         evidence=detail['evidence']
         if isinstance(evidence,dict):
+            if index in frozen.get('source_verification',{}).get('criteria',[]):
+                evidence=c.encoded(evidence)
+                result['checks'].append(dict(criterion=index,passed=detail['passed'],evidence=evidence))
+                continue
             fidelity=frozen['source_fidelity'];observations={}
             for key,source in policy['source_slots'].items():
                 observation=evidence['sources'][key]

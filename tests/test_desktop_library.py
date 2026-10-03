@@ -54,6 +54,39 @@ class DesktopLibraryTests(unittest.TestCase):
         self.assertEqual(workflows('runs', paths=self.paths)['items'][0]['title'], 'Existing workflow')
         self.assertEqual(workflows('plans', paths=self.paths)['items'], [])
 
+    def test_run_management_never_chooses_between_shared_workflow_owners(self):
+        state = self.state()
+        with state.db:
+            state.db.execute("INSERT INTO production_runs VALUES ('run','{}','completed')")
+            for index in (1,2):
+                state.db.execute('''INSERT INTO relay_pipelines
+                    (id,request_id,request,title,spec,channel,provider,model,status,created)
+                    VALUES (?,?,?,'Fixture','{}','desktop','fixture','fixture','completed',1)''',
+                    ('job-'+str(index), index, 'Exact fixture'))
+            state.db.execute("INSERT INTO relay_pipeline_steps(pipeline,position,id,status,target_kind,target) VALUES ('job-1',0,'step','completed','production_run','run')")
+        item = workflows('runs', paths=self.paths)['items'][0]
+        self.assertEqual(item['job_id'], 'job-1')
+        self.assertIn('whole workflow', item['detail'])
+        with state.db:
+            state.db.execute("INSERT INTO relay_pipeline_steps(pipeline,position,id,status,target_kind,target) VALUES ('job-2',0,'step','completed','production_run','run')")
+        self.assertNotIn('job_id', workflows('runs', paths=self.paths)['items'][0])
+
+    def test_pipeline_inventory_shows_job_view_without_changing_history(self):
+        state = self.state()
+        with state.db:
+            state.db.execute("""INSERT INTO relay_pipelines
+                (id,request_id,request,title,spec,channel,provider,model,status,created)
+                VALUES ('job-1',1,'Translate these names','Parts catalog','{}','desktop','fixture','fixture','completed',1)""")
+        view = self.paths.generated / 'workflows' / 'job-1' / '.relay' / 'job.sqlite'
+        view.parent.mkdir(parents=True)
+        view.write_bytes(b'fixture')
+        before = state.db.total_changes
+        result = workflows('pipelines', paths=self.paths)
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['items'][0]['request'], 'Translate these names')
+        self.assertEqual(result['items'][0]['job_view'], str(view))
+        self.assertEqual(state.db.total_changes, before)
+
     def test_codex_history_uses_message_records_once_and_skips_partial_tail(self):
         path = self.paths.data.parent/'rollout.jsonl'
         records = [dict(type='response_item',payload=dict(type='message',role=role,content=[dict(type=kind,text=text)]))

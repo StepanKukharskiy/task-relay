@@ -11,7 +11,7 @@ import time
 from urllib.parse import urlsplit
 import webbrowser
 
-from . import api_providers, credentials, diagnostics, host_apps, onboarding, releases
+from . import __version__, api_providers, credentials, diagnostics, host_apps, onboarding, releases
 from .host import HOST, UnsupportedHost
 from .relay_paths import ASSETS, PATHS
 
@@ -163,7 +163,7 @@ def status():
         cache = releases.cached(PATHS.data)
     except Exception:
         cache = {'checked': None, 'release': None, 'error': 'Release cache is unreadable.'}
-    return {'version': releases.VERSION, 'platform': HOST.platform,
+    return {'version': __version__, 'platform': HOST.platform,
             'setup_error': saved_error, 'project': project_info,
             'selected_provider': selected, 'providers': providers,
             'first_task_command': first_task,

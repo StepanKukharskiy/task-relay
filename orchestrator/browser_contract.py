@@ -214,6 +214,12 @@ Read the declared input paths directly; their names are already in the assignmen
 Batch independent file reads where useful; file_read limit is at most 24000.
 Each factual claim about schedules, duration, price or availability needs supporting
 observed page evidence. Search snippets are leads, not verification of linked pages.
+For source research, navigate to a search results URL for an exact identifier or
+an exact listing URL early. A search homepage or cookie dialog is not research.
+Use saved source files to target the search, but do not spend the browsing budget
+reading historical files in small pages. Record observed findings or an explicit
+unresolved gap for each requested identifier. Never write an empty JSON object or
+claim catalog research was completed without inspecting relevant results.
 Do not turn a generic route/monthly fare into an exact-date result. If requested
 dates were never queried successfully, say that; do not invent a booking-horizon
 or other explanation. Use the supplied host date for all calendar reasoning.

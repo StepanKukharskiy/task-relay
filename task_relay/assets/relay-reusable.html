@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Relay · Make this reusable</title><style>/* RELAY_REUSABLE_STYLE */</style></head>
+<body>
+  <header><span class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></span><button id="back-home" class="quiet" hidden>Back</button></header>
+  <main>
+    <section id="welcome" class="card hero">
+      <h1>Pick this up later.</h1>
+      <p>Keep the useful instructions and progress from this chat, so you can use them again.</p>
+      <button id="make-reusable" class="primary">Make this reusable</button>
+      <p class="muted small">You’ll review what to keep before saving anything.</p>
+      <div class="return-path"><button id="open-saved">Continue saved work</button><p class="muted small">Already have Task Relay files? Open them in this chat.</p></div>
+      <button id="review-pending" class="quiet" hidden>Return to your review</button>
+    </section>
+    <div id="status" role="status" aria-live="polite" hidden></div>
+    <section id="proposal-section" hidden>
+      <h1>Keep what’s useful</h1><p class="muted">Review either file. Save each one separately.</p>
+      <div id="proposals"></div>
+      <p class="muted small">In a new chat, choose Continue saved work and open the files you kept.</p>
+    </section>
+    <section id="reuse-section" class="card" hidden>
+      <h1>Continue saved work</h1><p>Open a file you kept with Task Relay. Then tell ChatGPT what you want to do.</p>
+      <div class="actions"><button id="select-library">Choose saved files</button><button id="upload-device" class="quiet" hidden>Upload from device</button><input id="upload-files" type="file" accept=".md,.zip" multiple hidden></div>
+      <div id="selected-files"></div>
+      <div id="reuse-request" hidden>
+        <label for="new-request">What would you like to do next?</label><textarea id="new-request" maxlength="12000" placeholder="Continue the report, or use these instructions for Japan…"></textarea>
+        <div class="actions"><button id="continue-chat" class="primary">Continue in ChatGPT</button></div>
+        <details id="context-details"><summary>Preview what will be shared</summary><button id="prepare-reuse">Preview</button><section id="context-section" hidden><pre id="context-preview"></pre></section></details>
+        <details id="update-actions"><summary>Keep changes from this chat</summary><p class="muted small">After working in ChatGPT, review an updated file.</p><div class="actions"><button id="update-work" hidden>Update saved work</button><button id="improve-skill" hidden>Improve Skill</button></div></details>
+      </div>
+      <details id="file-catalog" hidden><summary>Other files opened here</summary><nav aria-label="Saved material"><button id="view-skills" aria-pressed="true">Skills</button><button id="view-work" aria-pressed="false">Saved Work</button><button id="view-recent" aria-pressed="false">Recent</button></nav><div id="documents"></div><p id="catalog-note" class="muted small"></p></details>
+      <p class="muted small">Keep your files. Open them again whenever you start a new chat.</p>
+    </section>
+  </main>
+  <script>/* RELAY_REUSABLE_SCRIPT */</script>
+</body></html>

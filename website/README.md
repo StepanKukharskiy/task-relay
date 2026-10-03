@@ -2,6 +2,12 @@
 
 [Live website](https://task-relay-website-production.up.railway.app)
 
+The `/chatgpt` page and `/chatgpt/support`, `/chatgpt/privacy` and `/chatgpt/terms`
+describe the separate skills-only Task Relay plugin and its publisher. They use
+the website's existing assets and exact static routes. This website is not a
+Relay MCP server and receives no plugin conversation/file payloads. Publisher
+policies are approved source changes until their deployment is verified.
+
 One static, text-first page introducing jobs, cross-tool workflow examples and
 version-change review, followed by supported programs, input/saved file formats
 and current download availability. Five workflow starters sit in a disclosure

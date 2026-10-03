@@ -3,37 +3,116 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
-  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="companion-setup.js" defer></script><script src="companion-updates.js" defer></script><script src="companion.js" defer></script>
+  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="vendor/marked.umd.js" defer></script><script src="vendor/purify.min.js" defer></script><script src="rich-text.js" defer></script><script src="companion-setup.js" defer></script><script src="companion-updates.js" defer></script><script src="companion-computer.js" defer></script><script src="companion.js" defer></script><script src="companion-workflow.js" defer></script><script src="companion-workspace.js" defer></script>
 </head>
 <body>
-  <header><div class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></div><button id="refresh" class="quiet" type="button" aria-label="Refresh status">Refresh</button></header>
-  <main>
-    <p id="feedback" class="feedback" role="status" hidden></p>
-    <button id="grant-data-access" hidden>Grant folder access…</button>
-    <section id="home" aria-labelledby="status-title">
-      <div class="status-line"><span id="status-dot" class="dot"></span><h1 id="status-title">Connecting…</h1></div>
-      <p id="status-detail" class="muted">Reading this computer’s Relay connection.</p>
-      <button id="open-conversation" class="primary" disabled>Open Telegram</button>
-      <button id="service-action" hidden></button>
-      <p class="hint" id="service-note">Closing this window leaves the background service running.</p>
-      <div id="decisions" hidden><button id="review-decisions" class="row-link"></button></div>
-    </section>
-
-    <section id="onboarding" hidden aria-labelledby="setup-title">
-      <p id="setup-progress" class="hint">Step 1 of 4</p>
-      <h2 id="setup-title">Connect once. Work in your messenger.</h2>
-      <p class="muted" id="setup-next">Connect an AI provider, pair Telegram, then start Relay.</p>
-      <div id="setup-form"></div>
-      <button id="continue-setup" class="primary">Continue setup</button>
-      <p class="hint">Each completed step is saved. You can close Relay and continue later. Messages can be added separately after this Telegram setup.</p>
-    </section>
-
-    <section id="review" hidden aria-labelledby="review-title">
-      <div class="section-title"><h2 id="review-title">Decisions</h2><button id="close-review" class="quiet">Done</button></div>
+  <dialog id="destructive-confirm" aria-labelledby="destructive-confirm-title" aria-describedby="destructive-confirm-detail">
+    <h2 id="destructive-confirm-title">Confirm deletion</h2>
+    <p id="destructive-confirm-detail"></p>
+    <div class="actions"><button id="destructive-cancel" type="button">Cancel</button><button id="destructive-apply" class="danger" type="button">Delete permanently</button></div>
+  </dialog>
+  <div class="workspace-frame">
+    <aside class="sidebar">
+      <div class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></div>
+      <nav aria-label="Main navigation">
+        <button type="button" data-destination="jobs" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span>Jobs</button>
+        <button type="button" data-destination="reviews"><span class="nav-icon" aria-hidden="true">✓</span>Review<span id="workspace-review-count" class="badge" hidden></span></button>
+        <button type="button" data-destination="connections"><span class="nav-icon" aria-hidden="true">⇄</span>Connections</button>
+        <button type="button" data-destination="settings"><span class="nav-icon" aria-hidden="true">⚙</span>Settings</button>
+      </nav>
+      <div class="sidebar-bottom"><p class="hint workspace-service" role="status"><span id="workspace-status-dot" class="dot" aria-hidden="true"></span><span id="workspace-status">Connecting…</span></p>
+    <footer><span id="version"></span><button id="app-update-notice" class="quiet" hidden>Update available</button><span>Runs on this computer</span></footer>
+      </div>
+    </aside>
+    <div class="workspace-content">
+      <header class="workspace-header"><span id="workspace-breadcrumb">Jobs</span><button id="refresh" class="quiet" type="button" aria-label="Refresh status">Refresh</button></header>
+      <main>
+        <p id="feedback" class="feedback" role="status" hidden></p>
+        <button id="grant-data-access" hidden>Grant folder access…</button>
+        <section id="workspace-jobs" class="workspace-view" aria-labelledby="workspace-jobs-title">
+          <div class="page-heading"><div><h1 id="workspace-jobs-title" tabindex="-1">Jobs</h1><p class="muted">Work started here and in your messengers, together.</p></div><button id="workspace-new" class="primary" type="button">New task</button></div>
+          <div class="jobs-toolbar"><label class="search-label" for="workspace-search">Find a job</label><input id="workspace-search" type="search" placeholder="Search loaded jobs…" autocomplete="off"><button id="saved-work" type="button" class="quiet">Saved records</button><button id="computer-sessions-open" class="quiet" type="button" hidden>Safari sessions</button></div>
+          <label class="revision-confirm"><input id="workspace-show-removed" type="checkbox">Show removed jobs</label>
+          <p id="workspace-jobs-count" class="hint" role="status"></p><div id="workspace-delete-recovery" class="actions"></div><div id="workspace-job-list" class="job-list"></div><button id="workspace-jobs-more" type="button" hidden>Show more</button>
+        </section>
+        <section id="workspace-compose" class="workspace-view" hidden aria-labelledby="workspace-compose-title">
+          <button id="workspace-compose-back" class="quiet back-link" type="button">‹ Jobs</button>
+          <div class="page-heading"><div><h1 id="workspace-compose-title" tabindex="-1">New task</h1><p class="muted" id="workspace-compose-context">Ask a question or describe an outcome. Relay can answer, suggest useful options or prepare a plan.</p></div></div>
+          <form id="workspace-create-form" class="compose-form">
+            <label for="workspace-goal">What would you like to do?</label><textarea id="workspace-goal" required maxlength="12000" placeholder="Describe the outcome and the files you want Relay to use…"></textarea>
+            <label for="workspace-project">Project folder (optional)</label><div class="input-row"><input id="workspace-project" placeholder="Choose the project this work belongs to"><button id="workspace-project-pick" type="button">Choose…</button></div>
+            <div id="workspace-attachments" class="attachment-list"></div>
+            <button id="workspace-attach" class="quiet" type="button">＋ Attach files</button>
+            <details><summary>Constraints</summary>
+              <label for="workspace-constraints">Constraints or boundaries (optional)</label><textarea id="workspace-constraints" placeholder="Limits, scope or preferences…"></textarea>
+            </details>
+            <p id="workspace-compose-feedback" class="hint" role="status"></p>
+            <div class="actions"><button id="workspace-create" class="primary" type="submit">Send to orchestrator</button></div>
+            <p class="hint">Relay proposes a workflow using your connected AI provider. Review its tools, scope and limits before Start. Selecting a project folder does not create a Codex conversation.</p>
+          </form>
+        </section>
+        <section id="workspace-detail" class="workspace-view" hidden aria-labelledby="workspace-detail-title">
+          <button id="workspace-detail-back" class="quiet back-link" type="button">‹ Jobs</button>
+          <div class="page-heading"><div><h1 id="workspace-detail-title" tabindex="-1">Job</h1><p id="workspace-detail-meta" class="muted"></p></div><button id="workspace-detail-refresh" type="button" class="quiet">Refresh job</button></div>
+          <p id="workspace-detail-feedback" role="status" class="feedback" hidden></p>
+          <div id="workspace-detail-body"></div>
+        </section>
+        <section id="workspace-reviews" class="workspace-view" hidden aria-labelledby="workspace-reviews-title">
+          <div class="page-heading"><div><h1 id="workspace-reviews-title" tabindex="-1">Review</h1><p class="muted">Ready decisions and jobs needing attention.</p></div></div>
+          <div id="workspace-review-list"></div>
+          <div class="review-destinations"><div id="decisions"><button id="review-decisions" class="row-link" type="button">Agent requests</button></div><button id="review-revisions" class="row-link" type="button">Revision candidates</button></div>
+        </section>
+    <section id="review" class="workspace-view" hidden aria-labelledby="review-title">
+      <div class="section-title"><h2 id="review-title">Decisions</h2><button id="close-review" class="quiet">Back to Review</button></div>
       <div id="decision-list"></div><div id="decision-detail"></div>
     </section>
 
-    <details id="channels-settings">
+    <section id="revisions" class="workspace-view" hidden aria-labelledby="revisions-title">
+      <div class="section-title"><h2 id="revisions-title">Revision candidates</h2><button id="close-revisions" class="quiet" type="button">Back to Review</button></div>
+      <p class="hint">Each candidate is checked against exact source and output versions. Review and selection are separate decisions.</p>
+      <div id="revision-list"></div><div id="revision-detail"></div>
+    </section>
+
+    <section id="computer-sessions-panel" class="workspace-view" hidden aria-labelledby="computer-sessions-title">
+      <div class="section-title"><h2 id="computer-sessions-title">Safari sessions</h2><button id="computer-sessions-close" class="quiet" type="button">Back to Jobs</button></div>
+      <p class="hint">Inspect saved scope and receipts. Pause and Cancel stop future actions; an action already started may finish. Recovery requires an explicit decision in the development CLI.</p>
+      <button id="computer-sessions-refresh" type="button">Refresh sessions</button>
+      <p id="computer-sessions-feedback" class="hint" role="status"></p>
+      <div id="computer-sessions-list"></div>
+      <button id="computer-sessions-more" type="button" hidden>Show more</button>
+      <div id="computer-session-detail"></div>
+    </section>
+
+    <section id="saved-work-panel" class="workspace-view" hidden aria-labelledby="saved-work-title">
+      <div class="section-title"><h2 id="saved-work-title">Saved work</h2><button id="close-saved-work" class="quiet" type="button">Back to Jobs</button></div>
+      <p class="hint">Manage Relay history here. Choose a category, then Delete… on an eligible record. Active or uncertain work can block deletion; native deliverables and external messages are retained.</p>
+      <label for="saved-work-kind">Show</label>
+      <select id="saved-work-kind"><option value="tasks">Tasks</option><option value="pipelines">Pipelines</option><option value="runs">Production runs</option><option value="plans">Production plans</option><option value="linked">Linked workflows</option></select>
+      <p id="saved-work-count" class="hint" role="status"></p>
+      <div id="saved-work-recovery" role="status"></div>
+      <div id="saved-work-list"></div>
+      <button id="saved-work-more" type="button" hidden>Show more</button>
+    </section>
+
+        <section id="workspace-connections" class="workspace-view" hidden aria-labelledby="workspace-connections-title">
+          <div class="page-heading"><div><h1 id="workspace-connections-title" tabindex="-1">Connections</h1><p class="muted">Local service and messenger delivery.</p></div></div>
+    <section id="home" aria-labelledby="status-title">
+      <div class="status-line"><span id="status-dot" class="dot"></span><h1 id="status-title">Connecting…</h1></div>
+      <p id="status-detail" class="muted">Reading this computer’s Relay connection.</p>
+      <div class="actions"><button id="open-conversation" class="primary" disabled>Open Telegram</button>
+      <button id="service-action" hidden></button></div>
+      <p class="hint" id="service-note">Closing this window leaves the background service running.</p>
+    </section>
+    <section id="onboarding" hidden aria-labelledby="setup-title">
+      <p id="setup-progress" class="hint">Step 1 of 4</p>
+      <h2 id="setup-title">Connect Relay to your tools.</h2>
+      <p class="muted" id="setup-next">Connect an AI provider and start the local Relay service.</p>
+      <div id="setup-form"></div>
+      <button id="continue-setup" class="primary">Continue setup</button>
+      <p class="hint">Each completed step is saved. You can close Relay and continue later. Add Telegram or Messages below for remote work.</p>
+    </section>
+
+    <details id="channels-settings" open>
       <summary>Channels <span id="channels-summary" class="muted"></span></summary>
       <p class="hint">Replies stay in the conversation where you asked. Turning a channel off stops new requests and holds replies; existing work continues.</p>
       <button id="messaging-pause" type="button" disabled>Pause all messaging</button>
@@ -42,7 +121,7 @@
         <div class="channel-row"><div><strong>Telegram</strong><span id="telegram-summary" class="muted">Checking…</span></div><button id="channel-telegram" type="button" role="switch" aria-label="Enable Telegram" aria-checked="false" disabled>Off</button></div>
       <details id="telegram-settings"><summary>Connection settings</summary>
         <p>Create a dedicated bot with <a href="https://t.me/BotFather">BotFather ↗</a>, then paste its token here.</p>
-        <form id="telegram-form"><label for="telegram-token">Bot token</label><input id="telegram-token" type="password" autocomplete="new-password"><button type="submit" id="telegram-save">Connect Telegram</button></form>
+        <form id="telegram-form"><label for="telegram-token">Bot token</label><input id="telegram-token" type="password" autocomplete="new-password"><button type="submit" class="primary" id="telegram-save">Connect Telegram</button></form>
         <button id="pair-telegram" hidden>Pair in Telegram</button><p class="hint">A saved connection is not a delivery test. Send your first instruction in Telegram and check its reply.</p>
       </details>
       </div>
@@ -59,14 +138,17 @@
       <p class="hint">Applies to release notices today. Task replies keep their own destination. Already queued notices are not moved.</p>
     </details>
 
-    <details id="settings">
+        </section>
+        <section id="workspace-settings" class="workspace-view" hidden aria-labelledby="workspace-settings-title">
+          <div class="page-heading"><div><h1 id="workspace-settings-title" tabindex="-1">Settings</h1><p class="muted">Models, tools and this installation.</p></div></div>
+    <details id="settings" open>
       <summary>Settings</summary>
       <details id="provider-settings"><summary><span>AI connection</span><span id="provider-summary" class="muted">Checking…</span></summary>
         <form id="provider-form">
           <label for="provider-name">Provider</label><select id="provider-name"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="later">Use existing agent tasks</option></select>
           <div id="provider-credentials"><label for="provider-key">API key</label><input id="provider-key" type="password" autocomplete="new-password"><a id="provider-key-link" href="https://aistudio.google.com/apikey">Get an API key ↗</a>
           <details><summary>Advanced</summary><label for="provider-model">Model ID (optional)</label><input id="provider-model"><div id="endpoint-field" hidden><label for="provider-endpoint">Qwen HTTPS endpoint (optional)</label><input id="provider-endpoint" type="url"></div></details></div>
-          <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit">Save connection</button>
+          <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit" class="primary">Save connection</button>
         </form>
       </details>
       <details id="model-settings"><summary>Models by task</summary>
@@ -78,7 +160,7 @@
             <label for="media-provider-key" id="media-provider-key-label">API key</label><input id="media-provider-key" type="password" autocomplete="new-password">
             <a id="media-provider-key-link" href="https://dev.runwayml.com/">Get API credentials ↗</a>
             <p class="hint">Use API credentials from the provider’s developer account. Saving a connection does not run generation or verify credits. Leave the credential blank to keep the saved connection.</p>
-            <button type="submit">Save media connection</button>
+            <button type="submit" class="primary">Save media connection</button>
           </form>
         </details>
         <p id="model-defaults-detail" class="hint" role="status"></p>
@@ -90,14 +172,14 @@
         <p id="app-access-detail" class="hint" role="status"></p>
         <div id="app-access-list"></div>
         <div class="channel-card"><strong>Modeling &amp; rendering</strong><p class="hint">Editable models and renders use Relay’s Blender or Rhino workflows.</p>
-          <form id="rhino-preference-form"><label for="rhino-preference">Preferred Rhino version for new plans</label><select id="rhino-preference"><option value="auto">Auto</option></select><p id="rhino-preference-detail" class="hint"></p><button id="rhino-preference-save" type="submit">Save Rhino preference</button></form>
+          <form id="rhino-preference-form"><label for="rhino-preference">Preferred Rhino version for new plans</label><select id="rhino-preference"><option value="auto">Auto</option></select><p id="rhino-preference-detail" class="hint"></p><button id="rhino-preference-save" type="submit" class="primary">Save Rhino preference</button></form>
         </div>
 
       <details id="code-settings"><summary>Code and document tools</summary>
         <p>Use Relay’s bundled Python with your connected model. No additional installation.</p>
         <p id="code-runtime-detail" class="hint" role="status"></p>
-        <button id="code-runtime-toggle" type="button" role="switch" aria-checked="true" aria-label="Code and document tools">On</button>
-        <button id="code-runtime-check" type="button" class="quiet">Check tools</button>
+        <div class="actions"><button id="code-runtime-toggle" type="button" role="switch" aria-checked="true" aria-label="Code and document tools">On</button>
+        <button id="code-runtime-check" type="button" class="quiet">Check tools</button></div>
         <label for="worker-provider">Worker provider</label>
         <select id="worker-provider"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option></select>
         <button id="worker-verify" type="button">Check worker connection</button>
@@ -108,10 +190,19 @@
         <p id="browser-installation" class="path"></p>
         <button id="browser-toggle" type="button" role="switch" aria-checked="false" aria-label="Browser use">Off</button>
         <p id="browser-detail" class="hint" role="status"></p>
-        <button id="browser-open" type="button" disabled>Open browser / sign in</button>
-        <button id="browser-sign-in-done" type="button" hidden>Done signing in</button>
+        <div class="actions"><button id="browser-open" type="button" disabled>Open browser / sign in</button>
+        <button id="browser-sign-in-done" type="button" hidden>Done signing in</button></div>
         <a id="browser-install" href="https://www.google.com/chrome/" hidden>Get Google Chrome ↗</a>
         <p class="hint">Open the websites you want Relay to use and sign in there. Chrome Sync is unnecessary. Sign-in opens ordinary Chrome with Relay access paused. Done signing in closes that window and lets Relay reuse its saved sessions. Website verification may still need your attention.</p>
+      </details>
+      <details id="computer-settings"><summary><span>Computer use — Safari</span><span id="computer-setup-summary" class="muted">Check setup</span></summary>
+        <p>Use your signed-in Safari session for approved tasks. General desktop app control is not yet available.</p>
+        <p class="hint">Background Safari tasks need Automation permission for Relay Computer Observer to control Safari. Scrolling also needs Safari’s “Allow JavaScript from Apple Events” setting. Window observation additionally needs Accessibility and Screen Recording.</p>
+        <p class="hint">Sign in to websites in Safari. Each plan selects its worker model, URLs and limits; changing permissions does not start a task.</p>
+        <p id="computer-setup-detail" class="hint" role="status">Check setup to inspect the helper and native permissions. Automation is checked when an approved task starts.</p>
+        <p id="computer-helper-path" class="path"></p>
+        <div class="actions"><button id="computer-setup-check" type="button">Check setup</button><button id="computer-permissions-request" type="button" class="quiet">Request window permissions</button></div>
+        <div class="actions"><button id="computer-automation-settings" type="button" class="quiet">Automation settings…</button><button id="computer-accessibility-settings" type="button" class="quiet">Accessibility settings…</button><button id="computer-screen-settings" type="button" class="quiet">Screen Recording settings…</button></div>
       </details>
       </details>
       <details id="access-settings"><summary>Folders & permissions</summary>
@@ -124,22 +215,24 @@
         <p id="app-update-summary" role="status" aria-live="polite">Reading app update status…</p>
         <label><input type="checkbox" id="app-update-beta"> Include beta releases</label>
         <p class="hint">Beta releases may require macOS permission approval. App updates preserve your saved connections and task history.</p>
-        <button id="app-update-check">Check for updates</button>
+        <div class="actions"><button id="app-update-check">Check for updates</button>
         <button id="app-update-notes" class="quiet" hidden>Release notes</button>
         <button id="app-update-download" hidden>Download update</button>
         <button id="app-update-install" class="primary" hidden>Install and restart</button>
-        <button id="app-update-recover" class="quiet" hidden>Recover previous app</button>
+        <button id="app-update-recover" class="quiet" hidden>Recover previous app</button></div>
       </details>
       <details id="advanced-settings"><summary>Troubleshooting</summary>
         <p id="data-location" class="path"></p><p id="ownership-detail"></p><div class="actions"><button id="connect-existing" hidden>Use existing installation</button><button id="service-handoff" hidden>Review service handoff</button></div>
         <button id="handoff-history">Inspect handoff receipts</button><div id="handoff-receipts"></div>
         <div id="diagnostics"></div>
-        <details><summary>Storage cleanup</summary><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply">Delete reviewed caches</button></div></details>
+        <details><summary>Storage cleanup</summary><button id="cleanup-preview">Review disposable caches</button><div id="cleanup-review" hidden><p id="cleanup-summary"></p><button id="cleanup-apply" class="danger">Delete reviewed caches</button></div></details>
         <a href="https://github.com/StepanKukharskiy/task-relay/blob/main/docs/onboarding.md">Setup and recovery guide ↗</a>
       </details>
     </details>
     <section id="handoff-review" hidden><h2>Review handoff</h2><pre id="handoff-text"></pre><p>Only the reviewed service definition changes. Existing data, pairing and uncertain submissions stay in place. Active work must finish first.</p><div class="actions"><button id="handoff-apply">Apply reviewed handoff</button><button id="handoff-cancel">Cancel</button></div></section>
-    <footer><span id="version"></span><button id="app-update-notice" class="quiet" hidden>Update available</button><span>Runs on this computer</span></footer>
-  </main>
+        </section>
+      </main>
+    </div>
+  </div>
 </body>
 </html>

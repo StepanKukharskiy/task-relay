@@ -94,10 +94,13 @@ class PublicHTTPS(http.client.HTTPSConnection):
         self.sock=self._context.wrap_socket(socket.create_connection((self.ip,443),self.timeout),server_hostname=self.host)
 
 
-def download(url):
+def download(url,allowed_hosts=None):
     deadline=time.monotonic()+25
     for _ in range(4):
-        url=public_url(url);u=urlsplit(url);ips=public_addresses(u.hostname)
+        url=public_url(url);u=urlsplit(url)
+        if allowed_hosts and not any(u.hostname==host or u.hostname.endswith('.'+host) for host in allowed_hosts):
+            raise ValueError('Redirect left the selected source domains; page was not fetched.')
+        ips=public_addresses(u.hostname)
         remaining=deadline-time.monotonic()
         if remaining<=0:raise ValueError('Web page read deadline exceeded.')
         connection=PublicHTTPS(u.hostname,ips[0],min(15,remaining))
@@ -187,12 +190,12 @@ class Session:
         except (ValueError,OSError,http.client.HTTPException,gemini.ProviderError) as exc:
             return {'ok':False,'error':str(exc),'action_taken':False}
 
-    def fetch(self,url,offset,limit):
+    def fetch(self,url,offset,limit,allowed_hosts=None):
         url=public_url(url)
         if url not in self.pages:
             if self.fetches>=MAX_FETCHES:raise ValueError('The six-page download budget is exhausted.')
             self.fetches+=1
-            final,raw,mime,encoding=download(url)
+            final,raw,mime,encoding=download(url,allowed_hosts=allowed_hosts) if allowed_hosts else download(url)
             try:text=raw.decode(encoding,errors='replace')
             except LookupError:text=raw.decode('utf-8',errors='replace')
             title='';links=[]

@@ -39,7 +39,14 @@ def dispatch(action, value):
     # remains available so an interrupted update can be inspected.
     reads = {'status', 'companion-status', 'conversation', 'channel-status', 'handoff-status',
              'service-status', 'tasks', 'plans', 'approval-inbox', 'automation-tools', 'workflows',
-             'usage-summary', 'storage-breakdown', 'approval-detail', 'task-detail', 'plan-detail'}
+             'usage-summary', 'storage-breakdown', 'approval-detail', 'task-detail', 'plan-detail',
+             'revision-candidates', 'revision-detail', 'pipeline-delete-preview',
+             'pipeline-delete-pending', 'job-delete-preview', 'job-delete-pending',
+             'task-delete-preview', 'task-delete-pending',
+             'shared-history-list', 'shared-history-preview',
+             'computer-sessions', 'computer-session-detail', 'computer-setup-status'}
+    reads.update({'workspace-jobs', 'workspace-detail', 'workspace-artifact', 'workspace-request', 'workspace-plan', 'workspace-source-changes', 'workspace-compare'})
+    reads.update({'workspace-source', 'workspace-chat', 'workspace-chat-source', 'conversation-delete-preview'})
     if action not in reads:
         from .app_updates import Updater, read, TERMINAL
         updater = Updater()
@@ -53,6 +60,33 @@ def dispatch(action, value):
 
 
 def _dispatch(action, value):
+    if action in ('conversation-delete-preview','conversation-delete','conversation-delete-recover'):
+        from . import conversation_delete
+        if action == 'conversation-delete-preview':return conversation_delete.preview(value.get('id'))
+        if action == 'conversation-delete':return conversation_delete.delete(value.get('id'),value.get('digest'))
+        return conversation_delete.recover(value.get('id'))
+    if action.startswith('workspace-'):
+        from . import desktop_workspace
+        if action == 'workspace-jobs': return desktop_workspace.jobs(value.get('offset', 0), include_archived=value.get('include_archived', False))
+        if action == 'workspace-chat': return desktop_workspace.chat_detail(value.get('id'))
+        if action == 'workspace-chat-source': return desktop_workspace.chat_source(value.get('id'), value.get('url'))
+        if action == 'workspace-detail': return desktop_workspace.detail(value.get('run'))
+        if action == 'workspace-source':
+            from .desktop_sources import source_url
+            return source_url(value.get('run'), value.get('source'))
+        if action == 'workspace-plan': return plan_detail(value.get('plan_id'), shared=True)
+        if action == 'workspace-request': return desktop_workspace.request_detail(value.get('request_id'))
+        if action == 'workspace-artifact': return desktop_workspace.artifact_path(value.get('artifact'))
+        if action in ('workspace-source-changes', 'workspace-compare'):
+            from . import desktop_file_changes
+            if action == 'workspace-source-changes': return desktop_file_changes.check_sources(value.get('run'))
+            return desktop_file_changes.compare(value.get('run'), value.get('change'), value.get('new_sha256'))
+        if action == 'workspace-decide':
+            return desktop_workspace.decide(value.get('run'), value.get('verb'), value.get('review_digest'),
+                value.get('request_id'), value.get('group'), value.get('note', ''))
+    if action in ('computer-sessions', 'computer-session-detail', 'computer-session-control', 'computer-setup-status', 'computer-request-permissions'):
+        from .desktop_computer import dispatch as computer_dispatch
+        return computer_dispatch(action, value)
     if action == 'app-access-update':
         from .app_access import update
         return update(value)
@@ -103,6 +137,18 @@ def _dispatch(action, value):
     if action == 'conversation':
         from .companion import conversation
         return conversation()
+    if action in ('shared-history-list','shared-history-preview','shared-history-forget'):
+        from . import shared_history_delete
+        if action == 'shared-history-list':
+            return {'items':shared_history_delete.available()}
+        if not isinstance(value,dict):
+            raise DesktopTaskError('Choose exact local channel history.')
+        try:
+            if action == 'shared-history-preview':
+                return shared_history_delete.preview(value.get('id'))
+            return shared_history_delete.forget(value.get('id'),value.get('digest'))
+        except shared_history_delete.SharedHistoryDeleteError as exc:
+            raise DesktopTaskError(str(exc)) from None
     if action == 'handoff-status':
         from .desktop_handoff import Handoff
         return Handoff().inspect()
@@ -111,7 +157,9 @@ def _dispatch(action, value):
     if action == 'service-status':
         return DesktopService().status()
     if action == 'tasks':
-        return list_tasks()
+        if not isinstance(value, dict):
+            raise DesktopTaskError('Expected a task query.')
+        return list_tasks(offset=value.get('offset', 0))
     if action == 'plans':
         return list_plans()
     if action == 'approval-inbox':
@@ -125,6 +173,45 @@ def _dispatch(action, value):
         if not isinstance(value, dict):
             raise DesktopTaskError('Expected a workflow query.')
         return workflows(value.get('kind', 'linked'), value.get('offset', 0))
+    if action in ('pipeline-delete-preview', 'pipeline-delete', 'pipeline-delete-recover',
+                  'pipeline-delete-pending', 'job-delete-preview', 'job-delete',
+                  'job-delete-recover', 'job-delete-pending', 'job-delete-register'):
+        from . import job_delete
+        if action.endswith('-pending'): return {'items': job_delete.pending()}
+        if not isinstance(value, dict): raise DesktopTaskError('Choose a saved job.')
+        try:
+            if action == 'job-delete-register':
+                from .job_ownership import backfill_standalone
+                return {'id': backfill_standalone(value.get('run'))}
+            if action.endswith('-preview'): return job_delete.preview(value.get('id'))
+            if action in ('pipeline-delete', 'job-delete'):
+                return job_delete.delete(value.get('id'), value.get('digest'))
+            return job_delete.recover(value.get('id'))
+        except (job_delete.JobDeleteError, ValueError) as exc:
+            raise DesktopTaskError(str(exc)) from None
+    if action in ('task-delete-preview','task-delete','task-delete-recover','task-delete-pending'):
+        from . import task_delete
+        if action == 'task-delete-pending': return {'items':task_delete.pending()}
+        if not isinstance(value, dict): raise DesktopTaskError('Choose a saved task.')
+        try:
+            if action == 'task-delete-preview': return task_delete.preview(value.get('id'))
+            if action == 'task-delete': return task_delete.delete(value.get('id'),value.get('digest'))
+            return task_delete.recover(value.get('id'))
+        except (task_delete.TaskDeleteError, ValueError) as exc:
+            raise DesktopTaskError(str(exc)) from None
+    if action in ('revision-candidates', 'revision-detail', 'revision-decide'):
+        from . import revision_review
+        if not isinstance(value, dict):
+            raise DesktopTaskError('Expected a revision request.')
+        if action == 'revision-candidates':
+            return revision_review.candidates()
+        if action == 'revision-detail':
+            return revision_review.detail(value.get('candidate_artifact'))
+        return revision_review.decide(candidate_artifact=value.get('candidate_artifact'),
+            verb=value.get('verb'), actor=value.get('actor'), note=value.get('note'),
+            expected_sha256=value.get('expected_sha256'),
+            expected_plan_digest=value.get('expected_plan_digest'),
+            request_id=value.get('request_id'))
     if action == 'usage-summary':
         return usage_summary()
     if action == 'storage-breakdown':
@@ -205,13 +292,16 @@ def _dispatch(action, value):
             raise DesktopTaskError('The cleanup plan changed or could not be applied. Prepare a new plan.') from None
     if action == 'plan-create':
         return create_plan(value.get('goal'), value.get('constraints', ''), value.get('project'),
-                           value.get('parent_id'), value.get('request_id'))
+                           value.get('parent_id'), value.get('request_id'), files=value.get('files'), previous_run=value.get('previous_run'), research_mode=value.get('research_mode', 'suggest'), entry_mode=value.get('entry_mode', 'plan'))
+    if action == 'conversation-followup':
+        from .conversation_flow import choose
+        return choose(value.get('id'),value.get('index'),value.get('digest'),value.get('request_id'))
     if action == 'plan-detail':
         return plan_detail(value.get('plan_id'))
     if action == 'plan-prepare':
-        return prepare_plan(value.get('plan_id'))
+        return prepare_plan(value.get('plan_id'), review_digest=value.get('review_digest'))
     if action == 'plan-decide':
-        return decide_plan(value.get('plan_id'), value.get('verb'), value.get('review_digest'))
+        return decide_plan(value.get('plan_id'), value.get('verb'), value.get('review_digest'), request_id=value.get('request_id'))
     raise launcher.LauncherError('Unknown setup action.')
 
 

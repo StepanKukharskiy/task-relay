@@ -4,9 +4,15 @@
 
 [Website](https://task-relay-website-production.up.railway.app)
 
-Task Relay is a self-hosted execution service with a Telegram interface. Send a
+Task Relay is a self-hosted execution service with desktop and messenger interfaces. Send a
 request, choose the references and review a bounded plan. Relay coordinates the
 workers, preserves their outputs and brings back results or decisions that need you.
+
+Relay's runtime records the job independently of its interface or agent model.
+Relay Desktop is the reference product; the versioned `.relay` job view and CLI
+are intended as inspection and handoff surfaces for authorized agents, including
+ChatGPT. Source-level change-plan handoffs are still being qualified and are not
+part of the public beta.
 
 New messages go to the orchestrator. Reply to a task message to continue that task.
 `/use` selects a target for commands; it does not redirect new messages. `/routing`
@@ -29,9 +35,70 @@ Task Relay is in active development. Workflows are bounded by the capabilities o
 their selected workers; it does not provide unrestricted automation of arbitrary
 applications.
 
+**Version boundary (2026-10-02):** source version metadata is 0.13.152; the roadmap
+records the separately verified local macOS 0.13.152 installation. Uncommitted
+source changes may differ from that installation. The latest public beta recorded
+here is 0.13.89.
+The [capability index](docs/capability-registry.md#version-and-availability) lists
+registered routes, their detailed guides and availability limits. The public
+[release notes](docs/release-notes.md) describe the download, not every newer
+local capability. The ChatGPT plugin is version 0.4.2 and uses native skills/file capabilities,
+with no Relay server or Desktop connection. Its host qualification and public
+publication remain separate.
+
+The [Task Relay Chrome extension](docs/chrome-extension.md) turns useful things
+you do on the web into evidence, reusable know-how, and work you can continue
+later — without watching your browsing or requiring a cloud account.
+**New → select text → Turn into Skill → Send → Download SKILL.md.** Your current
+AI chat can structure the capture; Relay copies the prepared request and imports
+the response for independent review. No account, cloud or Desktop is required.
+On supported ChatGPT conversations, Relay inserts a prepared draft and retrieves
+its matching reply on explicit clicks; the user sends it and reviews the result.
+Turn into Relay job separately exports a portable work brief. The panel uses
+Chrome’s existing branding, with recovery and setup under ⋯. Other sites retain
+copy/import. Source 0.1.9 is a development package; broader live Chrome/AI-site checks and store
+publication remain open. Advanced users can optionally connect Relay Desktop
+for a persistent local library, granting native-app access only when they choose
+**Connect Relay Desktop**.
+
+The current source includes seven text/agent connections (Codex, Claude, Gemini,
+OpenAI, Qwen, DeepSeek and OpenRouter), three additional media providers (Runway,
+Higgsfield and Meshy), 19 production executor profiles and 35 registered operations.
+The [capability inventory](docs/capability-registry.md) maps providers, native
+applications, browser routes, document tools, channels and context connections
+to their guides and qualification boundaries. Available profiles depend on the
+selected host, configured model, verified tools and exact authorization.
+
+The read-only, versioned [job view](docs/workflow-handoffs.md) retains exact
+artifacts and process records. Declared inputs alone are potential dependencies;
+explicit reviewed links support bounded evidence-level impact and revisions.
+The real plant-deck case demonstrated selected artifact/companion bundles and a
+second continuation from selected state in an isolated job, preserving prior
+versions and decisions. General dependency discovery remains open. Guarded
+[PPTX editing](docs/presentations.md#revise-an-existing-pptx) changes exact text
+runs and pictures; broader chart and layout edits remain outside that operation.
+
+The [ChatGPT Web plugin](docs/relay-chatgpt-plugin.md) turns useful current
+discussion into independently reviewed standard Agent Skills and portable work
+snapshots. Users export files and select them in a new chat to continue; the web
+service requires no Desktop, local database or separate Relay account. The
+[legacy local integration](docs/relay-chatgpt-local-runtime.md) retains its earlier
+work-state tools and recorded private capture/return proof. The local 0.13.153 app runtime now supports explicit local
+capture of worker/provider completion records through a
+[common execution result](docs/execution-results.md), retaining original receipts
+and exposing observations in work state and continuation context. Owned text/plugin
+results capture automatically; other outcomes require explicit host work links.
+The plugin does
+not automatically synchronize all production jobs or dispatch arbitrary external MCP workers. `.relay` job files
+remain projections of committed state, with the runtime usable independently of
+Desktop or ChatGPT.
+
 Registered local modeling includes [Blender](docs/local-applications.md) and
 [direct Rhino 7/8 on macOS](docs/rhino.md), with native candidates, previews and
-reviewed execution. Grasshopper support is paused.
+reviewed execution. Local desktop 0.13.108 includes Grasshopper definition
+authoring through Rhino 7/8, with native `.gh`/`.ghx` saving and independent
+reopen/solve checks. Native fixtures passed from development source; an installed
+app graph run remains unqualified.
 
 ## Platform support
 
@@ -52,7 +119,11 @@ for Apple Silicon and macOS 14+. Drag Task Relay into Applications and follow th
 app's four saved setup steps. Python is bundled. This beta lacks Apple Developer
 ID/notarization; the website explains macOS's per-app opening step and limitations.
 Existing services require reviewed handoff. First-time Messages enrollment remains
-an optional pilot; Telegram is the complete onboarding path.
+an optional pilot. The recorded local 0.13.152 app provides Jobs, Review, Connections and
+Settings: create a task with selected files, review its plan, then choose Start.
+Desktop-started work stays in Relay for progress, outputs and decisions. Messenger
+jobs appear in the shared history and retain their original decision channel.
+The local service and desktop intake can run without a Telegram connection.
 
 **CLI alternative:** the same download page offers matching beta source. With
 Python 3.11+, extract it and run `sh install.sh --terminal-setup`. Keep its installed

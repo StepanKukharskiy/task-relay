@@ -6,6 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from task_relay import task_creation as creation, codex_app_server, capabilities, orchestrator_chat as chat, relay_channels
+from tests import intake_fixtures as intake
+from tests.test_response_data import DATA, response
 from task_relay.bridge import State, Bridge
 from tests.test_bridge import TelegramFake
 
@@ -100,10 +102,131 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.starts,[(TID,'Inspect files only.')])
         self.assertEqual(self.state.db.execute('SELECT status FROM incoming WHERE id=72').fetchone()[0],'submitted')
 
-    def test_disabled_routing_after_queue_prevents_creation(self):
+    def test_disabled_existing_task_routing_does_not_cancel_explicit_creation(self):
         self.queue()
         with self.state.db:self.state.put('orchestrator_routing_enabled',False)
-        self.worker.tick();self.assertEqual(self.row()['status'],'failed');self.assertEqual(self.calls,[])
+        self.worker.tick();self.assertEqual(self.row()['status'],'created');self.assertEqual(self.starts,[])
+
+    def test_disabled_codex_app_access_after_queue_prevents_creation(self):
+        self.queue()
+        with patch.object(creation.HOST,'codex',side_effect=ValueError('Codex is off in Settings')):
+            self.worker.tick()
+        self.assertEqual(self.row()['status'],'failed');self.assertEqual(self.calls,[])
+
+    def test_disabled_app_access_while_opening_does_not_send_first_turn(self):
+        self.queue(True)
+        def disable():
+            p=patch.object(creation.HOST,'codex',side_effect=ValueError('Codex is off in Settings'))
+            p.start();self.addCleanup(p.stop)
+        self.on_open=disable;self.worker.tick()
+        self.assertEqual(self.row()['status'],'needs_inspection')
+        self.assertEqual(self.row()['task_id'],TID);self.assertEqual(self.starts,[])
+
+    def model_request(self,prompt,scope,data,reads=()):
+        from unittest.mock import Mock
+        self.bridge.process({'update_id':71,'message':{'text':'/orchestrator '+prompt,
+            'from':{'id':7},'chat':{'id':7,'type':'private'}}})
+        client=Mock();client.request.side_effect=[intake.response('gemini',scope),*reads,response('gemini',data)]
+        with patch.object(chat.gemini,'DATA',self.root/'provider-state'), \
+                patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), \
+                patch.object(chat.gemini,'Client',return_value=client):
+            worker=chat.Worker(self.state);worker.tick();worker.tick()
+        return client,self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=71').fetchone()
+
+    def test_named_saved_project_without_existing_chat_creates_five_output_task(self):
+        with self.state.db:
+            self.state.put('orchestrator_routing_enabled',False)
+            self.state.db.execute("INSERT INTO orchestrator_chats(id,prompt,answer,status,created,provider,model) VALUES (70,?,?, 'answered',0,'gemini','fixture')",
+                ('The five topics are algorithms A, B, C, D and E. Keep code examples.','Topics recorded.'))
+        metadata=self.root/'codex';metadata.mkdir()
+        (metadata/'.codex-global-state.json').write_text(json.dumps({'local-projects':{
+            'saved-content':{'name':'Content','rootPaths':[str(self.project)]}}}))
+        from task_relay.host import Host
+        saved=Host().codex_projects(metadata)
+        (self.project/'brief.md').write_text('Keep code examples for all five algorithms.')
+        prompt='Use my Codex Content project and create a new task to write all 5 articles as Markdown files using the five topics above.'
+        scope=intake.work([intake.outcome('articles',5,checks=['nonempty','utf8','fenced_code'],
+            validation=['Cover algorithms A, B, C, D and E, with code examples.'])])
+        data={**DATA,'answer':'Queued new task in Content.',
+              'action_json':json.dumps(self.action(True)),'next_options':[]}
+        with patch.object(creation.HOST,'codex_projects',return_value=saved):
+            snap=chat.snapshot(self.state,None)
+            self.assertEqual(snap['codex_tasks'],[])
+            self.assertEqual(snap['codex_projects'][0]['name'],'Content')
+            entry=next(s for s in capabilities.catalog(self.state,snap)['operations'] if s['id']=='create_codex_task')
+            self.assertTrue(entry['available'])
+            read={'candidates':[{'finishReason':'STOP','content':{'role':'model','parts':[
+                {'functionCall':{'name':'file_read','args':{'project':str(self.project),
+                    'path':'brief.md','offset':0,'limit':1000}}}]}}]}
+            client,job=self.model_request(prompt,scope,data,[read])
+        self.assertEqual(job['status'],'answered',job['answer'])
+        self.assertEqual(client.request.call_count,3)
+        import hashlib
+        journal=json.loads((self.root/'provider-state'/'orchestrator-reads'/
+            (hashlib.sha256(b'71').hexdigest()+'.json')).read_text())
+        read_result=next(item['reads'][0]['result'] for item in journal if item.get('reads'))
+        self.assertTrue(read_result['ok'],read_result)
+        self.assertIn('Keep code examples for all five algorithms.',json.dumps(read_result))
+        self.assertEqual(self.row()['prompt'],prompt)
+        self.assertEqual(json.loads(self.row()['request_contract']),scope)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM task_routes').fetchone()[0],0)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],0)
+        self.worker.tick();self.worker.started=False;self.worker.tick()
+        self.assertEqual(self.row()['status'],'submitted');self.assertEqual(len(self.starts),1)
+        sent=self.starts[0][1]
+        self.assertIn('--- ORIGINAL USER REQUEST ---\n'+prompt,sent)
+        self.assertIn(json.dumps(scope,ensure_ascii=False),sent)
+        records=json.loads(self.row()['input_manifest'])
+        context=next(r for r in records if r['name']=='conversation.json')
+        self.assertEqual(json.loads(Path(context['path']).read_text())['entries'][0]['prompt'],
+                         'The five topics are algorithms A, B, C, D and E. Keep code examples.')
+        self.assertIn(context['path'],sent)
+        self.assertEqual(self.calls[0][1],{'cwd':str(self.project),'ephemeral':False})
+
+    def test_missing_saved_project_leaves_creation_unqueued(self):
+        with self.state.db:self.state.put('orchestrator_routing_enabled',False)
+        scope=intake.work([intake.outcome('articles',5)])
+        with patch.object(creation.HOST,'codex_projects',return_value=[{'name':'Content','cwd':str(self.root/'missing')}]):
+            self.assertEqual(creation.projects(self.state),[])
+            client,job=self.model_request('Create a task in Content to write five articles.',scope,
+                {**DATA,'answer':'Which local project should I use?','work_status':'needs_input'})
+        self.assertEqual(job['status'],'answered',job['answer'])
+        self.assertIsNone(self.row());self.worker.tick();self.assertEqual(self.calls,[])
+
+    def test_ambiguous_project_names_can_ask_without_creating_or_dropping_outcomes(self):
+        other=self.root/'other-content';other.mkdir()
+        with self.state.db:self.state.put('orchestrator_routing_enabled',False)
+        scope=intake.work([intake.outcome('articles',5)])
+        with patch.object(creation.HOST,'codex_projects',return_value=[
+                {'name':'Content','cwd':str(self.project)}, {'name':'Content','cwd':str(other)}]):
+            self.assertEqual(len(creation.projects(self.state)),2)
+            client,job=self.model_request('Create a task in Content to write five articles.',scope,
+                {**DATA,'answer':'Which Content project should I use: project or other-content?',
+                 'work_status':'needs_input'})
+        self.assertEqual(job['status'],'answered',job['answer'])
+        self.assertEqual(json.loads(job['response'])['request_contract'],scope)
+        self.assertIsNone(self.row());self.worker.tick();self.assertEqual(self.calls,[])
+
+    def test_creation_only_cannot_drop_frozen_file_work(self):
+        scope=intake.work([intake.outcome('articles',5)])
+        with self.assertRaisesRegex(ValueError,'Creation-only'),self.state.db:
+            self.state.db.execute('BEGIN IMMEDIATE')
+            capabilities.dispatch(self.state,{'id':71,'prompt':'Create a task to write five articles'},
+                self.action(False),{'codex_projects':creation.projects(self.state),'request_contract':scope})
+        self.assertIsNone(self.row());self.worker.tick();self.assertEqual(self.calls,[])
+
+    def test_invalid_saved_contract_fails_before_creating_a_task(self):
+        self.queue(True)
+        with self.state.db:self.state.db.execute("UPDATE task_creations SET request_contract='{}'")
+        self.worker.tick();self.worker.started=False;self.worker.tick()
+        self.assertEqual(self.row()['status'],'failed');self.assertEqual(self.calls,[])
+
+    def test_question_does_not_create_task_despite_available_projects(self):
+        with self.state.db:self.state.put('orchestrator_routing_enabled',False)
+        client,job=self.model_request('Can Relay create tasks in my Codex projects?',intake.ANSWER,
+            {**DATA,'answer':'Explicit new-task requests are supported.'})
+        self.assertEqual(job['status'],'answered',job['answer'])
+        self.assertIsNone(self.row());self.worker.tick();self.assertEqual(self.calls,[])
 
     def test_creation_reply_lost_never_replayed(self):
         self.queue();self.fail='thread/start';self.worker.tick();self.worker.started=False;self.worker.tick()
@@ -239,6 +362,7 @@ for line in sys.stdin:
         self.test_real_orchestrator_boundary_to_worker_and_task_reply_identity()
 
     def test_direct_creation_command_no_interpretation_and_deduplicated(self):
+        with self.state.db:self.state.put('orchestrator_routing_enabled',False)
         update={'update_id':71,'message':{'text':'/new codex "'+str(self.project)+'" Research task',
             'from':{'id':7},'chat':{'id':7,'type':'private'}}}
         self.bridge.process(update);self.bridge.process(update);self.worker.tick()
@@ -252,6 +376,25 @@ for line in sys.stdin:
         with self.assertRaises(ValueError):creation.validate_action(action,snap)
         action=self.action();action['research_ids']=[1]
         with self.assertRaises(ValueError):creation.validate_action(action,snap)
+
+
+class MigrationTests(unittest.TestCase):
+    def test_existing_creation_receipt_survives_additive_idempotent_migration(self):
+        import sqlite3
+        db=sqlite3.connect(':memory:');self.addCleanup(db.close)
+        db.executescript('''CREATE TABLE task_creations (
+          id INTEGER PRIMARY KEY, prompt TEXT NOT NULL, action TEXT NOT NULL,
+          cwd TEXT NOT NULL, project_identity TEXT NOT NULL, title TEXT NOT NULL,
+          start_work INTEGER NOT NULL, input_manifest TEXT NOT NULL,
+          status TEXT NOT NULL, task_id TEXT, rollout_path TEXT, history_sha256 TEXT,
+          error TEXT, created REAL NOT NULL, expires REAL NOT NULL);
+          INSERT INTO task_creations VALUES (71,'Original request','{}','/project','{}',
+          'Saved task',0,'[]','needs_inspection','known-task','/history','digest',
+          'Response lost',1,2);''')
+        before=db.execute('SELECT * FROM task_creations').fetchone()
+        creation.initialize(db);creation.initialize(db)
+        after=db.execute('SELECT * FROM task_creations').fetchone()
+        self.assertEqual(after[:-1],before);self.assertIsNone(after[-1])
 
 
 class ProtocolTests(unittest.TestCase):

@@ -98,7 +98,8 @@ class Tests(unittest.TestCase):
         self.assertEqual(receipt['actions'],[])
 
     def test_malformed_qwen_arguments_never_execute(self):
-        with self.assertRaises(json.JSONDecodeError):self.exercise('qwen','malformed')
+        with self.assertRaisesRegex(ValueError,'MALFORMED_FUNCTION_CALL.*without executing'):
+            self.exercise('qwen','malformed')
         self.assertTrue((self.control/'api-01.response.json').exists())
         self.assertEqual(json.loads((self.control/'browser-result.json').read_text())['actions'],[])
 

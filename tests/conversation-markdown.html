@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><title>Conversation Markdown fixture</title>
+<div id="fixture-report" role="status">Renderer checks pending</div>
+<script>
+window.addEventListener('load', async () => {
+  const report=document.getElementById('fixture-report');
+  const checks=[];
+  function check(name,condition){if(!condition)throw Error(name);checks.push(name);}
+  try {
+    await window.RelayWorkspace.refreshJobs();await document.querySelector('.job-row').onclick();
+    const answer=document.querySelector('.conversation-answer');
+    check('headings',answer.querySelector('h2')?.textContent==='Controller prototype');
+    check('bold',answer.querySelector('strong')?.textContent==='small controller');
+    check('lists',answer.querySelectorAll('li').length===2);
+    check('tables',answer.querySelectorAll('table td').length===2);
+    check('code remains literal',answer.querySelector('pre code')?.textContent.includes('\\*\\*literal\\*\\* &#x20;'));
+    check('inline code remains literal',answer.querySelector('p code')?.textContent==='\\*\\*inline\\*\\*');
+    check('copied bold escapes render',Array.from(answer.querySelectorAll('strong')).some(e=>e.textContent==='Copied emphasis'));
+    check('encoded spaces render',answer.textContent.includes('Copied emphasis with spaces.'));
+    check('escaped separator renders',answer.querySelector('hr'));
+    check('unsafe HTML stripped',!answer.querySelector('script,img,iframe,svg')&&!window.fixtureExecuted);
+    check('unsafe link stripped',!answer.querySelector('a[href^="javascript:"]'));
+    const links=Array.from(answer.querySelectorAll('a'));
+    const recorded=links.find(a=>a.textContent==='documented source'),unknown=links.find(a=>a.textContent==='unrecorded source');
+    check('unrecorded URL not clickable',unknown&&!unknown.hasAttribute('href'));
+    recorded.click();await Promise.resolve();
+    check('source links use receipt gate',window.fixtureCalls.some(c=>c.command==='workspace_open_chat_source'&&c.args.url==='https://docs.example/read'));
+    check('recorded Markdown link bypasses generic opener',!window.fixtureCalls.some(c=>c.command==='generic-open'));
+    unknown.click();await Promise.resolve();
+    check('unrecorded link stays inert through generic handler',!window.fixtureCalls.some(c=>c.command==='generic-open'));
+    document.querySelector('.conversation-sources a').click();await Promise.resolve();
+    check('source details link bypasses generic opener',!window.fixtureCalls.some(c=>c.command==='generic-open'));
+    check('source details collapsed',!document.querySelector('.conversation-sources').open);
+    check('routing narration removed',!answer.textContent.includes('Research is optional'));
+    const outcome=Array.from(document.querySelectorAll('#workspace-detail-body button')).find(b=>b.textContent==='Find the easiest documented approach');
+    await outcome.onclick();
+    check('one click queues the captured research selection',window.fixtureCalls.some(c=>c.args?.path==='conversation-followup'&&c.args.value.index===0));
+    check('no plan submission',!window.fixtureCalls.some(c=>c.args?.path==='plan-create'));
+    check('single job remains visible',document.querySelectorAll('.job-row').length===1);
+    check('one graph shows conversation and observed reads',document.querySelectorAll('.workflow-section').length===1&&document.querySelectorAll('.workflow-step').length===4);
+    check('research answer is inline',Array.from(document.querySelectorAll('.conversation-answer')).some(a=>a.textContent.includes('Recorded interface result')));
+    const results=document.querySelector('.conversation-results'),tabs=document.querySelector('.conversation-tabs');
+    check('latest result is visible first',!results.hidden&&results.querySelector('.conversation-answer').textContent.includes('Recorded interface result'));
+    check('read coverage comes before the answer',results.querySelector('p').nextElementSibling.textContent==='Recorded reads: 1 search · 1 page read');
+    check('workflow is outside the result',!results.querySelector('.workflow-section')&&document.querySelector('.workflow-section').parentElement.hidden);
+    check('earlier preparation is retained outside active workflow',!document.querySelector('.workflow-section').textContent.includes('Legacy failed plan')&&document.querySelector('#workspace-detail-body').textContent.includes('Earlier preparation details'));
+    Array.from(tabs.querySelectorAll('button')).find(b=>b.textContent==='Workflow').click();
+    check('workflow opens explicitly',!document.querySelector('.workflow-section').parentElement.hidden&&results.hidden);
+    Array.from(document.querySelectorAll('.workflow-step')).find(b=>b.textContent.includes('Research answer')).click();
+    check('conversation step skips irrelevant file inputs',!document.querySelector('.workflow-inspector').textContent.includes('Planned inputs'));
+    Array.from(document.querySelectorAll('.workflow-inspector button')).find(b=>b.textContent==='Open saved answer').click();
+    check('workflow step returns to saved result',!results.hidden&&document.querySelector('.workflow-section').parentElement.hidden);
+    window.fixtureFailSource=true;results.querySelector('.conversation-answer a').click();await Promise.resolve();await Promise.resolve();
+    check('source failure stays local and omits raw URL',!results.querySelector('.feedback').hidden&&results.querySelector('.feedback').textContent.includes('Could not open this recorded source')&&!results.querySelector('.feedback').textContent.includes('https://'));
+    check('source failure is not a global warning',!window.fixtureWarnings.length);
+    window.fixtureFailSource=false;
+    Array.from(tabs.querySelectorAll('button')).find(b=>b.textContent==='History').click();
+    check('history opens with original answer and retained attempts',results.hidden&&!Array.from(tabs.parentElement.children).find(e=>e.textContent.includes('Original conversation')&&e.tagName==='SECTION').hidden);
+    check('completed research does not offer the old Start again',!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Start research'));
+    await Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Find the easiest documented approach').onclick();
+    check('selection from history opens its saved result',!document.querySelector('.conversation-results').hidden);
+    const history=Array.from(document.querySelectorAll('#workspace-detail-body .detail-section')).find(e=>e.querySelector('h2')?.textContent==='Conversation history');
+    check('delete follows the workflow',history&&(document.querySelector('.workflow-section').compareDocumentPosition(history)&Node.DOCUMENT_POSITION_FOLLOWING));
+    check('original exact reply remains accessible',document.querySelector('#workspace-detail-body').textContent.includes(window.fixtureView.answer));
+    check('diagnostics stay collapsed',!Array.from(document.querySelectorAll('#workspace-detail-body details')).some(e=>e.open));
+    const setup=document.createElement('a');setup.href='https://aistudio.google.com/apikey';setup.textContent='Setup link';document.body.append(setup);setup.click();await Promise.resolve();await Promise.resolve();
+    check('generic setup links still use the existing handler',window.fixtureCalls.filter(c=>c.command==='generic-open').length===1);
+    setup.remove();
+    report.textContent='Passed '+checks.length+' renderer and continuation checks';
+    report.dataset.checks=JSON.stringify(checks);
+  } catch(error){report.textContent='FAILED: '+error.message;report.dataset.error=error.stack;}
+});
+</script>

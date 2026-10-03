@@ -4,11 +4,53 @@ Enable conversation mode with `/orchestrator`, then describe the work and option
 
 An explicit work request with one clear destination queues one Codex turn immediately. Several plausible destinations produce task-name buttons; selecting one sends the saved original request, including wording, newlines and constraints. The model cannot provide a rewritten execution prompt through the routing schema. General questions and hypothetical examples should remain answers rather than dispatches.
 
+If a proposed route or production omits a required source selection, one bounded
+correction asks only for the missing ID lists. Relay merges those lists onto the
+saved proposal before full validation; the correction cannot regenerate its
+destination, deliverables, capabilities, budgets or existing selections. Unrelated
+catalog files may be explicitly excluded with an empty list. Ambiguous sources
+remain a question, and invented IDs cannot dispatch. The original proposal, exact
+correction response and validated merge are retained separately. Interrupted
+corrections remain uncertain and are never automatically replayed.
+
 The independent routing worker rechecks task identity/history, current idleness and destination ownership before connecting and again before sending. Busy or changed destination tasks, active jobs on that same task, and strategy/execution tasks owned by an active linked workflow do not receive another request. Separate tasks in the same project may receive work independently; a peer being busy or unknown does not reserve the whole project. Routed reservations and duplicate prevention are keyed by task ID, including ordinary Telegram submissions. Uncertain delivery reserves only that destination. Linked roadmap loops retain their separate concurrency policy. Duplicate updates/choices cannot send it twice. Queued choices expire after 30 minutes. An uncertain IPC submission is recorded and never automatically replayed; inspect the task before trying to recover. A submitted receipt means delivery, not goal completion.
 
 Results use the existing Codex watcher and file delivery. Reply to the resulting task card to continue that exact task. Use ordinary orchestrator text to ask about routing status. Existing workflow and production action cards retain their controls. Destination choices use buttons in this first version; free-text resolution of a pending choice is not yet supported.
 
-This first milestone reuses existing desktop tasks only. It inherits their model settings and approval mechanism and adds no desktop task time/token cap. New task creation, automatic file discovery, generated pipeline plans and other providers' execution tool loops are subsequent milestones O02–O05 in ROADMAP.md.
+Existing-task routing inherits desktop model settings and approvals and adds no
+desktop task time/token cap. Its original milestone and subsequent milestones
+O02–O05 remain documented in [roadmap history](../ROADMAP-HISTORY.md).
+
+## Creating a new task in a saved Codex project
+
+Say “Use my Codex Content project and create a new task to write five articles.”
+Relay supplies saved local project names and paths to the conversational provider
+even when routing to existing chats is disabled. The project does not need an
+existing task. The model resolves the requested project or asks which one when
+missing or ambiguous; it cannot invent a folder. An explicit new task takes
+precedence over choosing an existing chat or creating a Relay production plan.
+The same saved projects are available to bounded read-only file and guide
+discovery, so the model can inspect a requested brief before handoff. Existing
+private-file exclusions, path checks and read budgets still apply.
+
+Creating a task to perform work starts one turn after creation, with the exact
+original request, frozen requested outcomes/counts/formats/criteria, selected sources
+and recent saved conversation context. The Codex task can decompose that work while
+preserving all outcomes. Creating a task without requesting work leaves it idle;
+creation-only cannot stand in for requested files. Capability questions do not
+create a task. `/new codex "PROJECT_PATH" Task title` creates an empty task directly.
+
+Only existing local checkouts are supported; no branch, worktree, remote project or
+model override is silently substituted. Codex configuration and native approvals
+apply. Codex must remain enabled in Settings → Apps and tools before creation and
+before the first turn. Existing-task routing retains its own enablement control.
+Project identity and selected input bytes are rechecked before submission.
+
+Queueing, creation and first-turn submission have separate durable receipts. A
+known task ID survives rename/open/start failure, and uncertain calls never replay
+automatically. Submitted means delivery, not completed or reviewed articles.
+The source adjustment has controlled provider/IPC fixture coverage; installed-app
+and live provider verification remain pending with the app update.
 
 The catalog excludes archived tasks and local worker/subagent records, and is capped at 300 entries. No raw tool output or full conversation history is sent for discovery. Automatic selection uses the configured conversational model; task-name choices handle ambiguity, while deterministic checks enforce known destinations, unchanged history and ownership. Live model classification and controlled dispatch tests are distinct from real phone-to-Codex acceptance.
 

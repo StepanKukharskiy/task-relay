@@ -3,8 +3,11 @@
 Ordinary user text goes to the configured conversation model with saved state,
 conversation history, project evidence and the capability catalog. The model can
 answer, ask a clarification question, use the existing file/web tool loop, or return
-one registered structured action. Relay does not decide the action from verbs or
-question words in the message.
+one registered structured action. A separate runtime-owned request intake now
+precedes answering/routing: the model interprets the current request in conversation
+context and Relay freezes the requested outcomes before any drafting. Code validates
+that interpretation and the resulting route; it does not infer intent from article
+keywords or force a task per deliverable.
 
 This change removes three language-dependent routing shortcuts:
 
@@ -103,6 +106,82 @@ catalog metadata does not assert file availability. Clarifying an unstarted read
 plan preserves its selected candidates as required inputs. Candidate reuse neither
 accepts the old output nor replaces a recorded user selection. The existing plan
 approval and blocked-attempt boundaries remain unchanged.
+
+## Request intake, decomposition and response recovery
+
+Character budgets are separate from provider output-token limits. The JSON
+envelope allows 1,000,000 characters, accounting for escaping and advisory data.
+Decoded direct answers allow 32,000 characters; action answers allow 6,000 and
+serialized action data allows 16,000. Provider writing schemas and saved-answer
+recovery use the same limits. Duplicate-key, schema and scoped-action checks still
+apply. Raising a provider token setting does not correct these local limits.
+
+The first provider submission permits only `relay_intake`, a bounded structured
+scope interpretation. It returns answer, new_work, existing_work or clarify, plus
+explicit outcomes for requested work: stable IDs, descriptions, separate output
+counts, requested suffixes, procedural checks and semantic validation requirements.
+The model resolves context and sources; quotes, status questions, ideas and inline
+writing remain answers. Ambiguous essential scope remains clarification. A saved
+workflow step retains its existing stage scope rather than authorizing new work.
+
+Relay freezes the interpretation in the provider journal and adds runtime-owned
+scope metadata to the response envelope. New work requires a scoped work route;
+an inline answer cannot fulfill file outcomes. Production routing preserves exact
+outcome descriptions and expands counts into distinct required output slots.
+Questions/clarifications cannot dispatch work, and a final response cannot replace
+the frozen interpretation. If later evidence reveals missing inputs or capabilities,
+`work_status:needs_input` or `blocked` permits a concise no-action reply while
+retaining all original outcomes. This neither completes the work nor changes scope. Workflow stages must retain every requested outcome;
+their original contract follows queued stages, narrowed to the current outputs.
+
+General plans may use 2–the frozen max_tasks tasks (12 for fresh scopes, retained
+limits for older scopes). The planner chooses parallel producers, shared
+preparation, sequential dependencies or grouped small outputs according to the
+work and compatible worker budgets. Every requested deliverable maps to a distinct
+actual output and independent review, or an existing validated operation deferral.
+A file count is not a task count. A stage currently supports eight deliverable
+slots; larger scopes need separately bounded workflow stages. Unsupported overall
+scope must remain unresolved rather than silently dropping outputs or increasing
+user budgets. Native-operation, source-version and approval checks still apply.
+
+Generic delivery checks enforce requested suffixes, nonempty files, UTF-8, valid
+JSON and complete code examples where declared. Reviewers assess semantic coverage
+and disclose actual execution evidence; a code block does not prove running code.
+Missing outputs block completion and preserve the other completed artifacts.
+Historical assignments retain their original contracts; no job is automatically
+replayed or retroactively accepted.
+
+Normal conversations use one additional provider request for intake. The existing
+six-round, twelve-call evidence budget and output-token ceilings are unchanged.
+Bounded source/workflow routing corrections reuse the frozen intake, retaining
+separate correction receipts. Intake itself cannot read files or dispatch work.
+Provider responses and scope data are retained before validation; interrupted or
+rejected submissions do not trigger automatic retries. Controlled transport tests
+cover Gemini, OpenAI, Qwen, DeepSeek and OpenRouter; they do not qualify live models.
+
+Saved direct replies can be exported without a provider retry:
+
+```sh
+python3 -m task_relay.conversation_recovery \
+  --database /absolute/path/to/state.sqlite \
+  --job 222691303 \
+  --destination /absolute/path/to/recovered-response
+```
+
+The CLI also exposes this as `recover-response`. It opens the database read-only,
+validates the saved response against captured offered tool IDs, refuses action
+proposals, and exports the exact raw reply, decoded answer and hash receipt.
+For legacy drafts, contiguous numbered `## Article N:` sections may also be split
+for convenience; these exports do not establish requested-outcome coverage.
+Exports remain unreviewed text and leave original status/error receipts intact.
+An unchanged partial export can resume; edited files are never overwritten.
+
+Recovery also exports unreviewed direct text that was rejected for violating the
+frozen production route. Its receipt retains that scope and records
+`request_fulfilled:false`; extraction neither accepts the output nor dispatches
+its action. The original five-article response remains exportable without a new
+provider request. Controlled verification logs and deployment limitations are
+recorded under `outputs/universal-orchestration-*`.
 
 ## Large project histories
 

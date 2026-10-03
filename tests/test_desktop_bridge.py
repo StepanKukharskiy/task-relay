@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,29 @@ class DesktopBridgeTests(unittest.TestCase):
                                 input=json.dumps(value), text=True, capture_output=True,
                                 env=self.env, timeout=10)
         return result, json.loads(result.stdout)
+
+    def test_companion_actions_are_allowed_by_packaged_host(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root/'desktop/src-tauri/src/lib.rs').read_text()
+        actions = source.split('const ACTIONS:',1)[1].split('];',1)[0]
+        allowed = set(re.findall(r'"([^"\n]+)"',actions))
+        ui = (root/'task_relay/assets/companion.js').read_text()
+        invoked = set(re.findall(r"\b(?:request|change)\('([^']+)'",ui))
+        # These actions are chosen by the Saved work category at runtime.
+        invoked.update(('job-delete-pending','job-delete-recover',
+                        'task-delete-pending','task-delete-recover'))
+        self.assertEqual(invoked-allowed,set(),
+                         'The native host would reject a visible companion action.')
+
+    def test_destructive_review_uses_in_window_dialog(self):
+        root = Path(__file__).resolve().parents[1]/'task_relay/assets'
+        ui = (root/'companion.js').read_text()
+        html = (root/'companion.html').read_text()
+        self.assertNotIn('window.confirm(', ui,
+                         'Tauri blocks the browser confirm API in the packaged window.')
+        self.assertIn('dialog.showModal()', ui)
+        self.assertIn('id="destructive-confirm"', html)
+        self.assertIn('dialog.close(\'cancel\')', ui)
 
     def test_status_is_read_only_and_uses_json_frame(self):
         process, frame = self.request('status', {})

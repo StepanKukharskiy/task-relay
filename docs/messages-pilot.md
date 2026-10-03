@@ -9,7 +9,7 @@ the pilot setup below. This does not add attachments or channel parity.
 
 ## Orchestrator as the default
 
-Send ordinary text in the paired self-chat to give an instruction to the shared Task Relay orchestrator. `/orchestrator YOUR INSTRUCTION` is an explicit equivalent. It can route instructions to existing tasks, collect references, and control registered production stages using the same saved project state as the Telegram interface. Creating arbitrary new workflows from a message is not implemented yet.
+Send ordinary text in the paired self-chat to give an instruction to the shared Task Relay orchestrator. `/orchestrator YOUR INSTRUCTION` is an explicit equivalent. It can route instructions to existing tasks, collect references, control registered production stages and propose an ordered request-derived workflow in this channel. Workflow stages use the same saved project state, capability checks and decision boundaries as Telegram. Messages remains text-only: generated files are reported by local Mac path, and attachments and Codex approvals still require the Mac. See [request-derived workflows](request-derived-pipelines.md) for scope and recovery.
 
 For example: `Ask the Codex task working on my video to check the source files and report what is missing.` If more than one task matches, the reply offers numbered choices. Send `/choose CODE NUMBER` using the code printed with that reply. Choices retain the original expiry, delivery, and workflow revision checks. Status choices read fresh production state without calling a model.
 

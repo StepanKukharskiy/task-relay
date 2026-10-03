@@ -390,7 +390,7 @@ class Tests(unittest.TestCase):
         with patch('task_relay.bridge.Path.is_dir', return_value=True), patch('task_relay.bridge.subprocess.run') as run:
             run.return_value.returncode = 0
             desktop.open_task(task)
-            run.assert_called_once_with(['/usr/bin/open', '-g', '-a', '/Applications/ChatGPT.app',
+            run.assert_called_once_with(['/usr/bin/open', '-a', '/Applications/ChatGPT.app',
                                          'codex://threads/' + task], capture_output=True, timeout=5)
             run.reset_mock()
             with self.assertRaises(BridgeError):

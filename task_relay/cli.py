@@ -5,6 +5,10 @@ import sys
 
 
 COMMANDS = {
+    'work-state': 'task_relay.work_state_cli',
+    'chatgpt-plugin': 'task_relay.chatgpt_plugin',
+    'project-context': 'task_relay.project_context',
+    'computer-use': 'task_relay.computer_use',
     'presentation': 'task_relay.presentations',
     'workflows': 'task_relay.workflow_library',
     'launcher': 'task_relay.launcher',
@@ -19,8 +23,11 @@ COMMANDS = {
     'telegram': 'task_relay.bridge',
     'messages': 'task_relay.messages_service',
     'orchestrator': 'orchestrator.__main__',
+    'recover-response': 'task_relay.conversation_recovery',
     'paths': 'task_relay.relay_paths',
     'usage': 'task_relay.usage_tracker',
+    'impact': 'task_relay.impact_handoff',
+    'candidate': 'task_relay.agent_candidate',
     'setup-gemini': 'task_relay.gemini_setup',
     'setup-claude': 'task_relay.claude_setup',
 }

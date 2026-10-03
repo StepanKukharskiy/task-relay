@@ -45,6 +45,8 @@ class DesktopService:
         return {
             'Label': LABEL,
             'TaskRelayDesktopOwner': OWNER,
+            'AssociatedBundleIdentifiers': ['com.taskrelay.desktop'],
+            'LimitLoadToSessionType': 'Aqua',
             'ProgramArguments': [str(self.python), '-m', 'task_relay.bridge', 'run'],
             'WorkingDirectory': str(self.app),
             'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 15,
@@ -63,12 +65,12 @@ class DesktopService:
             return 'other', None
         return ('desktop' if spec == self._spec() else 'other'), spec
 
-    def _heartbeat(self):
+    def _heartbeat(self, key='health:poll'):
         if not self.paths.state.is_file():
             return None
         try:
             with closing(sqlite3.connect(self.paths.state.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
-                row = db.execute("SELECT value FROM kv WHERE key='health:poll'").fetchone()
+                row = db.execute('SELECT value FROM kv WHERE key=?', (key,)).fetchone()
             value = json.loads(row[0]) if row else None
             return value.get('last_success') if isinstance(value, dict) else None
         except (OSError, sqlite3.Error, ValueError, TypeError):
@@ -83,7 +85,9 @@ class DesktopService:
         shared_data = bool(owner == 'desktop' or owner == 'other' and spec and
                            spec.get('EnvironmentVariables', {}).get('TASK_RELAY_DATA_DIR') == str(self.paths.data))
         heartbeat = self._heartbeat() if shared_data else None
-        healthy = bool(loaded and isinstance(heartbeat, (int, float)) and 0 <= self.clock() - heartbeat < 20)
+        service_heartbeat = self._heartbeat('health:desktop') if shared_data else None
+        current = service_heartbeat if service_heartbeat is not None else heartbeat
+        healthy = bool(loaded and isinstance(current, (int, float)) and 0 <= self.clock() - current < 20)
         connectable = False
         if owner == 'other' and not shared_data:
             from .desktop_binding import DesktopBindingError, source_service
@@ -93,7 +97,7 @@ class DesktopService:
             except DesktopBindingError:
                 pass
         detail = ('Desktop service is running.' if owner == 'desktop' and healthy else
-                  'Desktop service is loaded but its Telegram poll is unverified.' if owner == 'desktop' and loaded else
+                  'Desktop service is loaded but its local worker is unverified.' if owner == 'desktop' and loaded else
                   'Desktop service is installed but stopped.' if owner == 'desktop' else
                   'Existing source service is running; the desktop app preserves it.' if owner == 'other' and shared_data and healthy else
                   'Connected to an existing source service; its health is unverified.' if owner == 'other' and shared_data else
@@ -103,7 +107,7 @@ class DesktopService:
             owner, detail = 'other', 'A loaded Relay service has no matching desktop definition; it was preserved.'
         return {'owner': owner, 'loaded': loaded, 'healthy': healthy,
                 'shared_data': shared_data, 'connectable': connectable, 'bound_source': bound_source,
-                'last_poll': heartbeat, 'detail': detail}
+                'last_poll': heartbeat, 'last_service': current, 'detail': detail}
 
     def _receipt(self, attempt, action, phase, detail):
         self.paths.data.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -142,8 +146,8 @@ class DesktopService:
         if FILE.is_file() and self._owner()[0] != 'desktop':
             raise DesktopServiceError('Return to desktop data before starting an app-owned service. Existing service data was preserved.')
         self._ensure_runtime()
-        from .bridge import read_config
-        read_config()
+        from .bridge import service_config
+        service_config()
         owner, _ = self._owner()
         if owner == 'other':
             raise DesktopServiceError('Another Relay login service is installed. It was preserved; manage it from its original installation.')
@@ -151,7 +155,7 @@ class DesktopService:
             status = self.status()
             if status['healthy']:
                 return {**status, 'message': 'Desktop service is already running.'}
-            raise DesktopServiceError('A Relay service is loaded but has no fresh Telegram poll. Inspect its logs before retrying; it was not restarted.')
+            raise DesktopServiceError('A Relay service is loaded but has no fresh local worker. Inspect its logs before retrying; it was not restarted.')
         created = owner == 'none'
         if created:
             try:
@@ -170,18 +174,18 @@ class DesktopService:
             raise DesktopServiceError('macOS could not start the Relay service. Configuration was kept; retry after checking service-error.log.')
         while self.clock() - started < timeout:
             current = self.status()
-            if current['healthy'] and current['last_poll'] >= started:
-                self._receipt(attempt, 'start', 'ready', 'A fresh Telegram poll was observed.')
-                return {**current, 'message': 'Relay is running and Telegram polling is healthy. Provider tasks and delivery still need a real check.'}
+            if current['healthy'] and current['last_service'] >= started:
+                self._receipt(attempt, 'start', 'ready', 'A fresh local service worker was observed.')
+                return {**current, 'message': 'Relay is running locally. Provider execution and messenger delivery still need their own checks.'}
             self.sleep(.25)
         self._command(['bootout', f'gui/{os.getuid()}', str(self.path)])
         if self._loaded():
-            self._receipt(attempt, 'start', 'uncertain', 'No fresh Telegram poll; launchd still reports the service loaded.')
-            raise DesktopServiceError('Relay did not confirm a fresh Telegram poll and macOS still reports it loaded. Inspect the service before retrying.')
+            self._receipt(attempt, 'start', 'uncertain', 'No fresh local worker; launchd still reports the service loaded.')
+            raise DesktopServiceError('Relay did not confirm a fresh local worker and macOS still reports it loaded. Inspect the service before retrying.')
         if created and self._owner()[0] == 'desktop' and not self._loaded():
             self.path.unlink()
-        self._receipt(attempt, 'start', 'failed', 'No fresh Telegram poll; service was stopped.')
-        raise DesktopServiceError('Relay did not confirm a fresh Telegram poll. The attempted service was stopped; check service-error.log.')
+        self._receipt(attempt, 'start', 'failed', 'No fresh local worker; service was stopped.')
+        raise DesktopServiceError('Relay did not confirm a fresh local worker. The attempted service was stopped; check service-error.log.')
 
     def stop(self):
         self.host.require_macos('Desktop Relay service')

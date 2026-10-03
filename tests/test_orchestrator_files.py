@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests import intake_fixtures as intake
 from task_relay import orchestrator_files as files
 from task_relay import orchestrator_chat as chat
 
@@ -48,7 +49,7 @@ class Tests(unittest.TestCase):
         return {'project':str(self.root),'path':path,'offset':0,'limit':1000}
 
     def response(self, provider, path=None):
-        answer = json.dumps({'answer':'O03, per docs/delivery.md:1.','action':None})
+        answer = json.dumps({'answer':'O03, per docs/delivery.md:1.','action':None,'next_options':[],'research_advice':{'recommended_mode':'none','requirement':'unnecessary','reason':'Use the current supplied project records.','questions':[]}})
         if provider == 'gemini':
             parts = ([{'functionCall':{'name':'file_read','args':self.args(path)},'thoughtSignature':'keep-me'}]
                      if path else [{'text':answer}])
@@ -139,7 +140,7 @@ class Tests(unittest.TestCase):
     def test_actual_chat_generate_offers_tools_and_keeps_final_action_contract(self):
         payload={'snapshot':{'project_roadmaps':{'available_projects':[str(self.root)]}},'user_message':'Read the current delivery plan'}
         with patch.object(chat.gemini,'read_config',return_value={'api_key':'fake'}), patch.object(chat.gemini,'DATA',self.root), patch.object(chat.gemini,'Client') as client:
-            responses = iter([self.response('gemini','docs/delivery.md'),self.response('gemini')])
+            responses = iter([intake.response('gemini'),self.response('gemini','docs/delivery.md'),self.response('gemini')])
             def bounded_response(endpoint, request):
                 if request['generationConfig']['maxOutputTokens'] <= 4096:
                     return {'candidates':[{'finishReason':'MAX_TOKENS','content':{'parts':[]}}]}
@@ -147,19 +148,19 @@ class Tests(unittest.TestCase):
             client.return_value.request.side_effect = bounded_response
             raw=chat.generate({'id':77,'provider':'gemini','model':'test'},payload)
             self.assertIsNone(chat.interpret(raw, {})['action'])
-            self.assertIn('file_read',json.dumps(client.return_value.request.call_args_list[0]))
+            self.assertIn('file_read',json.dumps(client.return_value.request.call_args_list[1]))
             self.assertEqual(len(list((self.root/'orchestrator-reads').glob('*.json'))),1)
 
     def test_source_correction_keeps_separate_provider_and_read_receipts(self):
         payload={'snapshot':{},'user_message':'Continue the installation work.'}
         job={'id':77,'provider':'gemini','model':'test'}
         with patch.object(chat.gemini,'read_config',return_value={'api_key':'fake'}), patch.object(chat.gemini,'DATA',self.root), patch.object(chat.gemini,'Client') as client:
-            client.return_value.request.return_value=self.response('gemini')
+            client.return_value.request.side_effect=[intake.response('gemini'),self.response('gemini'),self.response('gemini')]
             chat.generate(job,payload)
             original=next((self.root/'orchestrator-reads').glob('*.json'))
             saved=original.read_bytes()
             correction={'missing_fields':['artifact_ids'],'previous_action':{'kind':'route_task','task_id':'t0'}}
-            chat.generate(job,{**payload,'routing_source_correction':correction})
+            chat.generate(job,{**payload,'routing_source_correction':correction,'request_contract':intake.ANSWER})
             self.assertEqual(original.read_bytes(),saved)
             self.assertEqual(len(list((self.root/'orchestrator-reads').glob('*.json'))),2)
             request=client.return_value.request.call_args.args[1]

@@ -43,10 +43,24 @@ class ReadLimitError(ValueError):
     """A bounded evidence read stopped; the user's wording was not invalid."""
 
 
-def finish_request(name, request):
+def finish_request(name, request, response_definition=None):
     # Some providers emit another function call despite tool-choice NONE when
-    # declarations remain present. End discovery with an actual tool-free turn.
+    # declarations remain present. End discovery with only response data allowed,
+    # or a tool-free turn for callers without a runtime response definition.
     request['tools'] = []
+    if response_definition:
+        d = response_definition
+        if name == 'gemini':
+            request['tools'] = [{'functionDeclarations':[{'name':d['name'],'description':d['description'],'parametersJsonSchema':d['parameters']}]}]
+            request['generationConfig'].pop('responseMimeType', None)
+            request['toolConfig'] = {'functionCallingConfig':{'mode':'ANY','allowedFunctionNames':[d['name']]}}
+        elif name == 'openai':
+            request['tools'] = [{'type':'function', **d, 'strict':True}]
+            request['tool_choice'] = {'type':'function','name':d['name']}
+        else:
+            request['tools'] = [{'type':'function','function':d}]
+            request['tool_choice'] = {'type':'function','function':{'name':d['name']}}
+        return
     if name == 'gemini':
         request.pop('toolConfig', None)
         request['generationConfig']['responseMimeType'] = 'application/json'
@@ -99,7 +113,7 @@ def execute(roots, call, web=None, context=None):
     return capabilities.read(roots, call)
 
 
-def run(name, client, endpoint, request, roots, receipt, web=None, context=None):
+def run(name, client, endpoint, request, roots, receipt, web=None, context=None, *, response_definition=None, intake_definition=None, frozen_intake=None, route_patch=False):
     """Reads may repeat within a turn; interrupted model submissions never auto-replay.
 
     Parent chat's sending/uncertain state owns restart handling. Persist every
@@ -107,23 +121,42 @@ def run(name, client, endpoint, request, roots, receipt, web=None, context=None)
     """
     request = copy.deepcopy(request)
     specs = definitions(roots, web, context)
-    if not specs:
-        request.pop('tools',None)
-    elif name == 'gemini':
-        request['tools'] = [{'functionDeclarations':[
-            {'name':d['name'],'description':d['description'],'parametersJsonSchema':d['parameters']} for d in specs]}]
-        request['generationConfig'].pop('responseMimeType', None)
-    else:
-        request['tools'] = ([{'type':'function', **d, 'strict':True} for d in specs] if name == 'openai'
-                            else [{'type':'function','function':d} for d in specs])
+    if response_definition:
+        specs.append(copy.deepcopy(response_definition))
+    def set_tools():
+        request.pop('tool_choice',None);request.pop('toolConfig',None)
+        if not specs:request.pop('tools',None)
+        elif name=='gemini':
+            request['tools']=[{'functionDeclarations':[
+                {'name':d['name'],'description':d['description'],'parametersJsonSchema':d['parameters']} for d in specs]}]
+            request['generationConfig'].pop('responseMimeType',None)
+        else:
+            request['tools']=([{'type':'function',**d,'strict':True} for d in specs] if name=='openai'
+                              else [{'type':'function','function':d} for d in specs])
+    set_tools()
+    if intake_definition:finish_request(name,request,intake_definition)
+    intake=frozen_intake
+    def final(raw):
+        if intake is not None:
+            from . import request_contract, orchestrator_advice
+            try:sealed=request_contract.seal(raw,intake)
+            except (ValueError,TypeError) as exc:
+                raise orchestrator_advice.AdviceError(raw,str(exc)) from None
+            try:
+                if not route_patch:request_contract.route(json.loads(sealed))
+            except (ValueError,TypeError) as exc:
+                raise orchestrator_advice.AdviceError(sealed,str(exc)) from None
+            return sealed
+        return raw
     used = 0
     journal = []
     def save():
         gemini.atomic_bytes(receipt, json.dumps(journal, ensure_ascii=False).encode())
-    for step in range(MAX_ROUNDS + 1):
+    for step in range(-1 if intake_definition else 0, MAX_ROUNDS + 1):
         if len(json.dumps(request, ensure_ascii=False).encode()) > MAX_CONTEXT:
             raise ReadLimitError('Project evidence exceeds the conversation read limit.')
         record = {'step':step,'submitted_at':time.time(),'request':copy.deepcopy(request)}
+        if step==0 and frozen_intake is not None:record['frozen_intake']=frozen_intake
         journal.append(record); save()
         response = client.request(endpoint, request)
         record['response'] = response; save()
@@ -135,14 +168,56 @@ def run(name, client, endpoint, request, roots, receipt, web=None, context=None)
             calls = [{'id':c.get('id',str(i)), 'name':c.get('name'),
                       'arguments':json.dumps(c.get('args'))} for i,c in enumerate(raw)]
             if not calls:
-                return final_text(''.join(p.get('text','') for p in native['parts'] if not p.get('thought')))
+                text=final_text(''.join(p.get('text','') for p in native['parts'] if not p.get('thought')))
+                if step!=-1:return final(text)
         else:
             calls = api.tool_calls(name,response)
             if not calls:
                 text, complete = api.answer(name,response)
                 if not complete:
                     raise ValueError('The conversation response was incomplete. No action was taken.')
-                return final_text(text)
+                text=final_text(text)
+                if step!=-1:return final(text)
+        if step==-1:
+            from . import request_contract
+            if calls and (len(calls)!=1 or calls[0]['name']!=intake_definition['name']):
+                raise ValueError('Request intake must precede answers, evidence reads and execution routing.')
+            raw_intake=calls[0]['arguments'] if calls else text
+            intake=request_contract.load(raw_intake)
+            record['intake']=intake;record['intake_raw']=raw_intake
+            record['intake_contract']={'owner':'relay runtime','sha256':hashlib.sha256(json.dumps(intake_definition,sort_keys=True).encode()).hexdigest()}
+            save()
+            scope='Frozen request contract (scope interpretation, not execution approval): '+json.dumps(intake,ensure_ascii=False)+'. Honor every outcome. For new work use a scoped work route, never an inline substitute. For plan_production use exactly these deliverables: '+json.dumps(request_contract.descriptions(intake),ensure_ascii=False)+'. Split large work into bounded stages; never drop outcomes or raise a user budget.'
+            if response_definition:
+                if intake['mode'] in ('new_work','existing_work'):
+                    response_definition=copy.deepcopy(response_definition)
+                    response_definition['parameters']['properties']['answer']['maxLength']=6000
+                    response_definition['parameters']['properties']['action_json']['description']='Work requires a scoped action; null is allowed only for needs_input or blocked.'
+                    specs[-1]=response_definition
+            if name=='gemini':
+                request['systemInstruction']['parts'][0]['text']+='\n'+scope
+                if calls:
+                    reply={'name':intake_definition['name'],'response':{'frozen':intake}}
+                    if 'id' in raw[0]:reply['id']=raw[0]['id']
+                    request['contents'].extend([native,{'role':'user','parts':[{'functionResponse':reply}]}])
+                else:request['contents'].extend([native,{'role':'user','parts':[{'text':scope}]}])
+            else:
+                if calls:api.continue_request(name,request,response,calls,[json.dumps({'frozen':intake})],False)
+                else:
+                    history='input' if name=='openai' else 'messages'
+                    request[history].append({'role':'user','content':scope})
+                if name=='openai':request['instructions']+='\n'+scope
+                else:request['messages'][0]['content']+='\n'+scope
+            set_tools()
+            continue
+        if response_definition and any(c['name'] == response_definition['name'] for c in calls):
+            if len(calls) != 1:
+                raise ValueError('Return response data alone, separately from evidence reads. No action was taken.')
+            record['response_data'] = calls[0]['arguments']
+            record['response_contract'] = {'name':response_definition['name'], 'owner':'relay runtime',
+                                           'sha256':hashlib.sha256(json.dumps(response_definition,sort_keys=True).encode()).hexdigest()}
+            save()
+            return final(calls[0]['arguments'])
         if step >= MAX_ROUNDS or used + len(calls) > MAX_CALLS:
             raise ReadLimitError('Research tool budget exhausted before a final answer.')
         if any(c['name'] not in {d['name'] for d in specs} for c in calls):
@@ -168,5 +243,5 @@ def run(name, client, endpoint, request, roots, receipt, web=None, context=None)
         else:
             api.continue_request(name,request,response,calls,[json.dumps(r, ensure_ascii=False) for r in results],exhausted)
         if exhausted:
-            finish_request(name, request)
+            finish_request(name, request, response_definition)
     raise ReadLimitError('No final answer within the project-read budget.')

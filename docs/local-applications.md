@@ -7,7 +7,10 @@ create/edit operations on macOS. Native qualification is pending SketchUp activa
 
 Direct Rhino 7/8 support uses the same production/approval paths through
 `rhino.startup`, `rhino.inspect`, `rhino.run_python` and `rhino.render`. See
-[Rhino setup, modeling and qualification](rhino.md). Grasshopper support is paused.
+[Rhino setup, modeling and qualification](rhino.md). Local desktop 0.13.108 also
+includes Grasshopper definition authoring through Rhino 7/8, with native `.gh`/`.ghx`
+saving and independent reopen/solve checks. Native fixtures passed from development
+source; no graph was executed through the installed app.
 
 Run the [Blender pipeline qualification](blender-qualification.md) with
 `python3 scripts/qualify_blender.py --host` to check all registered operations and
@@ -81,7 +84,7 @@ returns a native candidate, MP4, PNG preview and resumable frame receipts. See
 `step_capabilities:["blender.inspect"]`: host inspection and independent review.
 If the version is absent or ambiguous, Relay needs the selected file first.
 Inspection does not perform an edit. Agent-authored Python editing, asset imports,
-animation and UI control are ordered in [B01–B05](../ROADMAP.md#additional-implemented-capabilities).
+animation and UI control are ordered in [B01–B05](../ROADMAP-HISTORY.md#additional-implemented-capabilities).
 
 “Make Roof 30% taller, preserve cameras/materials/other objects, and save a new version”
 uses two stages. First an inspector and agent prepare `edit.py` and `edit-checks.json`

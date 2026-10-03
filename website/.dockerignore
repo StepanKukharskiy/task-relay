@@ -7,6 +7,8 @@
 !public/style.css
 !public/logo.png
 !public/llms.txt
+!public/chatgpt/
+!public/chatgpt/*.html
 
 
 

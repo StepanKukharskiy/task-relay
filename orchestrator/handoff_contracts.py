@@ -37,7 +37,7 @@ def operation(capability, frozen=None):
 
 def descriptor(value):
     if (not isinstance(value,dict) or 'media_type' not in value or
-        set(value)-{'media_type','max_bytes','slides','companions'} or
+        set(value)-{'media_type','max_bytes','slides','companions','content_contract'} or
         not isinstance(value['media_type'],str) or not re.fullmatch(r'[\w.+-]+/[\w.+-]+',value['media_type'])):
         raise ContractError('invalid_port','Each output needs a media_type and optional max_bytes, slides and companions.')
     if value['media_type'] in MEDIA_ALIASES:
@@ -49,6 +49,10 @@ def descriptor(value):
         if value['media_type']!=PPTX_MIME:raise ContractError('invalid_capacity','slides applies only to a PPTX output.')
         if value['slides']>PPTX_SLIDES:
             raise ContractError('unsupported_scale',f"Requested {value['slides']} slides in one deck; the current PPTX builder supports at most {PPTX_SLIDES}. Automatic large-deck assembly is unavailable. Keep the request and agree a supported scope before starting.",requested=value['slides'],maximum=PPTX_SLIDES)
+    if 'content_contract' in value:
+        from .operation_contracts import identity
+        identity(value['content_contract'])
+        if value['media_type']!='application/json':raise ContractError('type_mismatch','Content contracts currently require JSON ports')
     companions=value.get('companions',[])
     if not isinstance(companions,list) or len(companions)>8 or any(not isinstance(x,str) for x in companions) or len(set(companions))!=len(companions):
         raise ContractError('invalid_companions','Companions must name distinct outputs in the same stage.')
@@ -104,9 +108,9 @@ def compile_workflow(stages, catalog=(), required=False):
                 raise ContractError('output_capacity','Declared output exceeds the selected producer capacity: '+stage['id']+'/'+ident)
         seen_edges=set();totals={};counts={}
         for edge in handoff['inputs']:
-            if not isinstance(edge,dict) or set(edge)!={'stage','deliverable','media_type','consumer'}:
+            if not isinstance(edge,dict) or set(edge)-{'stage','deliverable','media_type','consumer','content_contract'} or not {'stage','deliverable','media_type','consumer'}<=set(edge):
                 raise ContractError('invalid_edge','Each edge needs stage, deliverable, media_type and consumer (context or a selected capability).')
-            if any(not isinstance(edge[k],str) for k in edge):raise ContractError('invalid_edge','Edge fields must be strings.')
+            if any(not isinstance(edge[k],str) for k in ('stage','deliverable','media_type','consumer')):raise ContractError('invalid_edge','Edge fields must be strings.')
             key=(edge['stage'],edge['deliverable'],edge['consumer'])
             if key in seen_edges:raise ContractError('duplicate_edge','Duplicate handoff edge.')
             seen_edges.add(key)
@@ -114,6 +118,11 @@ def compile_workflow(stages, catalog=(), required=False):
             source=prior.get(edge['deliverable'])
             if source is None:raise ContractError('missing_source','Handoffs must name an existing earlier-stage deliverable.')
             if source['media_type']!=edge['media_type']:raise ContractError('type_mismatch','Handoff media types disagree for '+edge['stage']+'/'+edge['deliverable'])
+            if 'content_contract' in edge:
+                from .operation_contracts import identity
+                identity(edge['content_contract'])
+                if source.get('content_contract')!=edge['content_contract']:
+                    raise ContractError('content_contract_mismatch','Typed consumer needs the exact content contract/version, not merely JSON')
             consumer=edge['consumer']
             if stage['route']=='image' and edge['media_type'] not in operation('gemini.image')['input_types']:
                 raise ContractError('incompatible_input','Image generation needs image/text references, not native model files.')
@@ -164,6 +173,11 @@ def bind_stage(stage, plan, bindings=(), sources=()):
         if output is None:raise ContractError('missing_output','No concrete output bound to workflow deliverable '+ident)
         if output.setdefault('media_type',expected['media_type'])!=expected['media_type']:
             raise ContractError('type_mismatch','Concrete output type differs from workflow deliverable '+ident)
+        content=expected.get('content_contract')
+        if content and content['id'] in ('research.candidates','research.batch','research.audit'):
+            bound=task.get('operation_contract',{})
+            if any(bound.get(k)!=content[k] for k in ('id','version')) or bound.get('output')!=output['path']:
+                raise ContractError('missing_contract','Typed research outputs require their registered record operation')
         output['handoff']=copy.deepcopy(expected)
     known={s['artifact']:s for s in sources}
     for edge in stage['handoff']['inputs']:
@@ -184,6 +198,10 @@ def check_file(path, expected):
     if expected['media_type'] in TEXT:
         try:path.read_bytes().decode('utf-8')
         except UnicodeError:raise ContractError('invalid_encoding','Delivered text is not UTF-8.') from None
+    if 'content_contract' in expected:
+        from .operation_contracts import validate_document
+        if path.stat().st_size>2000000:raise ContractError('output_capacity','Typed JSON exceeds its validation ceiling')
+        validate_document(path.read_bytes(),expected['content_contract'])
     if expected.get('slides') is not None:
         import zipfile
         from xml.etree import ElementTree as ET

@@ -1,10 +1,13 @@
 """Small committed text artifacts exercise folder export, recovery and ownership."""
 import json
+import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 import hashlib
-from task_relay import workflow_files as files, pipelines as pipe, relay_channels
+from task_relay import workflow_files as files, pipelines as pipe, relay_channels, job_state, job_record
 from orchestrator.storage import transaction
 from tests import test_pipelines as pipeline_fixtures
 
@@ -52,6 +55,188 @@ class Tests(unittest.TestCase):
         with transaction(self.state.db):self.state.db.execute("UPDATE relay_pipelines SET status='active' WHERE id=?",(p['id'],))
         files.sync(self.state,p['id'])
         self.assertEqual((root/'README.md').read_text(),'My own index')
+
+    def test_job_state_export_and_stage_context_are_read_only_and_exact(self):
+        p,old,new=self.setup_versions()
+        with transaction(self.state.db):
+            self.state.db.execute('UPDATE relay_pipeline_steps SET sources=? WHERE pipeline=? AND id=?',
+                                  (json.dumps([{'artifact':new}]),p['id'],'outline'))
+        before=list(self.state.db.iterdump())
+        root=files.sync(self.state,p['id'])
+        marker=json.loads((root/'.relay-workflow.json').read_text())
+        exported=json.loads((root/'.relay/snapshots'/marker['snapshot']/'job-state.json').read_text())
+        self.assertEqual(exported['schema'],job_state.SCHEMA)
+        self.assertEqual(exported['version'],12)
+        self.assertEqual(exported['presentations']['links'], [])
+        self.assertEqual(exported['job']['objective'],p['request'])
+        self.assertEqual({a['id'] for a in exported['artifacts']},{old,new})
+        context=files.context_for_stage(self.state,p['id'],'outline')
+        self.assertEqual([a['id'] for a in context['artifacts']],[new])
+        self.assertEqual(context['stage']['sources'],[{'artifact':new}])
+        self.assertEqual(list(self.state.db.iterdump()),before)
+
+    def test_job_process_projects_exact_work_and_recovery_without_desktop(self):
+        p = self.create(planning_only=True)
+        artifact = self.artifact('run-fixture', 'Checked candidate')
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target_kind='plan_production',target='plan-fixture' WHERE pipeline=? AND id='outline'", (p['id'],))
+            self.state.db.execute("""INSERT INTO production_plans
+                (id,request_id,channel,request,options,context,context_hash,provider,model,status,
+                 token,expires,run,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ('plan-fixture', 42, 'telegram', 'Exact stage request', '{}', '{"sources":[]}',
+                 'hash', 'fixture', 'fixture', 'started', 'token-fixture', 0, 'run-fixture', 1))
+            self.state.db.execute("INSERT INTO production_plan_calls VALUES (?,?,?,?,?,?,?)",
+                                  ('plan-fixture', 1, 'Exact planner input', 'Exact planner response', '{}', None, 1))
+            self.state.db.execute("INSERT INTO production_runs VALUES (?,?,?)", ('run-fixture', '{}', 'active'))
+            self.state.db.execute("INSERT INTO production_assignments VALUES (?,?,?,?,?)",
+                                  ('assignment-fixture', 'run-fixture', 'producer', 1, '{"criteria":["check"]}'))
+            self.state.db.execute("INSERT INTO production_tasks VALUES (?,?,?,?,?,?)",
+                                  ('run-fixture', 'producer', 'assignment-fixture', 'completed', 1, 'attempt-fixture'))
+            self.state.db.execute("""INSERT INTO production_attempts
+                (id,run,task,assignment,state,resource,frozen,session,receipt,error)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                ('attempt-fixture', 'run-fixture', 'producer', 'assignment-fixture', 'completed', None,
+                 '{"inputs":[]}', '{}', '{"status":"finished","exit_code":0}', None))
+            self.state.db.execute("INSERT INTO production_events(created,run,task,attempt,kind,data) VALUES (?,?,?,?,?,?)",
+                                  (1, 'run-fixture', 'producer', 'attempt-fixture', 'checks_recorded',
+                                   '{"passed":true,"checks":["exact bytes"]}'))
+            self.state.db.execute("INSERT INTO production_decisions VALUES (?,?,?,?,?,?,?)",
+                                  ('decision-fixture', 'run-fixture', 'producer', artifact,
+                                   'Selection', 'Human chose this', 1))
+            self.state.db.execute("INSERT INTO production_revisions VALUES (?,?,?,?,?,?,?,?)",
+                                  (1, 'run-fixture', 'producer', 'Revise exact output', '{}', '[]', 'completed', None))
+        before = list(self.state.db.iterdump())
+        root = files.sync(self.state, p['id'])
+        marker = json.loads((root / '.relay-workflow.json').read_text())
+        json_view = json.loads((root / '.relay/snapshots' / marker['snapshot'] / 'job-state.json').read_text())
+        process = json_view['process']
+        self.assertTrue(process['complete'], process['gaps'])
+        self.assertEqual({row['category'] for row in process['records']},
+                     set(job_record.CATEGORIES) - {'exceptions', 'decision_controls',
+                                                   'channel_history', 'change_plans'})
+        self.assertEqual(next(row for row in process['coverage'] if row['category'] == 'exceptions')['state'], 'empty')
+        self.assertEqual(next(row for row in process['coverage'] if row['category'] == 'channel_history')['state'], 'external')
+        exact = next(row['data'] for row in process['records']
+                     if row['source_table'] == 'production_attempts' and row['category'] == 'attempts')
+        self.assertEqual(json.loads(exact['receipt'])['status'], 'finished')
+        view = root / '.relay/job.sqlite'
+        summary = job_record.inspect(view)
+        self.assertEqual(summary['snapshot'], marker['snapshot'])
+        self.assertTrue(summary['complete'])
+        cli = subprocess.run([sys.executable, '-m', 'task_relay.job_record', str(view)],
+                             check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(cli.stdout)['snapshot'], marker['snapshot'])
+        with sqlite3.connect(view) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM process_records').fetchone()[0],
+                             len(process['records']))
+            self.assertEqual(db.execute('SELECT count(*) FROM process_gaps').fetchone()[0],
+                             len(process['gaps']))
+            saved = [json.loads(row[0]) for row in db.execute(
+                "SELECT record FROM process_records WHERE source_table='production_events' AND category='checks'")]
+            self.assertEqual(saved[0]['data'], '{"passed":true,"checks":["exact bytes"]}')
+        self.assertEqual(list(self.state.db.iterdump()), before)
+
+    def test_job_process_marks_missing_referenced_assignment_and_attempt(self):
+        p = self.create(planning_only=True)
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target_kind='production_run',target='run-gap' WHERE pipeline=? AND id='outline'", (p['id'],))
+            self.state.db.execute("INSERT INTO production_runs VALUES (?,?,?)", ('run-gap', '{}', 'active'))
+            self.state.db.execute("INSERT INTO production_tasks VALUES (?,?,?,?,?,?)",
+                                  ('run-gap', 'producer', 'assignment-gone', 'blocked', 1, 'attempt-gone'))
+        root = files.sync(self.state, p['id'])
+        summary = job_record.inspect(root / '.relay/job.sqlite')
+        self.assertFalse(summary['complete'])
+        self.assertEqual({gap['kind'] for gap in summary['gaps']},
+                         {'missing_assignment', 'missing_latest_attempt', 'outside_job_scope'})
+        self.assertEqual({row['category']: row['state'] for row in summary['coverage']}['attempts'], 'incomplete')
+
+    def test_later_check_event_creates_new_complete_process_snapshot(self):
+        p = self.create(planning_only=True)
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target_kind='production_run',target='run-check' WHERE pipeline=? AND id='outline'", (p['id'],))
+            self.state.db.execute("INSERT INTO production_runs VALUES (?,?,?)", ('run-check', '{}', 'active'))
+            self.state.db.execute("INSERT INTO production_assignments VALUES (?,?,?,?,?)",
+                                  ('assignment-check', 'run-check', 'producer', 1, '{}'))
+            self.state.db.execute("INSERT INTO production_tasks VALUES (?,?,?,?,?,?)",
+                                  ('run-check', 'producer', 'assignment-check', 'completed', 1, 'attempt-check'))
+            self.state.db.execute("""INSERT INTO production_attempts
+                (id,run,task,assignment,state,resource,frozen,session,receipt,error)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                ('attempt-check', 'run-check', 'producer', 'assignment-check', 'completed', None,
+                 '{"inputs":[]}', '{}', '{"status":"finished","exit_code":0}', None))
+        root = files.sync(self.state, p['id'])
+        first = json.loads((root / '.relay-workflow.json').read_text())['snapshot']
+        self.assertIn('missing_checks', {gap['kind'] for gap in job_record.inspect(root / '.relay/job.sqlite')['gaps']})
+        with transaction(self.state.db):
+            self.state.db.execute("INSERT INTO production_events(created,run,task,attempt,kind,data) VALUES (?,?,?,?,?,?)",
+                                  (2, 'run-check', 'producer', 'attempt-check', 'checks_recorded', '{"passed":true}'))
+        files.sync(self.state, p['id'])
+        second = json.loads((root / '.relay-workflow.json').read_text())['snapshot']
+        self.assertNotEqual(first, second)
+        self.assertTrue(job_record.inspect(root / '.relay/job.sqlite')['complete'])
+        self.assertIn('missing_checks', {gap['kind'] for gap in
+                      job_record.inspect(root / '.relay/snapshots' / first / 'job.sqlite')['gaps']})
+
+    def test_old_job_view_reports_missing_process_without_modifying_it(self):
+        path = self.root / 'legacy-job.sqlite'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+            db.executemany('INSERT INTO meta VALUES (?,?)', [('job', 'old-job'), ('snapshot', 'old-snapshot')])
+        before = path.read_bytes()
+        result = job_record.inspect(path)
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['gaps'][0]['kind'], 'legacy_process_missing')
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_declared_dependencies_do_not_claim_semantic_use(self):
+        report={'id':'job','title':'Job','request':'Change the source','status':'active','snapshot':'abc',
+                'stages':[{'id':'revise','position':1,'status':'queued','sources':[{'artifact':'output'}],
+                           'choices':[],'runs':['run'],'plans':[]}],
+                'artifacts':[{'id':'source','attempt':None,'sha256':'a'},
+                             {'id':'output','attempt':'attempt','sha256':'b'}],
+                'productions':[{'run':'run','decisions':[],
+                                'attempts':[{'id':'attempt','task':'producer','state':'finished','error':None,
+                                             'receipt':{'status':'finished'},
+                                             'frozen':{'inputs':[{'artifact':'source','sha256':'a','path':'input.txt'}]}}]}],
+                'missing_artifacts':[], 'process': {'complete': True, 'records': [], 'coverage': [], 'gaps': []},
+                'replacements':[{'scope':'job:1','heads':[],
+                                 'outdated_outputs':[{'artifact':'source','reason':{'basis':'superseded'}}],
+                                 'truncated':False}]}
+        state=job_state.project(report)
+        self.assertEqual(state['dependencies'][0]['basis'],'declared_input_potential_dependency')
+        context=job_state.stage_context(state,'revise')
+        self.assertEqual({a['id'] for a in context['artifacts']},{'source','output'})
+        self.assertEqual(context['outdated_inputs'][0]['artifact'],'source')
+        self.assertTrue(context['complete'])
+
+    def test_recorded_replacement_warning_reaches_stage_context(self):
+        p,_,new=self.setup_versions()
+        with transaction(self.state.db):
+            self.state.db.execute('UPDATE relay_pipeline_steps SET sources=? WHERE pipeline=? AND id=?',
+                                  (json.dumps([{'artifact':new}]),p['id'],'outline'))
+            self.state.db.execute('INSERT INTO production_runs VALUES (?,?,?)',
+                                  ('new-run','{}','completed'))
+            self.state.db.execute('INSERT INTO production_replacement_heads VALUES (?,?,?,?,?,?)',
+                                  ('head','job:"new-run"','Choose result','decision',1,'["decision"]'))
+            self.state.db.execute('INSERT INTO production_artifact_validity VALUES (?,?,?,?,?)',
+                                  (new,'head','replacement',1,json.dumps({'basis':'superseded selection'})))
+        view=files.job_state_for_pipeline(self.state,p['id'])
+        self.assertEqual(view['replacements'][0]['outdated_outputs'][0]['artifact'],new)
+        context=files.context_for_stage(self.state,p['id'],'outline')
+        self.assertEqual(context['outdated_inputs'][0]['artifact'],new)
+
+    def test_edited_job_snapshot_never_becomes_model_authority(self):
+        p,_,_=self.setup_versions()
+        root=files.sync(self.state,p['id'])
+        marker=json.loads((root/'.relay-workflow.json').read_text())
+        exported=root/'.relay/snapshots'/marker['snapshot']/'job-state.json'
+        exported.write_text('{"objective":"forged"}')
+        files.sync(self.state,p['id'])
+        updated=json.loads((root/'.relay-workflow.json').read_text())
+        self.assertNotEqual(updated['snapshot'],marker['snapshot'])
+        self.assertEqual(exported.read_text(),'{"objective":"forged"}')
+        context=files.context_for_stage(self.state,p['id'],'outline')
+        self.assertEqual(context['job']['objective'],p['request'])
 
     def test_export_requires_commit_and_original_channel_and_rejects_symlinks(self):
         p,old,new=self.setup_versions()
