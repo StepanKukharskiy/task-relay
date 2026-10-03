@@ -41,12 +41,16 @@ isolated project catalogs and current intake/file contracts; original proposal
 scope and no-replay checks remain enforced. Validation logs are local in
 `outputs/pr12-*.log`. These source fixes have not been installed in the local app.
 
-Desktop release preparation (2026-10-03): 0.13.155 packages the merged source
-and validation repairs in an isolated checkout, retaining the existing local
-signing identity. Installer, updater and source assets are prepared for a beta
-release; public download status requires remote publication verification.
-The running local 0.13.154 app and ongoing Chrome edits are preserved. Release
-checks and receipts are recorded under ignored `outputs/release-0.13.155/`.
+Desktop beta publication (2026-10-03): 0.13.155 is published from merged source
+and validation repairs, retaining the existing local signing identity. All six
+installer, updater and matching CLI source assets were remotely verified against
+local digests and sizes; beta update selection works from 0.13.154. The live
+website resolves 0.13.155 with consistent page/download links. Website capability
+copy and its cold-start fallback are prepared for a separate Railway deployment.
+All 106 controlled Python release tests, 11 website/updater JavaScript tests and
+release/PR GitHub checks pass; all 314 packaged runtime source hashes match.
+The running local 0.13.154 app and ongoing Chrome edits are preserved. Checks and
+receipts remain under ignored `outputs/release-0.13.155/`.
 
 ## Product direction
 
@@ -250,7 +254,7 @@ the ignored connector-documentation check records; no runtime suites or deployed
 
 | Layer | Recorded status | Boundary |
 | --- | --- | --- |
-| Public Mac beta | 0.13.89, per [release notes](docs/release-notes.md) | Public package contents and live qualification differ from later local work. |
+| Public Mac beta | 0.13.155, per [release notes](docs/release-notes.md) | Published installer/updater/source bytes verified; live qualification remains separate. |
 | Local Mac app | 0.13.153 installed locally | Jobs, Review, Connections and Settings form the main workspace. Tasks can start here with frozen attachments and explicit plan review/Start; shared messenger jobs retain their delivery channel and can be decided locally with exact receipts. Conversation details render sanitized Markdown, keep source records collapsed and start explicitly selected bounded public research in the original conversation workflow. Other outcomes prepare attached plans with Start review. Completed standalone Desktop conversations have a bottom history Delete control with exact review with retained replay identities and recoverable trace cleanup. The signed bundle contains 302 source-matching runtime files, including the work-state/context runtime and completion envelope bridge. Its job detail leads with one status and next action, keeps results beside their review, and draws compact step names/statuses. The inspector opens on request; technical records and activity remain under Details. Exact saved filenames still open Finder. New task stays one entry with visible project folder; unchanged list refreshes retain focus and repeated titles have distinct accessibility identities. Recorded revisions and replacements have version comparisons; an explicit check detects edits at saved desktop attachment locations and marks steps supplied an earlier version. Inspection preserves frozen copies, decisions and execution scope. Its 0.13.153 installer receipt records app/database recovery copies and fresh owned-service health. Exact shared plans can be reviewed/started here, with expired approval renewal, original delivery routing and committed Start identities. Ready decisions and attention jobs are separated; cancelled owning workflows show their Start blocker. Cancelled jobs and discarded plans can be removed from the list and restored without deleting exact history or files; unresolved workers block removal. Workflow-stage cancellation keeps continuation under the original workflow authority. Saved work Delete and shared-history actions pass the packaged Tauri action allowlist; 0.13.114 replaces the blocked browser confirmation with an in-window dialog. The 0.13.113 native click unexpectedly deleted the named pavilion task because an asynchronous confirmation result was treated as truthy; its complete receipt is preserved. The 0.13.114 dialog was opened for a different eligible task and Cancel preserved that task with no receipt. Earlier isolated-copy deletion, live standalone job deletion, and quality boundaries below still apply. The Yamaha historical candidate remains blocked by active or uncertain work. No revision was accepted/selected or installed-app Grasshopper graph executed. Installed-app real-deck revision and batch-scale translation remain unqualified; the bounded isolated plant-deck selected-set continuation is recorded below. |
 | Job control | Ordered request-derived workflows, exact artifact versions and decisions, conservative artifact-level impact, bounded continuations | Availability, user selection, approvals and uncertain-submission rules still govern execution. |
 | Native files | Editable outputs through supported workers and operations; `pptx.edit` changes exact text runs and pictures | There is no general control of open Excel/PowerPoint/Rhino/Blender sessions or universal format fidelity. See the [capability index](docs/capability-registry.md). |

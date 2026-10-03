@@ -7,7 +7,9 @@
   migration defaults and recorded Codex attachment album ownership.
 - Retain the local signing identity and beta updater protocol. Publish an Apple
   Silicon DMG, matching CLI source and checksums, plus the verified updater ZIP
-  and manifest. This release does not install into the current running app.
+  and manifest. Remote asset digests/sizes and live website download selection
+  are verified. Refresh the website capability copy and cold-start fallback to
+  the published beta. This release does not install into the current running app.
 
 ## Unreleased — PR validation repairs (2026-10-03)
 
