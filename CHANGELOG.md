@@ -1,3 +1,17 @@
+## Unreleased — Task Relay Chrome extension 0.1.10 (2026-10-03)
+
+- Fix job downloads rejecting a reference back to the captured conversation.
+  Browser and optional Desktop validation now accept the exact captured source
+  URL alongside URLs present in the excerpt; unrecorded URLs and unsafe references
+  remain rejected. Preserve the original reference and response without regeneration.
+- Align future request instructions with that source-reference rule. Source text,
+  capture metadata, request identity, proposal status and export format are unchanged.
+- Controlled panel/worker/shared bridge checks, focused native regression and
+  validation/export replay of the previously failing response pass. The installed
+  panel was reopened without resetting its ticket; retrying the original job
+  completed a live `.relay.md` download, validated by the portable importer. No
+  new message or model run was performed; the manifest was not fully reloaded.
+
 ## Unreleased — public source snapshot preparation (2026-10-03)
 
 - Include the maintained desktop, orchestration, extension, plugin, documentation

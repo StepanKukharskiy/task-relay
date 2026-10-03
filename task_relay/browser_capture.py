@@ -31,7 +31,8 @@ or "complete" (reported status only). Each list entry in conclusions,
 decision_proposals,questions,next_actions is {text,quote}; quote is a nonempty
 EXACT substring of captured content supporting this proposal. Questions may have
 quote:null when they concern missing inputs. artifact_references is [{label,url}]
-with URLs actually present in captured text; references do not imply file access.
+with URLs actually present in captured text or exactly equal to the capture URL;
+references do not imply file access.
 dependencies is an array of strings, reported dependencies only.
 Existing Work is a bounded snapshot; updates describe its NEW full current state.
 Preserve unresolved uncertainty. Do not silently remove earlier questions. Resolved
@@ -171,7 +172,7 @@ def candidates(source, answer, base_skill=None):
             if not isinstance(ref, dict) or set(ref) != {'label', 'url'}:
                 raise ValueError('Invalid artifact reference')
             ws.text(ref['label'], 'artifact label', 500)
-            if url(ref['url']) not in source['content']:
+            if url(ref['url']) != source['url'] and ref['url'] not in source['content']:
                 raise ValueError('Artifact reference was not captured; reference is not file access')
         if not isinstance(item['dependencies'], list) or len(item['dependencies']) > 20:
             raise ValueError('Invalid dependencies')

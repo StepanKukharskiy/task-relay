@@ -10,7 +10,7 @@ what you keep; you review the result and own the exported files.
 
 **Relay doesn't watch your browsing. You choose exactly what to keep.** Capture
 happens only when you click Turn into Skill, Turn into Relay job or Capture text only on an authorized page.
-Source 0.1.9 is a development build; public V1 acceptance and Store publication
+Source 0.1.10 is a development build; public V1 acceptance and Store publication
 remain separate. It uses the existing Task Relay logo and Desktop control style.
 
 ## Try the extension
@@ -118,6 +118,11 @@ If ChatGPT collapses the sent request, expand **Show more** on that request befo
 Get result can verify its complete text. Its unique marker prevents re-insertion
 even while collapsed. Retrieval never reopens an already reviewed response over
 the user's edits.
+
+Artifact references may use an exact URL in the captured text or the exact saved
+source URL. Referring back to the captured chat does not require its URL to appear
+in the selected excerpt. Other unrecorded links and unsafe references are rejected;
+references do not grant access to files or the rest of that conversation.
 
 Saving Work preserves conclusions, decision proposals, reported status,
 dependencies, questions, next actions and referenced artifacts separately from
@@ -308,3 +313,9 @@ Conversion without a selection gave a clear prompt and preserved the original
 unsent ChatGPT draft. No Send, new provider run or result download was performed.
 Chrome’s refreshed details page rendered blank, so its registered manifest version
 display was not qualified; new panel and selection-only worker behavior were.
+
+The 0.1.10 source-reference fix was loaded by reopening the installed panel while
+retaining the exact pending request. Retrying the original response produced a
+completed `.relay.md` download; the downloaded file passed the portable importer
+and retained its source URL and capture time. No new message or model run occurred.
+The registered manifest was not reloaded for this panel update.

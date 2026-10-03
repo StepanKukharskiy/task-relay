@@ -56,7 +56,7 @@ On supported ChatGPT conversations, Relay inserts a prepared draft and retrieves
 its matching reply on explicit clicks; the user sends it and reviews the result.
 Turn into Relay job separately exports a portable work brief. The panel uses
 Chrome’s existing branding, with recovery and setup under ⋯. Other sites retain
-copy/import. Source 0.1.9 is a development package; broader live Chrome/AI-site checks and store
+copy/import. Source 0.1.10 is a development package; broader live Chrome/AI-site checks and store
 publication remain open. Advanced users can optionally connect Relay Desktop
 for a persistent local library, granting native-app access only when they choose
 **Connect Relay Desktop**.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Task Relay",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Keep useful web work as evidence, reusable know-how and work you can continue. You choose what to keep. No cloud account required.",
   "minimum_chrome_version": "116",
   "permissions": ["activeTab", "scripting", "sidePanel", "storage"],

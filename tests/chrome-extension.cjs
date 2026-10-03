@@ -75,6 +75,21 @@ print(doc['name'])`],{input:JSON.stringify({zip:zip.toString('base64'),work:work
  const sourceText=await portable.sourceMarkdown(portable.source(fixture.capture));assert(sourceText.endsWith(fixture.capture.extracted_content));assert(sourceText.includes(await portable.sha(fixture.capture.extracted_content)));assert(sourceText.includes('Only loaded text was captured.'));
  const savedSource=call({action:'source',source_id:call({action:'library'}).sources[0].id});assert((await portable.sourceMarkdown(savedSource)).includes('Work identity: '+workId),'Local evidence exports retain their explicit Work association');
  assert.throws(()=>portable.validateAnswer(fixture.capture,{...fixture.answer,work_changes:[{...fixture.answer.work_changes[0],conclusions:[{text:'Fake',quote:'absent evidence'}]}]}),/absent/);
+ const sourceReferenceAnswer=structuredClone(fixture.answer);
+ sourceReferenceAnswer.work_changes[0].artifact_references=[{label:'Captured conversation',url:fixture.capture.url}];
+ assert(!portable.source(fixture.capture).content.includes(fixture.capture.url));
+ const citedSource=portable.validateAnswer(fixture.capture,sourceReferenceAnswer);
+ assert.equal(citedSource.work_changes[0].artifact_references[0].url,fixture.capture.url);
+ const sourceReferenceExport=await portable.workMarkdown(citedSource.work_changes[0],fixture.capture,'Keep source-linked work');
+ assert(sourceReferenceExport.content.includes('Captured conversation: '+fixture.capture.url));
+ for(const missing of [fixture.capture.url+'?invented=true','https://files.example.test/uncaptured']){
+   sourceReferenceAnswer.work_changes[0].artifact_references[0].url=missing;
+   assert.throws(()=>portable.validateAnswer(fixture.capture,sourceReferenceAnswer),/absent from/);
+ }
+ for(const unsafe of ['javascript:alert(1)','https://user:pass@example.test/artifact']){
+   sourceReferenceAnswer.work_changes[0].artifact_references[0].url=unsafe;
+   assert.throws(()=>portable.validateAnswer({...fixture.capture,extracted_content:fixture.capture.extracted_content+' '+unsafe},sourceReferenceAnswer),/absent from/);
+ }
  assert.throws(()=>portable.skill([{path:'../SKILL.md',content:'bad'}]),/Unsafe/);
  assert.throws(()=>portable.continuation('Continue',[{content:'x'.repeat(60000)}]),/exceeds/);
  // Service worker accepts only its own side panel and checks navigation after
@@ -153,6 +168,7 @@ print(doc['name'])`],{input:JSON.stringify({zip:zip.toString('base64'),work:work
      if(resultMode==='wrong-category')return{ok:true,result:{requestId:value.handoff.requestId,response:JSON.stringify(fixture.answer)}};
      if(resultMode==='invalid')return{ok:true,result:{requestId:value.handoff.requestId,response:'Incomplete result'}};
      const answer=value.handoff.request.includes('work_changes must be empty')?{...fixture.answer,work_changes:[]}:value.handoff.request.includes('skill_candidates must be empty')?{...fixture.answer,skill_candidates:[]}:fixture.answer;
+     if(resultMode==='source-reference')answer.work_changes[0].artifact_references=[{label:'Captured source',url:fixture.capture.url}];
      return{ok:true,result:{requestId:value.handoff.requestId,response:value.handoff.requestId.replace('REQUEST','RESPONSE')+'\n```json\n'+JSON.stringify(answer)+'\n```',messageId:'controlled-result',url:value.handoff.url}};}
    return bridgeSend(value);
  };
@@ -184,7 +200,7 @@ print(doc['name'])`],{input:JSON.stringify({zip:zip.toString('base64'),work:work
  await click(ids.get('make-now'));assert.equal(captureCalls,beforePrimary+1);assert.equal(insertAttempts,1);assert.equal(storage.panel.handoff.state,'inserting');assert.equal(selectionRequested,true);assert(storage.panel.handoff.request.includes('work_changes must be empty'));const retainedPrimary=structuredClone(storage.panel);
  await click(ids.get('make-now'));assert.equal(captureCalls,beforePrimary+1);assert.equal(insertAttempts,1);assert.deepEqual(storage.panel.handoff,retainedPrimary.handoff,'Repeated primary click preserves the uncertain request');
  await click(ids.get('insert-chatgpt'));assert.equal(storage.panel.handoff.state,'inserted');resultMode='wrong-category';const beforeWrongCategory=downloads.length;await click(ids.get('get-chatgpt-result'));assert.equal(downloads.length,beforeWrongCategory);assert.equal(storage.panel.handoff.state,'inserted');assert(ids.get('status').textContent.includes('only a Skill'));resultMode='good';const beforeDownload=downloads.length;await click(ids.get('get-chatgpt-result'));assert.equal(ids.get('proposal-items').children.length,1);assert.equal(downloads.length,beforeDownload+1);assert.equal(downloads.at(-1).name,'SKILL.md');
- await click(ids.get('new-text'));await click(ids.get('make-job'));await click(ids.get('get-chatgpt-result'));
+ await click(ids.get('new-text'));await click(ids.get('make-job'));resultMode='source-reference';await click(ids.get('get-chatgpt-result'));resultMode='good';
  assert.equal(ids.get('proposal-items').children.length,1);assert(downloads.at(-1).name.endsWith('.relay.md'));
  const primaryWork=ids.get('proposal-items').children[0],editor=walk(primaryWork).find(e=>e.className==='editor'),exportButton=button(primaryWork,'Download Relay job');
  assert.equal(editor.hidden,true);assert.equal(exportButton.parent.className,'actions','Download is directly on the result card, outside its editor');

@@ -38,6 +38,24 @@ class BrowserCaptureTests(unittest.TestCase):
     def save_work(self):
         result = bc.relay_analyze_capture(self.db, capture(), answer=answer())
         return bc.save(self.db, capture(), 'work', result['work_changes'][0], 'Keep Brazil work', 'fixture:work', confirmed=True)
+    def test_artifact_reference_accepts_exact_source_url_without_inventing_links(self):
+        source = bc.capture(capture())
+        self.assertNotIn(source['url'], source['content'])
+        data = answer()
+        data['work_changes'][0]['artifact_references'] = [{'label': 'Captured conversation', 'url': source['url']}]
+        reviewed = bc.candidates(source, data)
+        self.assertEqual(reviewed['work_changes'][0]['artifact_references'][0]['url'], source['url'])
+        for missing in (source['url'] + '?invented=true', 'https://files.example.test/uncaptured'):
+            with self.subTest(url=missing):
+                data['work_changes'][0]['artifact_references'][0]['url'] = missing
+                with self.assertRaisesRegex(ValueError, 'not captured'):
+                    bc.candidates(source, data)
+        for unsafe in ('javascript:alert(1)', 'https://user:pass@example.test/artifact'):
+            with self.subTest(url=unsafe):
+                data['work_changes'][0]['artifact_references'][0]['url'] = unsafe
+                with self.assertRaisesRegex(ValueError, 'http'):
+                    bc.candidates({**source, 'content': source['content'] + ' ' + unsafe}, data)
+
     def test_cross_site_state_and_new_chat_continuation(self):
         proposal = bc.relay_analyze_capture(self.db, capture(), answer=answer())
         self.assertEqual(bc.library(self.db), {'work': [], 'skills': [], 'sources': []})

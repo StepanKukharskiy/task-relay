@@ -71,7 +71,7 @@ cloud, Desktop or separate provider is required. An MV3 side panel uses temporar
 tab access and thin parsers; native messaging is optional, requested only from
 Connect Relay Desktop. That advanced mode adds persistence in the existing shared
 work-state database and optional existing-provider analysis. The earlier private
-ChatGPT Skill package remains separate. Source 0.1.9 leads with New → selected excerpt → Turn into Skill → user Send →
+ChatGPT Skill package remains separate. Source 0.1.10 leads with New → selected excerpt → Turn into Skill → user Send →
 Download SKILL.md. Turn into Relay job is secondary and exports a portable brief.
 The Relay job choice is a full-width outlined button below Turn into Skill on
 the New screen; conversion choices are not shown on the result screen. The
@@ -126,6 +126,13 @@ The existing unpacked extension was reloaded. Its live panel shows the simplifie
 actions with one panel logo; a missing selection produces a clear prompt without
 changing the original unsent ChatGPT draft. Live typed conversion, Send/export and
 fresh-chat reuse remain separate qualification.
+Version 0.1.10 accepts artifact references to the exact captured source URL,
+including when the selected excerpt does not repeat that URL. Other uncaptured
+links and unsafe references remain rejected in browser and optional Desktop
+validation. Controlled checks and replay of the original failing response pass;
+the original request and source remain intact. The installed panel was reopened
+without a full manifest reload; the original response downloaded successfully
+and the downloaded file passed portable validation. No new AI run was needed.
 Portable evidence association and opt-in bridge permission/recovery remain.
 Controlled checks pass; user Send is still required, continuation uses copied
 context, and other AI sites retain manual handoff. Public V1 acceptance is not
