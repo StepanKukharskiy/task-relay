@@ -1,53 +1,53 @@
-# Task Relay 0.13.89
+# Task Relay 0.13.155
 
-Mac beta with typed workflow planning, stronger recovery, native model tools and
-provider-independent local reel production. Includes the first-run planning fix
-from 0.13.60 and accumulated updates since 0.13.54.
+Mac beta with the current desktop workspace, universal request intake, new Codex
+project tasks, Grasshopper definition authoring and the latest recovery fixes.
+This release includes the merged desktop changes since 0.13.89.
 
 ## What changed
 
-- Workflow builders compile selected artifacts, operation contracts and review
-  reports into exact versioned handoffs. Attachments, image albums, source geometry
-  and completed-stage selections retain their identity across planning and recovery.
-- Confirmed failures have clearer, bounded continuation and correction paths.
-  Started plans return to their saved execution. Uncertain submissions are not
-  replayed, and changed scripts still require review, selection and a separate Start.
-- Shared API workers improve long-text delivery, source exposure and Gemini tool
-  reporting. Placeholder-only output cannot pass local delivery checks; human
-  selection and independent review remain required.
-- Rhino and Blender recovery preserve failed evidence and selected source models.
-  Standalone 3DM creation uses the bundled rhino3dm library, including reviewed
-  Python scripts and explicit Rhino archive versions. Library verification does
-  not imply native Rhino verification. The SketchUp adapter requires local host
-  qualification before use.
-- Image sourcing supports browser discovery and bounded fallback while retaining
-  source provenance and explicit generated-image restrictions.
-- Ordinary reel requests can use a separately installed, qualified local
-  HyperFrames runtime. Providers author editable projects, preview them for review
-  and user selection, then render the exact selected project to MP4. Legacy scene
-  composition remains supported; optional renderer installation is not automatic.
+- Requests retain their outcomes, output counts, formats and validation criteria
+  before routing. Large work can use bounded stages and independent reviews.
+  Oversized or rejected provider replies remain available for read-only recovery.
+- Create new Codex tasks in saved projects, including projects without existing
+  chats. Original requests, selected files and uncertain submission receipts are
+  preserved; work starts only within the requested scope.
+- The desktop workspace brings jobs, workflow steps, results, review and version
+  history together. Shared plans retain their delivery channel, exact Start
+  decisions and recovery records. Saved work has reviewed removal and restoration.
+- Create new Grasshopper definitions in Rhino 7/8 on macOS with reviewed Python.
+  Native .gh and .ghx candidates are independently reopened and solved. Editing
+  existing definitions and visual/geometric fidelity are outside this operation.
+- Browser/computer work, reusable workflow procedures, research campaigns and
+  reviewed revisions retain bounded permissions and exact artifact handoffs.
+- Fix Codex attachment album continuations, migration of inert provider defaults,
+  and core startup without optional YAML support. Nondefault provider settings
+  still require migration review. Regression coverage is included in CI.
 
 ## Install or upgrade
 
 For Apple Silicon Macs running macOS 14 or later, download
-Task-Relay-0.13.89-arm64.dmg. Quit Task Relay, replace the app in Applications,
+Task-Relay-0.13.155-arm64.dmg. Quit Task Relay, replace the app in Applications,
 and reopen it. Keep the same saved data folder.
 
-Apps from 0.13.26 onward can use Settings → App updates. Enable Include beta
-releases, then Check for updates → Download update → Install and restart.
-Earlier apps need the manual DMG installation and any offered service handoff.
-The matching CLI source includes install.sh; a Python wheel does not update the app.
+Compatible apps from 0.13.26 onward can use Settings → App updates. Enable
+Include beta releases, then Check for updates → Download update → Install and
+restart. Earlier apps need the manual DMG installation and any offered service
+handoff. The matching CLI source includes install.sh; a wheel does not update the app.
 
-This remains a locally signed beta without Apple Developer ID or notarization.
-The signing identity is retained for compatible in-app updates. macOS may require
+This is a locally signed beta without Apple Developer ID or notarization. It uses
+the existing signing identity for compatible in-app updates. macOS may require
 Privacy & Security → Open Anyway and refreshed permissions. No Windows or Intel
 Mac installer is included. Native applications and optional renderers need their
-own installation and qualification.
+own installation, access and qualification.
 
 ## Validation scope
 
-Release validation covers affected planning, recovery, operation and provider
-contracts with controlled fixtures, plus packaging, updater and website behavior.
-Package checks verify source identity, matching versions, bundled dependencies,
-code signatures and asset checksums. No live provider job, user-content rendering,
-messenger delivery or clean-host installation is claimed for this release.
+Controlled release validation passed 106 Python tests and 11 website/updater
+JavaScript tests. Prior merged-source CI covers affected orchestration and
+recovery contracts. Packaging checks
+verify matching versions, bundled dependencies, exact runtime source hashes,
+existing signing identity, image integrity and asset checksums. Grasshopper has
+controlled and earlier fixed native-fixture qualification on Rhino 7/8; no new
+installed-app Grasshopper run, paid provider job, messenger delivery, clean-host
+installation or user acceptance is claimed by this release.

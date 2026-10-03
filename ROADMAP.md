@@ -41,6 +41,13 @@ isolated project catalogs and current intake/file contracts; original proposal
 scope and no-replay checks remain enforced. Validation logs are local in
 `outputs/pr12-*.log`. These source fixes have not been installed in the local app.
 
+Desktop release preparation (2026-10-03): 0.13.155 packages the merged source
+and validation repairs in an isolated checkout, retaining the existing local
+signing identity. Installer, updater and source assets are prepared for a beta
+release; public download status requires remote publication verification.
+The running local 0.13.154 app and ongoing Chrome edits are preserved. Release
+checks and receipts are recorded under ignored `outputs/release-0.13.155/`.
+
 ## Product direction
 
 Task Relay aims to be a reliable job runtime that any authorized agent,

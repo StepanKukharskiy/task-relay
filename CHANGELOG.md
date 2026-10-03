@@ -1,3 +1,14 @@
+## 0.13.155 — desktop beta publication
+
+- Package the merged desktop runtime after 0.13.89, including universal request
+  scope, Codex project task creation, current job/result/review workspace and
+  Grasshopper definition authoring for Rhino 7/8 on macOS.
+- Include the PR validation repairs for optional YAML startup, inert provider
+  migration defaults and recorded Codex attachment album ownership.
+- Retain the local signing identity and beta updater protocol. Publish an Apple
+  Silicon DMG, matching CLI source and checksums, plus the verified updater ZIP
+  and manifest. This release does not install into the current running app.
+
 ## Unreleased — PR validation repairs (2026-10-03)
 
 - Load optional YAML support when a portable document operation needs it, so
