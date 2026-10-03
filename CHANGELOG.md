@@ -8,8 +8,9 @@
 - Retain the local signing identity and beta updater protocol. Publish an Apple
   Silicon DMG, matching CLI source and checksums, plus the verified updater ZIP
   and manifest. Remote asset digests/sizes and live website download selection
-  are verified. Refresh the website capability copy and cold-start fallback to
-  the published beta. This release does not install into the current running app.
+  are verified. Deploy the website capability copy and 0.13.155 cold-start
+  fallback on Railway; live homepage/llms.txt, health and latest redirects are
+  verified. This release does not install into the current running app.
 
 ## Unreleased — PR validation repairs (2026-10-03)
 

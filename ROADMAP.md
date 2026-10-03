@@ -46,7 +46,9 @@ and validation repairs, retaining the existing local signing identity. All six
 installer, updater and matching CLI source assets were remotely verified against
 local digests and sizes; beta update selection works from 0.13.154. The live
 website resolves 0.13.155 with consistent page/download links. Website capability
-copy and its cold-start fallback are prepared for a separate Railway deployment.
+copy and its 0.13.155 cold-start fallback are deployed on Railway. The full live
+homepage and llms.txt match the reviewed source; health and all four latest
+download redirects pass.
 All 106 controlled Python release tests, 11 website/updater JavaScript tests and
 release/PR GitHub checks pass; all 314 packaged runtime source hashes match.
 The running local 0.13.154 app and ongoing Chrome edits are preserved. Checks and
