@@ -143,8 +143,87 @@ candidate, overwrites an earlier attempt or automatically retries.
 
 Relay registers `rhino.startup`, `rhino.inspect`, `rhino.run_python` and `rhino.render` through the
 existing production planner, exact artifact selection, review and delivery paths.
-Grasshopper definitions, scripts, component execution and graph authoring are
-paused. They have no registered operation.
+Grasshopper uses a separate `rhino.grasshopper` operation included in local
+desktop 0.13.108.
+
+## Grasshopper authoring
+
+`rhino.grasshopper` creates a new self-contained definition through the official
+libraries in the selected Rhino 7 or 8 installation on macOS. It supports sliders,
+components, connections, panels and embedded GhPython code/template data. The
+worker supplies `ghdoc` (`GH_Document`), a headless Rhino `doc`, `Grasshopper`,
+`Rhino`, `System` and the input `workspace`. Add objects to `ghdoc`; Relay owns
+saving, reopening and disposal. It loads installed `Grasshopper.dll`, `GH_IO.dll`
+and `GhPython.gha`; it does not download plugins. Other operating systems remain
+unavailable, without automatic fallback. Rhino 7 uses IronPython 2.7 for the
+authoring script; Rhino 8 uses CPython 3. The legacy `GhPython` component uses
+IronPython-compatible embedded code on both versions. Use Python 2.7 syntax and
+Unicode names for Rhino 7; include a UTF-8 source declaration for non-ASCII text.
+The preparation validator checks bounds/encoding for Rhino 7, with syntax checked
+by native IronPython before authoring. It also compiles Rhino 8 scripts as Python 3.
+
+Rhino 7 must be closed before execution: Relay launches and closes only its own
+worker processes. It does not attach to an open Rhino 7 session or switch to
+Rhino 8. Rhino 8 retains its existing owned-process or connected-session transport.
+
+First prepare and independently review `definition.py` and checks JSON using
+`operation-support/rhino.grasshopper/validate.py CHECKS_JSON SCRIPT_PY`. Select
+both artifacts together, then approve a separate execution stage. The script is
+limited to 100,000 UTF-8 bytes. `scene_sha256` must be null. Declare any template
+assets as exact registered inputs, then embed their contents in the definition.
+For example, the fixed four-object qualification graph uses:
+
+```json
+{
+  "version": 1,
+  "mode": "create",
+  "expected_object_count": 4,
+  "expected_outputs": [
+    {"object": "Generator α", "output": 0, "count": 1},
+    {"object": "Result", "output": 0, "count": 1}
+  ]
+}
+```
+
+Object names in checks are exact unique `NickName` values. Component output
+indices are zero-based; standalone parameters use output 0. Object counts include
+sliders, panels and groups. The authoritative schema is
+[grasshopper_contract.py](../orchestrator/grasshopper_contract.py).
+
+The worker solves the authored graph and calls McNeel's
+[GH_DocumentIO.SaveQuiet](https://mcneel.github.io/grasshopper-api-docs/api/grasshopper/html/T_Grasshopper_Kernel_GH_DocumentIO.htm)
+to write `delivery/candidate.gh` and `delivery/candidate.ghx`. A separate worker
+phase opens each file into a fresh GH document and solves it. Checks compare
+object identities/types, names and wire topology, collect runtime errors and
+warnings, and verify declared output counts. Locked objects fail. Relay retains
+`delivery/definition.py`, `checks.json` and `execution.json`, exact input and
+candidate hashes, library hashes and process receipts. Native solve warnings
+require user review; outputs remain unselected. Graph/count checks do not establish
+geometric fidelity, visual quality or portability to another installation.
+
+Approval covers the authoring script **and embedded component execution in all
+three solves** (build, reopened GH and reopened GHX). Scripts/components run with
+normal host permissions, not OS isolation. Author self-contained graphs without
+baking, UI changes, timers, scheduled solutions, downloads or external side effects.
+An already disabled global solver causes a failure; Relay does not enable it.
+Existing-definition editing, production rendering and third-party plugins are
+outside this operation. Failed or uncertain work is never replayed; a correction
+needs a newly reviewed assignment and exact-code approval.
+
+The fixed local qualification command is:
+
+```sh
+python3 scripts/qualify_grasshopper.py --host --rhino-version 7 --output outputs/grasshopper7-check
+```
+
+Use a new evidence directory. This runs a small slider/template/GhPython/panel
+graph through the registered operation with an isolated runtime. It sends no
+provider/channel messages and performs no user selection. Controlled round trips
+passed on Rhino 7.32 and Rhino 8.35: both formats reopened with four objects, matching wires and
+one item in each declared output, without runtime errors or warnings. Rhino 7
+also preserved a Unicode component name across separate owned processes. These
+native checks used development source. Local desktop 0.13.108 now includes the
+operation and detects Rhino 8.35, but no graph was executed through that install.
 
 ## Verification failures and correction
 

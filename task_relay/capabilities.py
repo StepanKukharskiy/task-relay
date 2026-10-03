@@ -70,6 +70,16 @@ translation, not permission to expand work. Honor provider choices. Capability a
 status questions have action=null; inspect recent_requests. Other sites still use
 their supported browser executors.
 
+For signed-in Safari research, use plan_production with a computer.use worker when
+the graph executor catalog offers a configured -computer profile. The planner
+freezes the exact URL grant and creates the worker using the existing model loop.
+With the bundled new-window launcher, Relay opens a dedicated default-profile
+Safari window, brings it to the foreground once and binds it automatically before
+provider work. Do not ask for manual window selection or a separate research agent
+when that launcher is available. Explicitly selected windows are also supported.
+Visible ownership controls remain available; after takeover or focus loss Relay
+does not reclaim focus. No automatic login, social actions or general desktop input.
+
 General browser workers also support
 browser_screenshot for explicitly granted viewport PNG outputs plus .png.json
 provenance. For capture requests use plan_production with a supported browser worker,
@@ -115,6 +125,14 @@ no Google login or PowerPoint installation. PPTX can be opened in Keynote, but
 creation/reopen checks do not establish Keynote import fidelity or visual layout.
 Native .key output, arbitrary existing-template editing and PDF/previews are not
 outputs of this operation; preserve those requirements as explicit separate work.
+For an existing PPTX revision, use plan_production with
+step_capabilities=["pptx.edit"] when available. Bind the exact selected baseline
+PPTX, author and independently review a guarded edit manifest, then run the
+local editor and independently review the actual revised deck before user
+selection. It can replace exact text runs and selected embedded PNG/JPEG pictures
+while preserving the baseline and untouched package parts. Chart data, slide
+structure, master/layout changes and arbitrary template edits are outside its
+contract. Never describe a new slide specification as an edit of the old deck.
 For browser discovery selected by image_sourcing or explicitly requested, use images.fetch with a
 browser.use producer exporting observed sources through browser_image_source.
 This uses the existing managed browser, not a search API; public original image
@@ -153,8 +171,15 @@ edits bind the exact source hash. Return candidate.3dm, viewport preview and
 independent reopen checks for user selection. Scripts use RhinoCommon and the
 supplied doc/scriptcontext.doc. Current adapter: Rhino 7/8 on macOS. rhino.render uses an exact manifest to render
 an existing named view through built-in Rhino Render, with review and selection. Grasshopper
-definitions, GH scripts and GH component execution are paused; do not route them
-through direct Rhino modeling or claim they are supported.
+creation uses the separate rhino.grasshopper operation on Rhino 7/8/macOS. Prepare
+and independently review definition.py plus the catalog's Grasshopper checks JSON,
+select them together, then propose exact-code host execution (scene_sha256=null).
+The supplied ghdoc accepts sliders, components, connections, panels and embedded
+Python/template data. Relay saves genuine .gh/.ghx using the installed official
+APIs, independently reopens/solves both, and checks graph structure and declared
+output counts. Deliver native definitions, source and receipts for review/selection.
+Existing-definition editing, baking, third-party plugin installation and automatic
+visual/geometric fidelity claims are outside this operation.
 
 For an existing Blender scene, blender.inspect can inventory its objects, materials,
 cameras and dependencies. Select the exact .blend artifact_ids in plan_production
@@ -213,7 +238,7 @@ EXECUTION_ROUTING += '\n'+WEBSITE_TASK_INSTRUCTIONS
 from .capability_defaults import INSTRUCTIONS as MODEL_DEFAULT_INSTRUCTIONS
 EXECUTION_ROUTING += '\n' + MODEL_DEFAULT_INSTRUCTIONS
 
-IMMEDIATE = ('discover_opportunities','draft_procedure','run_procedure','plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'continue_production', 'collect_references',
+IMMEDIATE = ('discover_opportunities','draft_procedure','run_procedure','plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'generate_video', 'continue_production', 'collect_references',
              'resume_production',
              'route_task', 'choose_task', 'create_codex_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
@@ -438,7 +463,7 @@ def catalog(state, snapshot):
                     'template, project, reference_pack_id, research_ids, planning_only; optional parent_id or previous_run' if kind=='plan_production' else
                     'plan_id' if kind=='authorize_production_plan' else
                     'old_decision, new_decision' if kind=='replace_selection' else
-                    'reference_ids, optional artifact_ids from production_artifacts' if kind=='generate_image' else 'project' if kind=='collect_references' else
+                    'reference_ids, optional artifact_ids from production_artifacts' if kind in ('generate_image','generate_video') else 'project' if kind=='collect_references' else
                     'task_id/task_ids, optional reference_pack_id' if kind in ('route_task','choose_task') else
                     'workflow, items, direction'),
             permissions='Existing action card and scope checks.' if kind in GATED else 'Explicit user request; existing adapter checks.',
@@ -453,7 +478,8 @@ def catalog(state, snapshot):
             specs[-1]['inputs']='project, title, start_work, research_ids, artifact_ids'
             try:
                 HOST.require_posix('Codex task creation'); HOST.codex()
-                blocker=None if enabled else 'Task routing is disabled.'
+                blocker=(snapshot.get('project_catalog_error') or
+                         (None if snapshot.get('codex_projects') else 'No available local Codex projects.'))
             except (OSError,ValueError,RuntimeError) as exc:
                 blocker=str(exc)
             specs[-1].update(available=not blocker,blocker=blocker,
@@ -489,6 +515,7 @@ def catalog(state, snapshot):
     return dict(version=1,operations=specs,graph_operations=graph_operations,graph_executors=graph_executors,targets=targets,routing_enabled=enabled,dispatches=receipts,
         image_sourcing=image_sourcing(graph_operations,graph_executors,browser),
         local_video=local_video(graph_operations),
+        gemini_video=gemini_video(),
         worker_capabilities=CAPABILITIES.copy(),
         model_defaults=model_defaults(state.db)['choices'],
         browser_account_sites=site_catalog(state.db),
@@ -500,6 +527,17 @@ def catalog(state, snapshot):
         web={'web_fetch':'Public HTTPS text reader; no login/JavaScript/PDF.',
              'web_search':'Gemini/Google Search; configured' if gemini.read_config() else 'Connect Gemini to enable search.'},
         production_worker='Task-specific roles resolve required worker_capabilities to captured executor profiles. Each approved task freezes its model and tools; explicit executor choice has no fallback. Registered operations remain separate. Workers are not free routing targets.')
+
+
+def gemini_video():
+    from . import gemini
+    config=gemini.read_config()
+    return dict(available=bool(config),action='generate_video',provider='gemini',
+        model=(config or {}).get('models',{}).get('video',gemini.DEFAULT_MODELS['video']),
+        inputs='Text, optionally one exact PNG/JPEG first-frame image.',
+        blocker=None if config else 'Connect Gemini in Settings → Models by task.',
+        verification='Configured backend; model access and billing are checked when used.',
+        boundary='One managed generation; existing uncertain submissions are never replayed. Independent of local rendering qualification.')
 
 
 def local_video(operations):
@@ -627,9 +665,10 @@ def dispatch(state, job, action, snapshot):
         from task_relay import production_planning
         text=production_planning.authorize(state,job,action['plan_id'])
         executor='production_plans';receipt=action['plan_id']
-    elif kind=='generate_image':
-        tid,text=orchestrator_images.queue(state,job,action['reference_ids'],action.get('artifact_ids',[]),action.get('provider','gemini'),action.get('model'))
-        executor='orchestrator_image_requests'
+    elif kind in ('generate_image','generate_video'):
+        media_kind='video' if kind=='generate_video' else 'image'
+        tid,text=orchestrator_images.queue(state,job,action['reference_ids'],action.get('artifact_ids',[]),action.get('provider','gemini'),action.get('model'),capability=media_kind)
+        executor='orchestrator_'+media_kind+'_requests'
     elif kind=='continue_production':
         from task_relay import orchestrator_guides
         orchestrator_guides.production_inputs(state,job['id'],action['workflow'])

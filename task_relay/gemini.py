@@ -106,16 +106,29 @@ def error_detail(response, key):
         value=json.loads(raw)
         error=value.get('error') if isinstance(value,dict) else None
         if not isinstance(error,dict) or not isinstance(error.get('message'),str):return {}
-        message=error['message']
-        # Redact before truncating, including the URL-encoded configured key.
-        for secret in sorted({key,urllib.parse.quote(key,safe=''),urllib.parse.quote_plus(key)},key=len,reverse=True):
-            if secret:message=message.replace(secret,'[redacted]')
-        message=re.sub(r'https?://[^\s<>"\']+','[redacted URL]',message,flags=re.I)
-        message=re.sub(r'(?i)(?:authorization\s*:\s*bearer|bearer|x-goog-api-key|api[_-]?key|access[_-]?token)\s*[:=]?\s*[^\s,;]+','[redacted credential]',message)
-        message=' '.join(message.split())[:1500]
-        result={'message':message}
+        def clean(text, limit=1500):
+            # Redact before truncating, including the URL-encoded configured key.
+            for secret in sorted({key,urllib.parse.quote(key,safe=''),urllib.parse.quote_plus(key)},key=len,reverse=True):
+                if secret:text=text.replace(secret,'[redacted]')
+            text=re.sub(r'https?://[^\s<>"\']+','[redacted URL]',text,flags=re.I)
+            text=re.sub(r'(?i)(?:authorization\s*:\s*bearer|bearer|x-goog-api-key|api[_-]?key|access[_-]?token)\s*[:=]?\s*[^\s,;]+','[redacted credential]',text)
+            return ' '.join(text.split())[:limit]
+        result={'message':clean(error['message'])}
         status=error.get('status')
         if isinstance(status,str) and re.fullmatch(r'[A-Z_]{1,64}',status):result['status']=status
+        violations=[]
+        details=error.get('details',[])
+        if isinstance(details,list):
+            for detail in details[:10]:
+                if not isinstance(detail,dict) or detail.get('@type')!='type.googleapis.com/google.rpc.BadRequest':continue
+                fields=detail.get('fieldViolations',[])
+                if not isinstance(fields,list):continue
+                for field in fields[:10]:
+                    if isinstance(field,dict) and isinstance(field.get('field'),str) and isinstance(field.get('description'),str):
+                        violations.append({'field':clean(field['field'],300),'description':clean(field['description'],500)})
+                        if len(violations)==5:break
+                if len(violations)==5:break
+        if violations:result['field_violations']=violations
         return result
     except (OSError,ValueError,TypeError):return {}
 
@@ -287,12 +300,14 @@ def prepare_run(state, jid, tid, capability):
     refs = state.db.execute("SELECT * FROM artifacts WHERE thread_id=? AND role='input' AND active=1 ORDER BY created_at", (tid,)).fetchall()
     if sum(r['size'] for r in refs) > 11_000_000:
         raise ValueError('Combined references exceed 11 MB. Remove some with /forget ID.')
+    if capability == 'video' and (len(refs)>1 or any(r['mime'] not in ('image/png','image/jpeg') for r in refs)):
+        raise ValueError('Gemini video accepts at most one PNG or JPEG first-frame image. Remove other references before generating.')
     configured = state.db.execute('SELECT model FROM gemini_models WHERE thread_id=? AND capability=?', (tid, capability)).fetchone()
     if capability == 'text':
         model = state.db.execute('SELECT model FROM backend_tasks WHERE id=?', (tid,)).fetchone()[0]
     else:
         model = configured[0] if configured else config.get('models', {}).get(capability, DEFAULT_MODELS[capability])
-    options = {'references': [dict(r) for r in refs] if capability in ('text', 'image') else [],
+    options = {'references': [dict(r) for r in refs] if capability in ('text', 'image', 'video') else [],
                'voice': config.get('voice', 'Kore'), 'max_output_tokens': config.get('max_output_tokens', 4096),
                'aspect_ratio': config.get('aspect_ratio', '16:9'), 'duration_seconds': config.get('duration_seconds', 4)}
     if capability == 'text':

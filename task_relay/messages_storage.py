@@ -118,9 +118,24 @@ def import_provider(state, src, source_path, target, evidence):
     special = {'kv', 'message_requests', 'task_emojis', 'relay_request_channels',
                'relay_event_channels', 'relay_channel_bindings'}
     populated = [t for t in tables(src) if src.execute('SELECT 1 FROM ' + quote(t) + ' LIMIT 1').fetchone()]
+    # State initializes these local singletons even in an unused provider DB.
+    # Preserve them in the verified backup and receipt, keeping the target's
+    # account grant revision and handoff boundary. Nondefault settings need review.
+    defaults = {}
+    for table in ('browser_account_source', 'result_handoff_epoch'):
+        if table not in populated:
+            continue
+        rows = [dict(r) for r in src.execute('SELECT * FROM ' + quote(table))]
+        inert = (len(rows) == 1 and rows[0]['id'] == 1 and
+                 (rows[0]['endpoint'] is None if table == 'browser_account_source'
+                  else rows[0]['after_created'] == 0))
+        if inert:
+            defaults[table] = rows
+            special.add(table)
     unknown = set(populated) - PROVIDER_TABLES - special
     if unknown:
         raise ValueError('Unsupported populated provider tables: ' + ', '.join(sorted(unknown)))
+    evidence['provider_bootstrap_defaults'] = defaults
     after = db.execute('SELECT COALESCE(max(rowid),0) FROM outbox').fetchone()[0]
     for table in populated:
         if table in PROVIDER_TABLES:

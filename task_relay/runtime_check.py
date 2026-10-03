@@ -12,6 +12,10 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from task_relay.releases import VERSION
 from task_relay import file_tools, pdf_reader
+for name in ('orchestrator.computer_worker', 'task_relay.computer_worker_session', 'task_relay.desktop_computer'):
+    importlib.import_module(name)
+from task_relay.host_computer import Observer, bundled_helper
+Observer(bundled_helper())  # Identity/signature only; no native process or permissions prompt.
 for name in ('pypdf', 'PIL', 'playwright.sync_api', 'pptx', 'docx', 'openpyxl', 'reportlab'):
     importlib.import_module(name)
 from pypdf import PdfWriter
@@ -31,7 +35,8 @@ result = file_tools.execute(root, 'pdf_read', json.dumps({
     'path': 'fixture.pdf', 'page': 1, 'offset': 0, 'limit': 1000, 'sha256': ''}))
 if not result.get('ok') or 'Packaged PDF reader verified' not in result['pages'][0]['text']:
     raise RuntimeError('Bundled PDF read failed: ' + json.dumps(result))
-print(json.dumps({'version': VERSION, 'pdf_read': True, 'dependency_imports': True}))
+print(json.dumps({'version': VERSION, 'pdf_read': True, 'dependency_imports': True,
+                  'computer_helper': True, 'computer_worker_imports': True}))
 '''
 
 

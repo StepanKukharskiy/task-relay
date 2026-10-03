@@ -13,7 +13,6 @@ from tests.test_gemini_executor import CONFIG, BACKEND
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail  # Routing fixture's boolean would shadow unittest.fail.
     tearDown=fixtures.Tests.tearDown
     request=fixtures.Tests.request
     action=fixtures.Tests.action
@@ -153,3 +152,24 @@ class Tests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class OptionalResearchSchemaTests(unittest.TestCase):
+    def test_optional_operation_cannot_bypass_typed_required_query_data(self):
+        options={'optional_research_capabilities':['web.sources']}
+        rule=planning_contract.contract(options)['schema']['properties']['plan']['anyOf'][0]['properties']['tasks']['items']['properties']['execution']
+        value={'capability':'web.sources','version':1,'parameters':{}}
+        with self.assertRaisesRegex(ValueError,'parameters.queries: required'):
+            planning_contract.validate(value,rule,'$.plan.tasks[0].execution')
+        value['parameters']={'queries':['Exact public-source question'],'domains':[]}
+        planning_contract.validate(value,rule)
+        options['step_capabilities']=['gemini.text']
+        rule=planning_contract.contract(options)['schema']['properties']['plan']['anyOf'][0]['properties']['tasks']['items']['properties']['execution']
+        with self.assertRaisesRegex(ValueError,'parameters.queries: required'):
+            planning_contract.validate({'capability':'web.sources','version':1,'parameters':{}},rule)
+        planning_contract.validate({'capability':'gemini.text','version':1,'parameters':{'model':'fixture','prompt':'Text'}},rule)
+
+    def test_legacy_operation_error_names_exact_missing_job_data(self):
+        from orchestrator.execution import validate
+        with self.assertRaisesRegex(ValueError,'web.sources: missing domains, model, queries'):
+            validate({'execution':{'capability':'web.sources','version':1,'parameters':{}}})

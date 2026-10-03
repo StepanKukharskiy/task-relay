@@ -16,6 +16,12 @@ work there. The original request, not your rewrite, is sent as its first turn.
 Creation-only does not start a model. "Can you start a new Codex task in PROJECT
 to research QUESTION?" is a create-and-start request, even if QUESTION compares
 several alternatives. It is not merely a capabilities question.
+"Use my Content project and create a new task to write five articles" also asks
+for creation AND work: set start_work=true. Use the saved project name and exact
+cwd in codex_projects; a project need not already have a task. Explicit creation
+is available independently of routing to existing tasks. Honor this destination
+even for multiple outputs: do not substitute an existing task, an inline draft or
+a Relay production plan. The new Codex task can decompose its requested work.
 Do not choose this action for general capability questions,
 hypotheticals, requests to build task-creation support, or work in an existing task.
 Resolve the project from the user's request/context; ask if ambiguous. Never choose
@@ -50,6 +56,8 @@ def initialize(db):
         response TEXT, error TEXT, PRIMARY KEY(request_id,method));''')
     if 'history_sha256' not in {r[1] for r in db.execute('PRAGMA table_info(task_creations)')}:
         db.execute('ALTER TABLE task_creations ADD COLUMN history_sha256 TEXT')
+    if 'request_contract' not in {r[1] for r in db.execute('PRAGMA table_info(task_creations)')}:
+        db.execute('ALTER TABLE task_creations ADD COLUMN request_contract TEXT')
 
 
 def identity(value):
@@ -120,10 +128,15 @@ def task_status(state, tid, path):
 def enqueue(state, job, action, snap):
     if not state.db.in_transaction:
         raise ValueError('Task creation requires an outer transaction.')
-    if not state.get('orchestrator_routing_enabled',False):
-        raise ValueError('Task routing is disabled.')
     target = validate_action(action,snap)
+    HOST.require_posix('Codex task creation')
     HOST.codex()
+    from . import request_contract
+    contract=snap.get('request_contract')
+    if contract is not None:
+        contract=request_contract.validate(contract)
+        request_contract.route({'answer':'Queue explicit Codex task creation.',
+                                'action':action,'request_contract':contract})
     if identity(target['cwd']) != target['identity']:
         raise ValueError('Project changed; send a fresh request.')
     inputs = []
@@ -132,10 +145,11 @@ def enqueue(state, job, action, snap):
         inputs = routing_inputs.freeze(state,job,[target],action['research_ids'],action['artifact_ids'])
         inputs += [{**d,'project':None} for d in orchestrator_guides.selected(state,job['id'])]
     state.db.execute('''INSERT INTO task_creations
-        (id,prompt,action,cwd,project_identity,title,start_work,input_manifest,status,created,expires)
-        VALUES (?,?,?,?,?,?,?,?, 'queued',?,?)''', (job['id'],job['prompt'],json.dumps(action),
+        (id,prompt,action,cwd,project_identity,title,start_work,input_manifest,request_contract,status,created,expires)
+        VALUES (?,?,?,?,?,?,?,?,?, 'queued',?,?)''', (job['id'],job['prompt'],json.dumps(action),
         target['cwd'],json.dumps(target['identity']),action['title'],int(action['start_work']),
-        json.dumps(inputs),time.time(),time.time()+1800))
+        json.dumps(inputs),json.dumps(contract,ensure_ascii=False) if contract is not None else None,
+        time.time(),time.time()+1800))
     return ('Queued new Codex task: '+action['title']+'\nProject: '+target['cwd']+
         '\nExisting local checkout; Codex configuration is inherited. '+
         ('The original request will start one turn after creation.' if action['start_work'] else 'No model turn was requested.'))
@@ -211,11 +225,22 @@ class Worker:
                 return
             state.db.execute("UPDATE task_creations SET status='connecting' WHERE id=?",(row['id'],))
         try:
-            if not state.get('orchestrator_routing_enabled',False):
-                raise ValueError('Task routing was disabled before creation.')
+            HOST.require_posix('Codex task creation')
+            HOST.codex()  # Recheck app access before external creation.
             if time.time()>=row['expires'] or identity(row['cwd'])!=json.loads(row['project_identity']):
                 raise ValueError('Creation expired or project changed; no task was created.')
             context = routing_inputs.handoff(state,row)
+            scope=''
+            if row['request_contract'] is not None:
+                from . import request_contract
+                contract=request_contract.validate(json.loads(row['request_contract']))
+                request_contract.route({'answer':'Create the queued Codex task.',
+                    'action':json.loads(row['action']),'request_contract':contract})
+                scope=('\n\n--- FROZEN REQUEST OUTCOMES ---\n'
+                    'Relay captured these outcomes from the original request and saved conversation. '
+                    'Preserve every requested output, count, format and constraint. Decompose work as needed; '
+                    'do not reduce the total. This interpretation adds no authorization beyond the user request.\n'
+                    +json.dumps(contract,ensure_ascii=False))
             with self.client_factory() as client:
                 if identity(row['cwd'])!=json.loads(row['project_identity']):
                     raise ValueError('Project changed during connection.')
@@ -254,10 +279,11 @@ class Worker:
                         raise ValueError('Registered inputs changed before work submission.')
                     if task_status(state,tid,path)!='idle':
                         raise ValueError('The new task is no longer idle; no work was sent.')
+                    HOST.codex()  # App access may change while opening the task.
                     prompt = ('Task Relay created this Codex task for the following original user request. '
                         'The task is already created: do not create another task. Address only the requested work. '
                         'Preserve project instructions and existing edits; inspect current changes and stop to clarify conflicting work. '
-                        'Do not start other roadmap items or contact other tasks.\n\n--- ORIGINAL USER REQUEST ---\n'+row['prompt']+context)
+                        'Do not start other roadmap items or contact other tasks.\n\n--- ORIGINAL USER REQUEST ---\n'+row['prompt']+scope+context)
                     with state.db:
                         state.db.execute("UPDATE task_creations SET status='submitting' WHERE id=?",(row['id'],))
                         state.db.execute('INSERT INTO task_creation_calls(request_id,method,params) VALUES (?,?,?)',

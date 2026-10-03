@@ -19,7 +19,7 @@ def proposal(bad=False):
 
 class Tests(unittest.TestCase):
     def setUp(self):
-        fixtures.Tests.setUp(self);del self.fail
+        fixtures.Tests.setUp(self)
     tearDown=fixtures.Tests.tearDown
 
     def run_request(self, responses, prompt='Research then model, render and create a three-slide deck.'):
@@ -137,7 +137,7 @@ class TransportTests(unittest.TestCase):
         payload={'user_message':'Original exact request','interface':'telegram',
                  'snapshot':{'project_roadmaps':{'available_projects':[str(self.root)]}},
                  'routing_workflow_correction':{'previous_action':proposal(True)}}
-        with patch.object(gemini,'DATA',self.root),patch.object(gemini,'read_config',return_value={'api_key':'fixture'}),patch.object(gemini,'Client'),patch.object(files,'run',return_value='fixture') as run:
+        with patch.object(gemini,'DATA',self.root),patch.object(gemini,'read_config',return_value={'api_key':'fixture'}),patch.object(gemini,'Client'),patch.object(files,'run',return_value=json.dumps({'answer':'A corrected action.','action':None,'next_options':[],'research_advice':{'recommended_mode':'none','requirement':'unnecessary','reason':'Correct the saved workflow proposal.','questions':[]}})) as run:
             chat.generate({'id':1,'provider':'gemini','model':'test-model'},payload)
         args=run.call_args.args
         self.assertEqual(args[4],[]);self.assertIsNone(args[6]);self.assertIsNone(args[7])

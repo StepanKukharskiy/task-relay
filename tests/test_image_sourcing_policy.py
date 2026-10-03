@@ -54,7 +54,6 @@ class PolicyTests(unittest.TestCase):
 class PlanningTests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
-        del self.fail
     tearDown = fixture.Tests.tearDown
     request = fixture.Tests.request
     queue = fixture.Tests.queue

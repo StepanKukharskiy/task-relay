@@ -13,7 +13,7 @@ from tests import test_rhino_planning as fixture
 
 class Tests(unittest.TestCase):
     def setUp(self):
-        fixture.Tests.setUp(self);del self.fail
+        fixture.Tests.setUp(self)
         signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'})
         signature.start();self.addCleanup(signature.stop)
     tearDown=fixture.Tests.tearDown

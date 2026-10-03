@@ -32,16 +32,23 @@ def _table(db, name):
     return db.execute('SELECT 1 FROM sqlite_master WHERE type=\'table\' AND name=?', (name,)).fetchone() is not None
 
 
-def list_tasks(paths=PATHS):
+def list_tasks(paths=PATHS, offset=0):
+    if type(offset) is not int or not 0 <= offset <= 1000000:
+        raise DesktopTaskError('Choose a valid task page.')
     if not paths.state.is_file():
-        return {'tasks': [], 'creations': [], 'can_create': False, 'data': str(paths.data)}
+        return {'tasks': [], 'creations': [], 'can_create': False, 'data': str(paths.data),
+                'total': 0, 'next_offset': None}
     with closing(_database(paths)) as db:
+        db.execute('BEGIN')
         if not _table(db, 'watched'):
-            return {'tasks': [], 'creations': [], 'can_create': False, 'data': str(paths.data)}
+            return {'tasks': [], 'creations': [], 'can_create': False, 'data': str(paths.data),
+                    'total': 0, 'next_offset': None}
+        total = db.execute('SELECT count(*) FROM watched').fetchone()[0]
         rows = db.execute('''SELECT w.id,w.title,w.status,w.updated_at,
                             COALESCE(b.backend,'codex') AS backend,b.cwd
                             FROM watched w LEFT JOIN backend_tasks b ON b.id=w.id
-                            ORDER BY w.updated_at DESC,w.rowid DESC LIMIT 50''').fetchall()
+                            ORDER BY w.updated_at DESC,w.rowid DESC LIMIT 40 OFFSET ?''',
+                          (offset,)).fetchall()
         creations = [dict(r) for r in db.execute('''SELECT request_id,title,status,task_id,result
                         FROM desktop_creations ORDER BY created DESC LIMIT 6''')] if _table(db, 'desktop_creations') else []
         heartbeat = db.execute("SELECT value FROM kv WHERE key='health:desktop'").fetchone()
@@ -50,10 +57,23 @@ def list_tasks(paths=PATHS):
             can_create = _table(db, 'desktop_creations') and value.get('interface_version') == 1 and 0 <= time.time() - value.get('last_success', 0) < 20
         except (ValueError, TypeError):
             can_create = False
-        return {'tasks': [{'id': r['id'], 'title': r['title'][:180], 'status': r['status'],
-                           'backend': r['backend'], 'project': Path(r['cwd']).name if r['cwd'] else None,
-                           'updated_at': r['updated_at']} for r in rows],
-                'creations': creations, 'can_create': can_create, 'data': str(paths.data)}
+        from .task_delete import _rows as delete_graph, TaskDeleteError
+        tasks = []
+        for r in rows:
+            item = {'id': r['id'], 'title': r['title'][:180], 'status': r['status'],
+                    'backend': r['backend'], 'project': Path(r['cwd']).name if r['cwd'] else None,
+                    'updated_at': r['updated_at']}
+            if r['backend'] != 'codex':
+                try:
+                    blockers = delete_graph(db, r['id'], paths)['blockers']
+                except (TaskDeleteError, ValueError):
+                    blockers = ['Task ownership could not be reviewed.']
+                item['can_delete'] = not blockers
+                if blockers: item['delete_note'] = 'Delete unavailable: ' + ' '.join(blockers)
+            tasks.append(item)
+        return {'tasks': tasks,
+                'creations': creations, 'can_create': can_create, 'data': str(paths.data),
+                'total': total, 'next_offset': offset + len(rows) if offset + len(rows) < total else None}
 
 
 def task_detail(task_id, paths=PATHS):

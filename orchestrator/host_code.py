@@ -40,6 +40,8 @@ def binding(rt,spec):
             adapter.validate_script(Path(artifact['blob']).read_bytes(),app)
         inputs.append({'artifact':artifact['id'],'sha256':artifact['sha256'],'path':item['path']})
     extra={'rhino_runtime':{'major':app.get('major',8),'version':app.get('version')}} if adapter.name=='rhino' else {}
+    if spec['execution']['capability']=='rhino.grasshopper':
+        extra['grasshopper_libraries']={p:file_hash(p) for p in app['grasshopper_libraries']}
     if adapter.name=='rhino3dm':extra['library_runtime']=app['library_runtime']
     if adapter.name=='sketchup':extra['sketchup_runtime']={'version':app.get('version')}
     return {**extra,'assignment_digest':c.digest(spec),'assignment':spec,'inputs':inputs,'application_signature':application_signature(app['executable']),
@@ -72,8 +74,10 @@ def verify_frozen(frozen):
     if grant['application_signature']!=application_signature(app['executable']):raise ValueError('Application changed after approval')
     if frozen['execution']['capability']=='rhino3dm.run_python' and grant.get('library_runtime')!=app['library_runtime']:
         raise ValueError('Standalone library/Python runtime changed after approval')
-    if frozen['execution']['capability']=='rhino.run_python' and grant.get('rhino_runtime')!={'major':app.get('major',8),'version':app.get('version')}:
+    if frozen['execution']['capability'] in ('rhino.run_python','rhino.grasshopper') and grant.get('rhino_runtime')!={'major':app.get('major',8),'version':app.get('version')}:
         raise ValueError('Rhino runtime changed after approval')
+    if frozen['execution']['capability']=='rhino.grasshopper' and grant.get('grasshopper_libraries')!={p:file_hash(p) for p in app['grasshopper_libraries']}:
+        raise ValueError('Grasshopper libraries changed after approval')
     if frozen['execution']['capability']=='sketchup.run_ruby' and grant.get('sketchup_runtime')!={'version':app.get('version')}:
         raise ValueError('SketchUp runtime changed after approval')
     if grant['runtime_sources']!=source_hashes(sources):raise ValueError('Host-code implementation changed after approval')

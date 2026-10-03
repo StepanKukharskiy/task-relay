@@ -1,0 +1,38 @@
+{
+  "schema": "task-relay.o14-acceptance",
+  "version": 1,
+  "purpose": "Controlled evidence-linked revision of one supplier material fact in a catalog XLSX",
+  "supplier": {
+    "sheet": "Supplier",
+    "columns": ["product_key", "material"],
+    "before": [["ABC-9182", "steel"], ["XYZ-2040", "aluminium"]],
+    "replacement": [["ABC-9182", "stainless steel"], ["XYZ-2040", "aluminium"]]
+  },
+  "catalog": {
+    "sheet": "Catalog",
+    "columns": ["product_key", "material", "price", "check"],
+    "rows": [["ABC-9182", "steel", 10, "=C2*2"], ["XYZ-2040", "aluminium", 20, "=C3*2"], ["NO-SOURCE", "unknown", 30, "=C4*2"]]
+  },
+  "reviewed_bindings": [
+    {"key": "ABC-9182", "source_cell": "B2", "output_cell": "B2", "value": "steel"},
+    {"key": "XYZ-2040", "source_cell": "B3", "output_cell": "B3", "value": "aluminium"}
+  ],
+  "coverage": [
+    {"cell": "B2", "state": "complete"},
+    {"cell": "B3", "state": "complete"},
+    {"cell": "B4", "state": "incomplete"}
+  ],
+  "expected_impact": {
+    "affected": ["Catalog!B2"],
+    "unaffected": ["Catalog!B3"],
+    "unknown": ["Catalog!B4"]
+  },
+  "expected_revision": {
+    "Catalog!B2": "stainless steel",
+    "Catalog!B3": "aluminium",
+    "Catalog!D2": "=C2*2",
+    "Catalog!D3": "=C3*2",
+    "Catalog!D4": "=C4*2"
+  },
+  "failure_cases": ["missing product key", "duplicate product key", "unreviewed binding", "stale artifact hash", "unapproved cell patch", "unsupported workbook feature"]
+}

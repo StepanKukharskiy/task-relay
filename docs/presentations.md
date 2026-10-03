@@ -1,4 +1,4 @@
-# Editable PPTX creation
+# Editable PPTX creation and revision
 
 `pptx.create` turns a bounded JSON slide specification and selected PNG/JPEG images
 into a new editable PowerPoint file. It runs locally without Google sign-in,
@@ -101,8 +101,10 @@ It does not detect every text overflow, font substitution or overlapping object.
 PDF and image rendering are not part of `pptx.create`. When requested, add a
 separate renderer of the actual PPTX and inspect its output. A separately
 constructed image is not a preview of the deck. Keynote can open PPTX, but this
-implementation does not launch Keynote or claim native import fidelity. Existing
-PPTX/template editing, animations and native `.key` creation are outside v1.
+implementation does not launch Keynote or claim native import fidelity. The
+separate `pptx.edit` contract below covers bounded native revision of an existing
+PPTX. Template/master editing, animations and native `.key` creation remain outside
+the implemented scope.
 
 Controlled checks:
 
@@ -240,3 +242,99 @@ chooses relevant content and reviews image identity and presentation quality;
 template compilation owns spacing, typography and pagination. This reduces the
 amount of layout JSON to author; token savings have not been measured in a live
 provider run.
+
+## Revise an existing PPTX
+
+`pptx.edit` takes one exact baseline PPTX and one reviewed JSON edit manifest. The
+installed app changes selected native text runs and pictures, including text in
+table cells. Development source also admits exact notes runs, native table-row
+removal and shape removal for reviewed change plans.
+It does not regenerate slides or replace the baseline. Untargeted package parts
+retain their exact uncompressed bytes, so themes, masters, chart workbooks and
+untouched slides remain in the new candidate. Picture replacements add media
+and change the targeted slide's relationship part. A removed picture loses its
+media part only when no remaining relationship uses it.
+
+Inspect the baseline to find slide numbers, shape IDs, exact text runs and, for
+native tables, zero-based row and column coordinates. Add `row` and `column` to
+`replace_text` when the same run occurs more than once in a table shape. The edit
+then requires one exact match inside that cell; a missing row, column or run
+stops the edit.
+
+```sh
+task-relay presentation inspect candidate-v1/presentation.pptx
+task-relay presentation edit-schema
+```
+
+Save an edit manifest such as:
+
+```json
+{
+  "version": 1,
+  "source_sha256": "exact 64-character lowercase SHA-256 of the baseline PPTX",
+  "edits": [
+    {"kind": "replace_text", "slide": 1, "shape_id": 2,
+     "old": "Quarterly results", "new": "Annual results"},
+    {"kind": "replace_text", "slide": 2, "shape_id": 6,
+     "row": 3, "column": 0, "old": "Original species", "new": "Approved species"}
+  ]
+}
+```
+
+```sh
+task-relay presentation edit candidate-v1/presentation.pptx edits.json --output-dir candidate-v2
+```
+
+The new directory contains `presentation.pptx` and `receipt.json` with both input
+hashes, the output hash, changed slide numbers and structural checks. An existing
+output directory, a changed baseline, a missing text run or an ambiguous match
+stops the edit. The existing candidate stays intact.
+
+To replace a picture, use `kind: "replace_image"` with its `slide`, `shape_id`,
+`old_sha256` from `presentation inspect`, the exact replacement `path`, and its
+`new_sha256`. Pass the file with `--image replacement.png`; production planning
+binds the same PNG/JPEG as an exact operation input. Relay adds a new embedded
+media part and rewires only the selected picture, even when several shapes used
+the original image. Picture size, position and crop stay as in the baseline.
+
+In development source, `remove_table_row` names a non-header `row` and its
+ordered `old_runs`; `remove_shape` names the `old_xml_sha256` reported by
+`presentation inspect`. `replace_notes_text` and `remove_notes_run` name a
+one-based slide, zero-based notes `index` and exact `old` text. The native edit
+preserves all untargeted package members. Submit a revision against a frozen
+handoff with `task-relay candidate submit-native`; that admission separately
+checks whether the removed content was in the reviewed affected set.
+
+For production planning, select `step_capabilities=["pptx.edit"]`, declare
+`input_basis.mode="modify_existing"` with the exact registered baseline artifact,
+then bind that PPTX and the reviewed manifest to the operation. The plan requires
+independent review of the edited deck and human candidate selection. The
+capability is installed locally in desktop version 0.13.92.
+
+The installed version changes one exact text run or picture per edit. Text split
+across styled runs needs separate targeted edits. Development source can remove
+one exact notes paragraph, table row or shape per edit, while agent-candidate
+admission requires every removed content run or picture to be in its reviewed
+affected set. Chart-data changes, slide insertion/removal and general layout
+edits remain outside this contract. The structural check does not establish visual fit,
+PowerPoint/Keynote import fidelity or user acceptance. Review changed slides in
+a presentation app before selecting a final version.
+
+## Reviewed native-subject links in development source
+
+The bounded `native_subject` adapter records an exact registered JSON research
+line, photo-manifest entry or PDF page/text occurrence and an exact location in a registered PPTX: a
+table-cell run, text run or embedded picture. It checks both artifact hashes and
+the native locator when recording a link and when planning a subject withdrawal.
+The authoritative rows project into the read-only `.relay/job.sqlite` with
+explicit output coverage. A missing, pending, stale or undeclared relationship
+cannot establish that content is unaffected. Whole-slide completeness is not
+supported. Planning does not edit a deck or authorize a replacement.
+
+The first real plant case under `outputs/o14-real-plant/` is an isolated job
+copy. Its structural links identify an Oleander table row and photo card. Eight
+exact climate value runs have independently reviewed primary-source links and
+stay valid for an Oleander withdrawal; broader slide coverage remains unknown.
+The frozen change-plan handoff can be read by any agent through the CLI or
+`.relay` projection. It does not certify botanical identity or a whole deck,
+and this adapter is not installed in the local app yet.

@@ -2,6 +2,7 @@
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -24,6 +25,19 @@ def main():
         target = app / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, target)
+    if sys.platform == 'darwin':
+        from task_relay.host_computer import build
+        # Compilation belongs to packaging, never worker startup or status.
+        helpers=app.parent/'helpers'
+        helpers.mkdir(exist_ok=True)
+        destination=helpers/'Relay Computer Observer.app'
+        if destination.is_symlink():raise ValueError('Generated Safari helper must not be linked.')
+        with tempfile.TemporaryDirectory(prefix='relay-helper-build-') as temp:
+            built=Path(temp).resolve()/'Relay Computer Observer.app'
+            build(built)
+            if destination.exists():shutil.rmtree(destination)
+            shutil.copytree(built,destination)
+            shutil.copy2(built.with_suffix('.build.json'),destination.with_suffix('.build.json'))
     print(f'Staged {len(sources)} reviewed runtime files.')
 
 

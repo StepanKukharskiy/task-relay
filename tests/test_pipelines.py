@@ -19,7 +19,6 @@ from tests import test_production_planning as fixtures
 class Tests(unittest.TestCase):
     def setUp(self):
         fixtures.Tests.setUp(self)
-        del self.fail
     tearDown=fixtures.Tests.tearDown
     request=fixtures.Tests.request
     response=fixtures.Tests.response
@@ -74,6 +73,20 @@ class Tests(unittest.TestCase):
         job=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(second['request_id'],)).fetchone()
         records=pipe.frozen_sources(self.state,job)
         self.assertEqual(Path(records[0]['path']).read_bytes(),raw)
+
+    def test_stage_model_receives_context_compiled_from_committed_job(self):
+        p=self.create();pipe.tick(self.state)
+        seen=[]
+        def respond(_job,payload):
+            seen.append(payload['snapshot']['pipeline_step']['job_context'])
+            self.assertEqual(payload['snapshot']['pipeline_job_state']['job']['id'],p['id'])
+            return json.dumps({'answer':'Recorded result','action':self.result()})
+        chat.Worker(self.state,respond).tick()
+        self.assertEqual(len(seen),1)
+        self.assertEqual(seen[0]['job']['id'],p['id'])
+        self.assertEqual(seen[0]['job']['objective'],p['request'])
+        self.assertEqual(seen[0]['stage']['id'],'outline')
+        self.assertTrue(seen[0]['complete'])
 
     def test_changed_frozen_workflow_upload_blocks_before_stage_dispatch(self):
         self.attach_handoff();p=self.create(planning_only=True)
@@ -190,7 +203,9 @@ class Tests(unittest.TestCase):
         with transaction(self.state.db):self.state.db.execute("UPDATE relay_pipelines SET status='paused' WHERE id=?",(p['id'],))
         with transaction(self.state.db),self.assertRaisesRegex(ValueError,'paused'):pipe.verify_start(self.state,row)
 
-    def test_local_document_correction_respects_frozen_workflow_grant(self):
+    # These exercise saved grant policy with fake tasks, not PPTX creation.
+    @patch('orchestrator.pptx_document.available',return_value=None)
+    def test_local_document_correction_respects_frozen_workflow_grant(self,_available):
         from tests.test_corrections import graph
         from orchestrator.contracts import plan as validate_plan
         p=self.create([self.stage('deck','production',caps=['pptx.create']),self.stage('finish')])
@@ -215,7 +230,8 @@ class Tests(unittest.TestCase):
             self.assertEqual(self.step(p,'deck')['status'],'running')
             self.assertEqual(row['plan'],json.dumps(plan))
 
-    def test_correction_policy_cannot_expand_external_or_unrelated_attempts(self):
+    @patch('orchestrator.pptx_document.available',return_value=None)
+    def test_correction_policy_cannot_expand_external_or_unrelated_attempts(self,_available):
         from tests.test_corrections import graph
         from orchestrator.contracts import plan as validate_plan
         deck=self.stage('deck','production',caps=['pptx.create','images.collect'])
@@ -652,6 +668,10 @@ class Tests(unittest.TestCase):
         with patch.object(gemini,'read_config',return_value={'api_key':'fixture','models':{'image':'test-image'}}),patch.object(backends,'WORKSPACES',self.root/'projects'):
             self.answer(dict(kind='generate_image',reference_ids=[],artifact_ids=[]))
         s=self.step(p,'visual');job=self.state.db.execute('SELECT * FROM backend_jobs WHERE id=?',(s['target'],)).fetchone()
+        link=self.state.db.execute('SELECT * FROM relay_pipeline_task_links WHERE pipeline=? AND step=?',
+                                   (p['id'],'visual')).fetchone()
+        self.assertEqual((link['request_id'],link['backend_job_id'],link['task_id'],link['origin']),
+                         (s['request_id'],job['id'],job['thread_id'],'dispatch'))
         with patch.object(gemini,'GENERATED',root):
             with transaction(self.state.db):
                 for i in range(2):
@@ -799,6 +819,42 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.step(p,'report')['status'],'blocked')
         self.assertIsNone(self.step(p,'summary')['request_id'])
         self.assertEqual(self.state.db.execute("SELECT count(*) FROM relay_pipeline_events WHERE kind='production_recovery_reconciled'").fetchone()[0],0)
+
+    def test_frozen_outcome_contract_reaches_each_workflow_stage_without_reclassifying_counts(self):
+        from tests.intake_fixtures import work,outcome
+        from task_relay import request_contract
+        scope=work([outcome('reports',2,format='.json',checks=['nonempty','json'])])
+        descriptions=request_contract.descriptions(scope)
+        stages=[]
+        for ident,description in descriptions.items():
+            stage=self.stage(ident,'production')
+            stage['deliverables']={ident:description}
+            stage['handoff']['outputs'][ident]['media_type']='application/json'
+            stages.append(stage)
+        action=dict(kind='plan_pipeline',contract_version=1,title='Two JSON reports',planning_only=False,stages=stages)
+        self.bridge.process({'update_id':1,'message':{'text':'/orchestrator Return two JSON reports.','from':{'id':7},'chat':{'id':7,'type':'private'}}})
+        chat.Worker(self.state,lambda *_:json.dumps({'answer':'Plan the reports.','action':action,'request_contract':scope})).tick()
+        pipeline=self.state.db.execute('SELECT * FROM relay_pipelines').fetchone()
+        self.assertIsNotNone(pipeline)
+        created=json.loads(self.state.db.execute("SELECT detail FROM relay_pipeline_events WHERE pipeline=? AND kind='created'",(pipeline['id'],)).fetchone()[0])
+        self.assertEqual(created['request_contract'],scope)
+        pipe.tick(self.state)
+        pending=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id<0').fetchone()
+        ctx=pipe.request_context(self.state,pending['id'])
+        self.assertEqual(ctx['inputs']['request_contract'],scope)
+        ident=ctx['stage']['id']
+        planning_action={'kind':'plan_production','template':'custom','project':None,'reference_pack_id':None,'research_ids':[],
+                         'planning_only':False,'step_capabilities':[],'deliverables':ctx['stage']['deliverables']}
+        chat.Worker(self.state,lambda *_:json.dumps({'answer':'Prepare the bounded stage.','action':planning_action})).tick()
+        row=self.state.db.execute('SELECT * FROM production_plans WHERE request_id=?',(pending['id'],)).fetchone()
+        self.assertIsNotNone(row,self.state.db.execute('SELECT answer FROM orchestrator_chats WHERE id=?',(pending['id'],)).fetchone()[0])
+        options=json.loads(row['options'])
+        narrowed=request_contract.slots(options['request_contract'])
+        self.assertEqual(set(narrowed),{ident})
+        self.assertEqual(narrowed[ident]['count'],1)
+        self.assertEqual(narrowed[ident]['format'],'.json')
+        self.assertEqual(narrowed[ident]['checks'],['nonempty','json'])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
 
 
 if __name__=='__main__':unittest.main()

@@ -28,6 +28,9 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         for name in ('pptx_document.py','slide_templates.py','handoff_contracts.py'):
             if frozen.get('runtime_sources',{}).get(name)!=file_hash(Path(__file__).with_name(name)):
                 raise ValueError('PPTX implementation changed after dispatch was frozen.')
+    if frozen['execution']['capability']=='pptx.edit':
+        if frozen.get('runtime_sources',{}).get('pptx_edit.py')!=file_hash(Path(__file__).with_name('pptx_edit.py')):
+            raise ValueError('PPTX editor changed after dispatch was frozen.')
     if frozen['execution']['capability'] in ('images.collect','images.fetch') or (frozen['execution']['capability']=='pptx.create' and any(i['media_type']=='application/zip' for i in frozen['inputs'])):
         if frozen.get('runtime_sources',{}).get('image_sources.py')!=file_hash(Path(__file__).with_name('image_sources.py')):
             raise ValueError('Image-source implementation changed after dispatch was frozen.')
@@ -37,7 +40,7 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         if total>spec['input_bytes']:raise ValueError('Registered operation input byte limit exceeded.')
         if file_hash(path)!=item['sha256']:raise ValueError('Frozen input content changed.')
         from orchestrator.native_apps import NATIVE_MEDIA
-        text=None if item['media_type'].startswith(('audio/','video/','font/')) or item['media_type'] in (*NATIVE_MEDIA,'application/octet-stream','image/png','image/jpeg','image/webp','application/zip') else path.read_bytes().decode('utf-8')
+        text=None if item['media_type'].startswith(('audio/','video/','font/')) or item['media_type'] in (*NATIVE_MEDIA,'application/octet-stream','image/png','image/jpeg','image/webp','application/zip','application/vnd.openxmlformats-officedocument.presentationml.presentation') else path.read_bytes().decode('utf-8')
         documents.append({'artifact':item['artifact'],'path':item['path'],'sha256':item['sha256'],
                           'purpose':item['purpose'],'authority':item['authority'],'text':text})
     if frozen['execution']['capability'].startswith('hyperframes.'):
@@ -65,6 +68,23 @@ def execute(frozen,control,client_factory=None,config_reader=None):
         result,upstream,usage=cloud_media.generate(frozen['execution']['capability'],frozen['execution']['parameters'],
             references,control,frozen['limits']['seconds'],frozen['limits']['output_bytes'],client=client)
         print(c.encoded({'type':'turn.completed','usage':usage}),flush=True)
+    elif frozen['execution']['capability']=='web.sources':
+        from orchestrator import web_sources
+        from task_relay import orchestrator_web
+        if frozen.get('runtime_sources',{}).get('web_sources.py')!=file_hash(Path(web_sources.__file__)) or frozen.get('runtime_sources',{}).get('task_relay/orchestrator_web.py')!=file_hash(Path(orchestrator_web.__file__)):
+            raise ValueError('Web source implementation changed after dispatch was frozen.')
+        params=frozen['execution']['parameters']
+        config=(config_reader or gemini.read_config)()
+        if not config:raise ValueError('The Gemini connection is unavailable; no search was sent.')
+        atomic(control/'request.json',{'capability':'web.sources','parameters':params,'created':time.time()})
+        try:
+            result,validation=web_sources.collect(params['queries'],params['domains'],params['model'],control,config)
+        except gemini.ProviderError as exc:
+            atomic(control/'operation.json',{'outcome':'uncertain' if exc.uncertain else 'rejected',
+                                             'reason':str(exc),'usage':None})
+            raise
+        atomic(control/'response.json',{'pack_sha256':hashlib.sha256(result.encode('utf-8')).hexdigest(),
+                                        'validation':validation,'created':time.time()})
     elif frozen['execution']['capability'] in ('images.collect','images.fetch'):
         from orchestrator import image_sources
         from task_relay import orchestrator_web
@@ -95,6 +115,18 @@ def execute(frozen,control,client_factory=None,config_reader=None):
             raise ContractError('quantity_mismatch',f"Requested {expected['slides']} slides; specification contains {len(document['slides'])}.")
         maximum=min(frozen['limits']['output_bytes'],expected.get('max_bytes') or frozen['limits']['output_bytes'])
         result,validation=pptx_document.create(document,images,maximum,bundles=bundles)
+    elif frozen['execution']['capability']=='pptx.edit':
+        from orchestrator import pptx_edit
+        baseline_input=next(i for i in frozen['inputs'] if i['media_type']==pptx_edit.MIME)
+        manifest=next(d for d,i in zip(documents,frozen['inputs']) if i['media_type']=='application/json')
+        source=safe_file(workspace,baseline_input['path']).read_bytes()
+        pictures={i['path']:safe_file(workspace,i['path']).read_bytes() for i in frozen['inputs'] if i['media_type'] in ('image/png','image/jpeg')}
+        expected=frozen['outputs'][0].get('handoff',{})
+        maximum=min(frozen['limits']['output_bytes'],expected.get('max_bytes') or frozen['limits']['output_bytes'])
+        result,validation=pptx_edit.edit(source,pptx_edit.load(manifest['text']),maximum,pictures)
+        if expected.get('slides') is not None and validation['slide_count']!=expected['slides']:
+            from orchestrator.handoff_contracts import ContractError
+            raise ContractError('quantity_mismatch',f"Requested {expected['slides']} slides; baseline contains {validation['slide_count']}.")
     elif spec['kind']=='procedure':
         result='\n\n'.join(c.encoded({k:v for k,v in d.items() if k!='text'})+'\n'+d['text'] for d in documents)
     else:

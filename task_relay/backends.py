@@ -223,7 +223,8 @@ def finish(state, job_id, status, summary, cost=None):
     else:
         text += '\n\nReply to continue this task.'
     event_id = f'backend:{job_id}:result'
-    with state.db:
+    from orchestrator.storage import transaction
+    with transaction(state.db):
         state.db.execute('UPDATE backend_jobs SET status=?,finished_at=?,cost_usd=?,result_path=? WHERE id=?',
                          (status, time.time(), cost, str(result_path), job_id))
         state.db.execute('UPDATE watched SET status=?,updated_at=? WHERE id=?',
@@ -244,6 +245,8 @@ def finish(state, job_id, status, summary, cost=None):
                               f'[Full response](<{result_path}>)', str(folder))
             state.db.execute('INSERT OR IGNORE INTO outbox(id,thread_id,text) VALUES (?,?,?)',
                              (event_id + ':full', delivery_tid, f'Full {provider} response attached below.'))
+        from .execution_capture import notify
+        notify(state.db, 'backend_job', job_id)
 
 
 def decide(state, request_id, allow):

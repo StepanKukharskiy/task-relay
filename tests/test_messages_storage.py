@@ -67,7 +67,10 @@ class MigrationTests(unittest.TestCase):
         return storage.consolidate(self.target, self.folder)
 
     def test_preserves_records_delivery_order_paths_and_channel_and_retires_sources(self):
+        before = dict(self.main.db.execute('SELECT * FROM browser_account_source').fetchone())
         evidence = self.migrate()
+        self.assertEqual(dict(self.main.db.execute('SELECT * FROM browser_account_source').fetchone()), before)
+        self.assertEqual(set(evidence['provider_bootstrap_defaults']), {'browser_account_source', 'result_handoff_epoch'})
         self.assertEqual(self.main.get('selected'), 'telegram-task')
         self.assertTrue(self.main.get('orchestrator_mode'))
         self.assertEqual(self.main.get('messages:gemini_task'), self.tid)
@@ -124,6 +127,22 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed after consolidation'):
             self.migrate()
         self.assertTrue((self.folder / 'state.sqlite').exists())
+
+    def test_nondefault_bootstrap_records_require_review_without_importing(self):
+        for table, column, value in (('browser_account_source', 'endpoint', 'https://fixture.example'),
+                                     ('result_handoff_epoch', 'after_created', 123)):
+            with self.subTest(table=table):
+                path = self.folder / 'providers.sqlite'
+                with database(path) as db:
+                    old = db.execute('SELECT ' + column + ' FROM ' + table).fetchone()[0]
+                    db.execute('UPDATE ' + table + ' SET ' + column + '=?', (value,))
+                with self.assertRaisesRegex(ValueError, table):
+                    self.migrate()
+                self.assertIsNone(storage.receipt(self.main.db))
+                self.assertEqual(self.main.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0], 0)
+                with database(path) as db:
+                    self.assertEqual(db.execute('SELECT ' + column + ' FROM ' + table).fetchone()[0], value)
+                    db.execute('UPDATE ' + table + ' SET ' + column + '=?', (old,))
 
     def test_inflight_work_and_held_service_lock_prevent_migration(self):
         with patch.object(storage.HOST, 'lock', side_effect=BlockingIOError):

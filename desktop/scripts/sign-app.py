@@ -91,7 +91,18 @@ def main():
     if args.app:
         app=args.app.resolve()
         if app.suffix!='.app' or not (app/'Contents/MacOS/task-relay-desktop').is_file():raise ValueError('Choose a built Task Relay.app.')
+        helper=app/'Contents/Resources/resources/runtime/helpers/Relay Computer Observer.app'
+        if helper.exists():
+            run(['/usr/bin/codesign','--force',*sign_args,'--timestamp=none',str(helper)])
         run(['/usr/bin/codesign','--force','--deep',*sign_args,'--timestamp=none',str(app)])
+        if helper.exists():
+            receipt=helper.with_suffix('.build.json')
+            value=json.loads(receipt.read_text())
+            value['binary_sha256']=hashlib.sha256((helper/'Contents/MacOS/ComputerObserver').read_bytes()).hexdigest()
+            value['signing']='app-signing-identity'
+            receipt.write_text(json.dumps(value,indent=2)+'\n')
+            # Seal the updated receipt without signing the helper a second time.
+            run(['/usr/bin/codesign','--force',*sign_args,'--timestamp=none',str(app)])
         run(['/usr/bin/codesign','--verify','--deep','--strict',str(app)])
         requirement=run(['/usr/bin/codesign','-d','-r-',str(app)])
         print((requirement.stdout+requirement.stderr).strip())

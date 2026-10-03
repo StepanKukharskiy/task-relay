@@ -187,6 +187,9 @@ class Tests(unittest.TestCase):
         # provider request parsing, tool IDs, response continuation or receipts.
         class FixtureFiles:
             def __init__(self,frozen):self.outputs={'output.txt'};self.written={}
+            def read_bytes(self,path):
+                if path not in self.written:raise AssertionError('Output was not written')
+                return b'exact fixture'
             def source_pack(self):return {'files':[],'text_bytes':0}
             def validate_text_delivery(self,result):pass  # File evidence is tested with the real adapter separately.
             def call(self,name,args):

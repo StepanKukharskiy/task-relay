@@ -53,6 +53,8 @@ def initialize(db,legacy=None):
             raise RuntimeError('Legacy runtime database needs offline migration before use. Run python3 -m orchestrator.storage with both database paths after stopping the relay.')
     for statement in SCHEMA.split(';'):
         if statement.strip():db.execute(statement)
+    from .operation_records import initialize as initialize_records
+    initialize_records(db)
     db.execute('CREATE TABLE IF NOT EXISTS storage_migrations(id TEXT PRIMARY KEY, applied REAL NOT NULL, evidence TEXT NOT NULL)')
 
 

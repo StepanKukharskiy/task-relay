@@ -1,4 +1,2213 @@
+## Unreleased — PR validation repairs (2026-10-03)
+
+- Load optional YAML support when a portable document operation needs it, so
+  baseline package startup and core imports work without the plugin extra.
+- Preserve recorded Codex album ownership before generic attachment intake,
+  including continuations without a reply card and conflicting explicit replies.
+- Consolidate unused provider bootstrap records with backup/receipt evidence;
+  retain the target account revision and handoff boundary. Nondefault settings
+  still stop migration for review before any import commits.
+- Isolate controlled fixtures from installed Codex projects, include mandatory
+  intake and output-byte contracts, and remove the fake Desktop flag that shadowed
+  unittest failure reporting. Clarification tests now verify a fresh unstarted
+  proposal without changing its parent's scope or launching workers.
+- Include migration, attachment albums and dependency-free import regressions in
+  the controlled CI job so these failures are checked on subsequent changes.
+
+## Unreleased — Task Relay Chrome extension 0.1.10 (2026-10-03)
+
+- Fix job downloads rejecting a reference back to the captured conversation.
+  Browser and optional Desktop validation now accept the exact captured source
+  URL alongside URLs present in the excerpt; unrecorded URLs and unsafe references
+  remain rejected. Preserve the original reference and response without regeneration.
+- Align future request instructions with that source-reference rule. Source text,
+  capture metadata, request identity, proposal status and export format are unchanged.
+- Controlled panel/worker/shared bridge checks, focused native regression and
+  validation/export replay of the previously failing response pass. The installed
+  panel was reopened without resetting its ticket; retrying the original job
+  completed a live `.relay.md` download, validated by the portable importer. No
+  new message or model run was performed; the manifest was not fully reloaded.
+
+## Unreleased — public source snapshot preparation (2026-10-03)
+
+- Include the maintained desktop, orchestration, extension, plugin, documentation
+  and synthetic fixture changes in the explicit public source inventory. Keep
+  local installation records, recovery copies and research evidence private;
+  public documentation retains evidence labels without unpublished file links.
+- Align controlled regression fixtures with optional messenger startup, foreground
+  Codex task opening, placeholder-output rejection and bounded malformed-call
+  handling. No live provider or messenger request is part of these checks.
+
+## Unreleased — Task Relay Chrome extension 0.1.9 (2026-10-03)
+
+- Make Turn into Relay job a full-width outlined button on the New screen,
+  beneath Turn into Skill. Conversion actions remain on New; a result screen
+  keeps its own download and edit actions. The installed panel was reopened
+  without a full extension reload; both choices and the outlined button were
+  visually verified on New.
+
+- Lead with New → select text → Turn into Skill → user Send → Download SKILL.md.
+  Turn into Relay job separately requests and exports a portable `.relay.md` brief;
+  it does not start a Desktop job. No Desktop/provider setup is required.
+- Remove duplicate panel branding. Chrome supplies the name and logo. Keep source
+  preview, files, recovery and Desktop controls under ⋯.
+- Require a selection for the basic conversion. Fetch, validate and export the
+  requested single result with one Download click; retain Edit on the result card.
+  A cleared draft changes that action to explicit Restore message.
+- Explicit New can replace only the unchanged owned Relay draft in the same
+  conversation, including bounded composer recovery after reload. Other drafts,
+  attachments, uncertain tickets, previous versions and receipts stay protected.
+- Affected extractor, serialized ChatGPT adapter and panel/worker/shared bridge
+  controlled checks pass. The existing unpacked extension was reloaded; its live
+  panel shows one logo and the minimal actions. No-selection conversion returns
+  a clear prompt while preserving the original unsent ChatGPT draft. Live AI
+  export and fresh-chat reuse remain unqualified.
+
+## Unreleased — Task Relay Chrome extension 0.1.8 (2026-10-03)
+
+- Keep Restore request visible after insertion. It restores the same retained
+  request into an empty ChatGPT composer; other drafts, attachments and already
+  sent requests remain protected. Get results never inserts or sends a request.
+- Let New text begin another capture while a request is unfinished. Back returns
+  to the current request; successful replacement retains its exact source,
+  request, proposals, selected files and receipts in temporary session state.
+  Options → Previous capture returns to it without dispatch. Failed replacement
+  capture preserves the previous state; Clear preview clears retained captures.
+- Affected panel/worker and serialized ChatGPT adapter checks pass. The updated
+  installed panel was reopened without an extension reload to preserve the
+  pending session. Its Restore request returned the original deleted draft;
+  New text and Back worked before completion. The draft was left unsent. Full
+  manifest reload and live replacement capture are not claimed.
+
+## Unreleased — Task Relay Chrome extension 0.1.7 (2026-10-03)
+
+- Fix selected ChatGPT answers containing rendered citation labels and links
+  marked aria-hidden/inert. Ignore empty markup during selection checks, while
+  retaining actual hidden-content, form and size-limit rejection.
+- Transport extractor failures explicitly so the panel shows their actual
+  reason rather than an incorrect access or navigation error. New text hides
+  the previous preview; a failed replacement capture retains reviewed state.
+- Extractor and affected panel/worker regressions pass. Installed Chrome was
+  reloaded to 0.1.7; the previously failing selection captured successfully and
+  Make reusable inserted its draft. The draft was left unsent; no result export
+  or new AI response is claimed.
+
+## Unreleased — Task Relay Chrome extension 0.1.6 (2026-10-03)
+
+- Lead with Select text → Make reusable → Edit/download Skill or Work. One
+  explicit action captures, prepares and inserts a supported ChatGPT draft;
+  the user still clicks Send and Get results. Repeated clicks preserve uncertain
+  handoffs instead of recapturing evidence or duplicating requests.
+- Remove the view dropdown and long opening copy. Put source details, manual
+  transport, recovery and optional Desktop controls under Options; Open files
+  is a direct header action.
+- Put downloads and Edit/Done directly on result cards. Edits remain in session;
+  single-file Skills export SKILL.md, while Skills with resources export the full
+  package. Work validation, proposal boundaries and portable revision identity
+  remain in place.
+- Affected panel/worker checks pass, including combined primary action, uncertain
+  insertion recovery, direct export, retained edits and resource packaging.
+  Installed Chrome was reloaded to 0.1.6; the simplified opening, recovered Skill
+  and Work cards, direct download controls and Edit/Done were inspected. Original
+  proposal contents were retained. No new AI request, save or download was made;
+  the new primary action is qualified by controlled checks only.
+
+## Local build 0.13.154 — installed (2026-10-03)
+
+- Build and sign the current local source with the existing development identity,
+  including universal orchestration, saved-response recovery and explicit Codex
+  project task creation. All 314 packaged release-file hashes match the staged
+  source; bundled Python compiles 275 sources and imports the changed runtime.
+  All 15 controlled installer/recovery tests pass.
+- Complete local installation while preserving the app root, data and service
+  bindings, with app and database recovery copies. Verify the installed 0.13.154
+  bundle, strict signature, request-contract migration, app restart and fresh
+  owned-service health. The user ran the prepared installer in Terminal after
+  this agent session's process-control restriction. No new model task or messenger
+  test was dispatched. Installation evidence stays in ignored local records.
+
+## Unreleased — explicit new tasks in Codex projects (2026-10-03)
+
+- Discover saved local Codex projects independently of existing-task routing.
+  Explicit requests such as creating a new task in Content to write five articles
+  can use that named project even if it has no existing chat. Prefer the requested
+  new task over an existing chat or a Relay production plan. Missing or ambiguous
+  project choices stay questions; no project folder is invented.
+  Bounded read-only file/guide discovery also includes saved projects before
+  their first chat, retaining existing private-file exclusions and read limits.
+- Create-and-work requests start one turn with the exact original request,
+  frozen output counts/formats/criteria, selected sources and saved conversation
+  context. Creation-only remains an empty task and cannot fulfill requested files.
+  The additive request-contract migration preserves existing creation receipts.
+- Recheck Codex app access before creation and first-turn submission. Existing-task
+  routing remains independently controlled. Keep atomic queue receipts, known task
+  IDs after partial failures, and no automatic replay of uncertain submissions.
+- All 124 focused controlled tests pass. Verification is recorded in
+  `outputs/codex-project-creation-final-tests.log`
+  and `outputs/codex-project-creation-implementation-report.txt`. This is a source
+  fix for the next app update; it does not create a live task or update the app.
+
+## Unreleased — universal request intake and decomposition (2026-10-03)
+
+- Replace the article-specific routing shortcut with a provider-neutral, bounded
+  `relay_intake` call before drafting or routing. The model interprets the current
+  request in its exact conversation context; runtime-owned contracts freeze all
+  requested outcomes, counts, file formats and validation requirements. Answer,
+  clarification and work routes must agree with the frozen scope. Intake executes
+  no work and cannot substitute a draft body for the requested files. Later input
+  or capability gaps remain no-action needs_input/blocked replies with the same
+  frozen outcomes, rather than forcing execution or claiming completion.
+- Allow general task graphs within existing stage budgets, including parallel
+  branches, shared preparation and several small outputs in one task. Preserve
+  distinct required outputs, dependencies, exact inputs and independent reviews.
+  Larger scopes require separately bounded stages without reducing the total.
+- Carry original outcome contracts through workflows and narrow checks to each
+  stage. Add generic nonempty/UTF-8/JSON/code-block checks to declared outputs;
+  semantic correctness and actual code execution still need appropriate evidence.
+  Missing files block completion while retaining completed outputs and receipts.
+- Retain frozen intake during bounded routing corrections. Normal conversations
+  use one extra provider call for intake; the existing six-round, twelve-call
+  evidence budget and provider token limits are unchanged. Every provider request,
+  original response, interpreted intake and final route remains recorded.
+- Preserve the character-budget fix and `recover-response`. Read-only recovery
+  can export a direct reply rejected as an inline substitute, explicitly marking
+  it unreviewed and unfulfilled. It neither dispatches work nor regenerates text.
+- All 206 focused controlled tests pass. Verification and limitations are recorded
+  in `outputs/universal-orchestration-final-tests.log` and
+  `outputs/universal-orchestration-implementation-report.txt`. Source changes do
+  not update the installed app or qualify live provider behavior. Two grant-policy
+  tests now mock PPTX dependency availability because they use fake tasks and never
+  create PowerPoint files.
+
+## Unreleased — Task Relay Chrome extension 0.1.5 (2026-10-03)
+
+- Preserve actual inline text and explicit line breaks when matching ChatGPT
+  requests. Rendered links and display-contents message wrappers no longer
+  disappear or introduce layout whitespace into request identity.
+- Return expected page errors across Chrome's injection boundary. Missing
+  injection results, request recovery errors and actual tab changes now have
+  distinct messages; navigation checks remain enforced.
+- Add explicit recovery of the latest loaded Relay request and matching reply
+  after temporary session state is cleared by reload/restart. Validate the
+  embedded source and response before installing review cards, preserve existing
+  previews, and require manual import with original files for selected bases.
+- Adapter and affected panel/worker regression checks pass. Installed Chrome
+  0.1.5 recovered the user's existing response into one Skill and one Work review
+  card. No new request was sent or proposal saved. Export/reuse remains pending.
+
+## Unreleased — Task Relay Chrome extension 0.1.4 (2026-10-03)
+
+- Replace declarative side-panel opening with an explicit toolbar action handler.
+  The old path opened the panel without granting temporary active-tab access in
+  the installed Chrome test, so Keep repeatedly asked users to click the icon.
+  Disable the persisted declarative setting; invoke panel opening synchronously
+  in the toolbar gesture. Opening the panel itself never captures content.
+- Distinguish missing tab access from unsupported Chrome/internal pages in capture
+  errors. Keep the same four required permissions and optional native messaging.
+- Controlled worker/panel checks cover a panel without a tab grant, explicit
+  action invocation, no capture until Keep, and the existing handoff/recovery gates.
+  Installed Chrome verification confirmed reload to 0.1.4, selected-text capture
+  and insertion into the actual ChatGPT composer. The draft was left unsent;
+  live response retrieval and the review/export/reuse loop remain pending.
+
+## Unreleased — Task Relay Chrome extension 0.1.3 (2026-10-03)
+
+- Recognize the signed-in ChatGPT Work editor through its composer attribute,
+  and loaded message boundaries through role headings inside virtualized turns.
+  Keep legacy message markup and generic capture fallback available. Captured
+  evidence excludes role labels and button controls.
+- Read rendered CodeContent blocks without requiring a `pre` wrapper. Preserve
+  existing drafts; request-marker detection refuses duplicate insertion even
+  when the sent request is collapsed. Retrieving a collapsed/edited request
+  requires expansion or manual import rather than accepting a partial match.
+- Compatibility was based on read-only inspection of the current signed-in
+  Chrome page. Controlled adapter/extractor and affected panel/worker checks pass;
+  actual extension insertion and AI response retrieval still need a live test.
+
+## Unreleased — Task Relay Chrome extension 0.1.2 (2026-10-03)
+
+- Add explicit **Insert into ChatGPT** and **Get result from chat** actions for
+  ordinary ChatGPT conversations. The user clicks Send; Relay never submits a
+  message. No new required permission, Desktop or model account is introduced.
+- Preserve existing drafts and recognized attachments; retain exact handoff
+  tickets before insertion, reuse identical drafts after uncertain replies, and
+  require a matching request/response marker in the original tab/conversation.
+  Read rendered JSON directly without language or Copy controls. Ambiguous,
+  incomplete or unrelated replies preserve the current review and manual fallback.
+- Keep source-linked portable export and independent Skill/Work review. Controlled
+  adapter and panel/worker checks cover the new handoff and recovery boundaries;
+  installed Chrome and live ChatGPT interpretation remain unqualified.
+
+## Unreleased — Task Relay Chrome extension 0.1.1 (2026-10-03)
+
+- Lead with portable capture, review, export and reuse, with no account, cloud,
+  Desktop or separate provider required. Research pages lead with Keep as
+  evidence; AI chats expose Make this reusable and Capture progress. Put local
+  library/provider controls under an optional advanced connection and state
+  the explicit browsing privacy promise in the first screen and README.
+- Move nativeMessaging to optional permissions. Request it only from Connect
+  Relay Desktop, gate every native call in the service worker and remember a
+  successful explicit connection. Denial, unavailable hosts and access removal
+  retain portable mode, captured material and user-edited proposals. Disconnect
+  removes the optional permission.
+- Copy the prepared AI request automatically on Analyze in current AI chat,
+  with an explicit manual-copy fallback. Import a complete response block or
+  file and open review cards without exposing JSON in the main flow. Reject
+  ambiguous or invalid responses while preserving the existing review; never
+  save on import. Selected portable Work can be associated with evidence.
+- Pass controlled panel/worker/portable checks using DOM/Chrome doubles and the
+  actual Python bridge. Live Chrome permission prompts, clipboard behavior,
+  current AI-site markup and interpretation remain unqualified. This remains a
+  development package, with manual paste/send and response import; no public
+  V1 acceptance or store publication is claimed.
+
+## Unreleased — Task Relay Chrome extension 0.1.0 (2026-10-02)
+
+- Add a Manifest V3 side panel using the existing logo and Desktop control style.
+  Explicit Keep captures selected text or loaded visible page text, previews it,
+  and keeps Sources, Work and standard Agent Skill reviews independent. Use thin
+  generic/ChatGPT/Claude/Gemini/Perplexity parsers without background capture,
+  all-site access or page automation.
+- Support portable Source, standard Skill ZIP/Markdown and versioned Work exports,
+  plus selected-file bounded continuation. The existing AI chat can propose work
+  through a manual copy/JSON-review handoff without Desktop, cloud or a provider.
+- Add a scoped native bridge and explicit macOS/Linux registration helper. Local
+  saves use shared Work tables, exact Source text, versioned Skills and atomic
+  receipts. Guard stale bases and recover lost replies and post-commit Skill
+  projection failures. Optional analysis uses the existing Gemini job/usage path
+  and never replays uncertain submissions.
+- Pass controlled Python and JavaScript extraction, review, cross-site state,
+  export/continuation and recovery checks. These use text fixtures, DOM/Chrome
+  doubles and the actual Python bridge; no live provider, installed Chrome,
+  Desktop upgrade or public store publication is claimed. Detailed check and
+  packaging receipts remain in ignored output storage.
+
+## Unreleased — Task Relay skills-only plugin 0.4.2 (2026-10-02)
+
+- Use native ChatGPT conversation, independent review and file creation. The
+  default package contains standard workflow instructions and the existing logo,
+  with no MCP server, account binding, tunnel or custom panel.
+- Preserve the custom-panel source and explicit builders under a historical
+  profile. Stop its temporary deployment after the user's server-free choice.
+  Keep local Relay/Desktop records and recovery evidence unchanged.
+- Publish the approved product/support/privacy/terms pages on the existing static
+  website, verify their public contents and attach their URLs to the listing.
+  Preserve the canonical package identity and native account's private audience.
+- Pass focused packaging boundaries and Skill/listing/icon checks. Live ChatGPT
+  capture separates method from instance state, leaves decisions proposed and
+  independently exports the approved Skill and work through native file tooling.
+  Zen downloads verify the standard Skill ZIP. An actual initial snapshot exposes
+  an empty-parent hash compatibility error; require YAML null and serializer-based
+  request preservation. The corrected private release is read back in the account.
+- Verify fresh-chat continuation using only selected exported files, preservation
+  of proposed decisions and evidence gaps, and one supplied-evidence action with
+  a separately reviewed work revision and exact base hash. Download and validate
+  that revision and a corrected initial export with multiline request preservation.
+  Improve Skill proposes a generic table addition independently, without exporting
+  it or changing the work. The signed-in public portal requires publisher identity
+  verification before upload; no public submission or publication is implied.
+
+## Unreleased — Task Relay Web plugin 0.3.1 first-use simplification (2026-10-02)
+
+- Lead with two explained choices: Make this reusable and Continue saved work.
+  Hide file pickers, empty catalogs, update actions and context mechanics until
+  they are relevant. Show selected Skill and work files together.
+- Review readable content before choosing Download or optional Save to ChatGPT.
+  Keep raw file editing and version comparisons under details. Remove the extra
+  confirmation checkbox and intermediate preparation button; saving each output
+  remains a separate explicit action.
+- Prepare and send bounded selected context on one Continue click. Keep optional
+  preview, independent work/Skill updates, draft preservation, Library fallback
+  and guards against stale asynchronous exports or changed-request dispatch.
+- Send a readable first capture request. Support inline review/capture with a
+  preference for inline placement and no forced expansion; fullscreen remains
+  supported. Actual ChatGPT placement and downloads need live requalification.
+- Pass controlled UI checks with the actual portable service and two focused
+  SDK/resource and package cases. Inspect the initial screen and review choices
+  in the local browser; later browser control times out, so expanded review and
+  continuation are qualified by controlled UI checks only. Retain exact commands,
+  source-profile hashes and these limits under ignored outputs storage.
+
+## Unreleased — Task Relay Web plugin 0.3.0 (2026-10-02)
+
+- Replace the web plugin's local project/database entrypoint with a stateless
+  review and reuse service. Keep the existing plugin identity, Task Relay logo
+  and Desktop controls. Retain the earlier local runtime and its guides separately.
+- Add Make this reusable, Update saved work and Improve Skill. ChatGPT derives
+  independent standard Agent Skill and instance work proposals from its current
+  available context; the plugin never requests full chat history or invokes a model.
+- Require independent review and confirmation before preparing each export.
+  Export standard Skill folders as ZIPs and work as versioned Markdown with exact
+  capture requests and selected-parent hashes. Preserve draft edits and reject
+  stale asynchronous export/context responses and conflicting revision lineage.
+- Open explicitly selected/uploaded files and prepare bounded context for a new
+  request without the original conversation. Optional ChatGPT Library uploads
+  retain a Download fallback; no overwrite, discovery, synchronization or automatic
+  Skill installation is assumed. Skills, Saved Work and Recent show only material
+  opened/exported in the current panel.
+- Qualify portable-file validation, SDK discovery, build compatibility and UI
+  behavior with controlled text fixtures. A local HTTP preview verifies fresh-panel
+  file import and context preparation. The in-app browser did not confirm a file
+  download; live ChatGPT downloads, Library placement, interpretation quality and
+  public hosting/publication remain unqualified. Exact checks and private launcher
+  recovery records remain under ignored outputs storage.
+
+## 0.13.153 — local app execution envelope bridge (2026-10-02)
+
+- Install the signed local app with the completion/capture bridge and existing
+  work-state/context runtime. Verify 302 source-matching packaged runtime files,
+  13 controlled completion/recovery cases using bundled Python, installed imports
+  and strict signatures. Preserve app/database recovery copies and the app root
+  identity; both owned services restart with fresh health and the app reopens.
+  No new Desktop linking UI, deployed ChatGPT session, live provider execution or
+  executor swap is qualified by this update.
+
+- Connect production collection/uncertain dispatch, direct provider completion,
+  native/XLSX admission, revision bundles/continuation sets, reviewed text output
+  and plugin report capture to common completion observations. Preserve existing
+  domain validation and exact owning receipts; imported reports do not become
+  execution or acceptance authority.
+- Retain completion intent and frozen envelope atomically with the saved outcome.
+  Keep projection and work-capture failures pending without changing worker status.
+  Recover capture from its frozen observation, including after source removal,
+  without dispatch, uncertain replay or duplicate work records.
+- Automatically capture owned text/plugin results through their original project
+  and packet. Other outcomes use explicit local source/project/packet bindings;
+  unbound completions retain observations without inferring work ownership.
+  Expose per-project pending/captured state and local bind/backfill/recovery controls.
+- Preserve three-member native sets, exact selected-parent receipt hashes,
+  available original review/selection evidence and typed operation checkpoints.
+  Keep target work selection and owning runtime authority separate.
+- Pass 86 focused controlled checks and capture/recovery/export/return checks over
+  eight saved plant/research cases on database copies. Original and copied owning
+  tables are unchanged. These saved/controlled checks do not qualify native work,
+  live provider calls, new delivery or live executor swap. Local app installation
+  and service restart qualification are recorded separately above.
+
+## Unreleased — common execution result source pilot (2026-10-02)
+
+- Add version 1 of the common execution-result observation envelope for production
+  attempts, direct provider jobs, submitted native/spreadsheet candidates, plugin
+  reports and reviewed text runs. Preserve original source rows and available
+  exact assignments, requests, input/output hashes, binding identities and receipts.
+- Add local inspect/capture/export commands. Guard capture with the inspected source
+  hash, project-bound continuation and conflicting-key rejection. Commit retained
+  source snapshots, request, execution/evidence records and retry receipts atomically.
+  Disclose late captures and changed selected inputs; invalidate previous understanding.
+- Expose captured observations in existing work inspection, provenance, understanding
+  and continuation context. Keep output selection and owning runtime approvals separate;
+  no new MCP source grants or execution tools are introduced.
+- Export redacted saved envelopes through project folder grants with committed intent,
+  byte verification, interruption recovery and refusal to overwrite changed files.
+- Pass 35 controlled text-record, work-state/understanding and scoped SDK integration
+  checks. This is source
+  functionality; no installation, provider call, native/media execution, external
+  delivery, automatic synchronization or live executor swap is claimed.
+
+## Unreleased — connector and provider documentation refresh (2026-10-02)
+
+- Index the seven text/agent connections, three additional media providers,
+  19 production executor profiles and all 35 registered execution operations.
+  Include browser/account routes, Safari, native applications, file tooling,
+  channels, local context, ChatGPT/MCP and host/credential infrastructure.
+- Align README and inventory baselines with source/local 0.13.152 and development
+  plugin 0.2.1, preserving distinct source, installation and live evidence.
+  Retain the real plant-deck selected-set continuation as demonstrated bounded work.
+- Document current request/response budgets, metadata verification without a
+  time-only expiry, the narrowest-compatible worker resolution and all seven
+  registered worker capabilities. Replace LinkedIn-only guide discovery and
+  obsolete desktop task-routing/production-planning instructions.
+- Keep shared database authority, read-only `.relay` projections, explicit provider
+  choices and uncertain-dispatch recovery intact. Generic external MCP/HTTP
+  executor consumption and production/work-state synchronization remain pending.
+  This changes documentation only; no integration-freeze policy, runtime change,
+  installation, provider call or delivery is introduced.
+- Pass static registry/profile/capability/version coverage and 125 local-link
+  checks, plus scoped `git diff --check`. Record the commands, results and static
+  qualification limits under ignored the ignored connector-documentation check records.
+  No runtime suite or deployed check is run for this documentation change.
+
+## Unreleased — connected ChatGPT preparation (plugin 0.2.1)
+
+- Resolve the tunnel client executable to an absolute path before changing the
+  subprocess working directory. Repair the prepared local launcher while
+  retaining its previous version; cover relative paths containing spaces,
+  restart reuse and changed-identity/profile refusal in the focused checks.
+- Prepare a private project-scoped stdio launcher, local profile and guided Secure
+  MCP Tunnel startup. Validate the existing project without mutating its work
+  state; keep runtime credentials out of generated files.
+- Build a separate portable remote HTTPS MCP package and ZIP. Reject credential
+  URLs, private/example endpoints and replacement of existing package versions;
+  exclude local work data, developer launchers and receipts from the archive.
+- Fetch fresh authorized work when the component reopens, automatically open a
+  single project, and optionally preserve navigation/capture-packet identities
+  in ChatGPT widget state. Keep records, result drafts and review controls out
+  of that state; optional persistence failures do not block server operations.
+- Version the development integration as 0.2.1 and the component resource as v3.
+  Add the connection/testing/publication runbook. Connected ChatGPT operation,
+  hosted deployment, public account isolation and publication remain unqualified.
+- Clarify that the Developer mode connection instructions target ChatGPT's web
+  account settings, separate from Codex desktop settings. An absent switch on
+  that surface requires checking account/workspace access.
+- Record the observed Zen connection path: Add plugin → Create app → Create
+  MCP App → Tunnel. Separate it from package authoring/upload; an empty tunnel
+  list still requires Platform setup. This inspection did not register a plugin.
+- Pass nine focused Python cases, controlled UI and syntax checks, and actual
+  SDK preflight through a private Competition-scoped launcher. Verify the official
+  Mac tunnel-client download checksum and controlled local profile setup. These
+  controlled checks do not establish a deployed ChatGPT connection.
+- After explicit user approval, create a private Platform development tunnel
+  associated with the selected organization and ChatGPT workspace. Retain its
+  creation receipt privately. After separate approval, create a one-day Tunnels
+  Read + Use runtime key; exclude the secret from logs/files and prepare the
+  exact local startup command.
+- Verify the user's live retry through its MCP startup/metadata receipts and
+  the local admin UI's live/ready status. ChatGPT recognizes the tunnel in the
+  Task Relay draft. Register and connect the private app; document Manage →
+  Connect recovery when registration leaves the underlying app disconnected.
+- Verify live ChatGPT work discovery and the rendered Competition Current,
+  Sources and Graph views. Record an unintended duplicate registration privately
+  and leave it unused. No result capture or reviewed change is made; the complete
+  continuation loop and public distribution remain pending.
+- Paint the work layout with the desktop canvas and text colors so ChatGPT's
+  transparent frame remains readable against a dark host. Pass four focused MCP
+  cases and controlled UI checks; visibly verify the fix in a fresh actual
+  ChatGPT tool opening after development refresh. Retain deployed observations
+  separately from controlled tests.
+- Verify the user's explicit ChatGPT capture and fresh-chat return at revision
+  388. A deployed read-only check confirms exact saved notes, three question
+  records and the original packet hash/link; the prior overview correctly becomes
+  stale. The captured pass refreshes understanding. It does not establish a
+  completed design/modeling action, acceptance or improved resumption experience.
+
+## Unreleased — Task Relay development integration framing
+
+- Lead the package README with “Keep the work, not just the conversation” and
+  “Task Relay maintains the state of work between AI interactions.” Explain the
+  product loop and durable, source-linked work state before installation details.
+- Present ChatGPT as one interface into Task Relay and MCP as the integration
+  mechanism. Distinguish AI-derived understanding from reviewed decisions and
+  current deliverables; retain the graph as an inspection interface.
+- Align the operation guide's introduction and use “development integration.”
+  Keep installation/authentication instructions and existing qualification limits.
+  This changes documentation only.
+- Use “persistent work state between AI interactions” rather than claiming
+  canonical authority over all work. Describe capture as making the next
+  interaction start from the new state. Keep graph curves and logo asset details
+  in the guide, with desktop visual identity summarized in the package README.
+
+## Unreleased — Task Relay plugin branding and trust cues
+
+- Use Task Relay throughout the plugin interface and package display metadata.
+  Reuse the existing desktop logo in the component and packaged logo/composer
+  icon, and inherit the desktop control styles and blue accent.
+- Replace straight graph links with smooth cubic Bézier paths while retaining
+  relationship identities, proposal dashes and node inspection.
+- Visually separate proposed Task Relay understanding from Reviewed state.
+  Show actual overview save time, changed-work status, connected/considered/cited/
+  added source counts, and per-statement quote inspection. Expose already-reviewed
+  issue resolutions; retain artifact candidates outside reviewed state.
+- Derive these read projections from existing records and frozen inputs; source
+  inspection does not imply inclusion in the saved understanding. No MCP tool,
+  database table, provider call or deployment is added.
+- Pass 23 focused Python cases across the changed work-state projection, its
+  understanding integration and MCP transport/resource paths, plus controlled DOM
+  and JavaScript syntax checks. Browser inspection verifies the existing logo,
+  source metrics, exact statement citations and curved edges on a read-only local
+  Competition preview. A fresh private profile passes schemas, hashes, packaged
+  logo identity and actual SDK continuation validation. These remain local checks.
+
+## Unreleased — persistent work first in the ChatGPT plugin
+
+- Lead the product guide and package introduction with persistent, resumable work
+  and Connect → Understand → Continue → Capture. Put engineering inventory and
+  connection limits below the product contract; use the week-away, 30-second
+  return to Competition as the next connected acceptance exercise.
+- Default to Work → Current state, with Current, Sources, History and Graph tabs.
+  Show up to four next-action proposals, keep the rest inspectable, and separate
+  selected artifacts from candidates and reviewed decisions from proposals.
+- Add a searchable connected-source title index using existing graph metadata and
+  provenance. Move failed citation checks out of project questions into readable
+  evidence review. Source inspection displays text and retains the exact record.
+  Ignore delayed graph results from other projects or earlier work revisions.
+- Pass four affected MCP integration cases, controlled DOM interaction checks
+  and JavaScript syntax validation. A fresh private profile passes manifest and
+  runtime hash checks and an actual SDK round trip; in-app browser inspection
+  covers a read-only Competition preview, source search/provenance and graph.
+- Exercise the existing understanding tools with the current Codex host model:
+  save a cited Competition overview and four grounded suggestions from 52
+  connected records, verify exact save retry, then prepare and validate one action
+  packet. Decisions and artifact selections remain unaccepted. The preview is
+  read-only; result capture in a connected ChatGPT session is still unqualified.
+  No new backend concept, collection adapter, separate provider call, installation
+  or public deployment is introduced.
+
+## Unreleased — connected work understanding and result capture (plugin 0.2.0)
+
+- Adopt Connect → Understand → Continue → Capture the result. ChatGPT supplies
+  analysis; Relay keeps persistent work state. Universal history ingestion is not
+  a prerequisite, and the graph remains an inspection view.
+- Freeze bounded explicitly connected evidence and selected-file checks. Store
+  source-linked understanding proposals with objectives, conclusions, questions,
+  workstreams and next actions. Check quote identities and scope; preserve exact
+  retries and roll back partial saves. Do not infer acceptance from model analysis.
+- Extend the MCP Apps current-work view and expose thirteen tools. Prepare exact
+  suggested-action context, recheck analysis inputs and disclose citation-excerpt
+  projections. Capture result notes/questions against saved context, including
+  explicitly labeled late reports, without replaying execution or selecting files.
+- Version the UI resource and developer package as 0.2.0. Direct HTML clearly
+  identifies itself as component source. No public deployment, installation,
+  provider call or live ChatGPT/Competition analysis ran for this source change.
+- Pass 24 focused Python cases and controlled UI checks, including the connected
+  text-work loop, exact quotation/scope checks, stale input rejection, partial-save
+  rollback, late result retention and OAuth scope enforcement. A private source
+  profile passes published manifest schemas, recorded file hashes and an actual
+  SDK round trip preparing saved-project evidence. Logs remain private.
+
+## Unreleased — plugin collection and interface scope clarification
+
+- Record automatic source collection, Relay-derived work/topic groups and grounded
+  next-action proposals as the next product proof. Distinguish the component HTML,
+  tested backend and saved-analysis import from a connected installed experience.
+- Document current full-chat-log restrictions in OpenAI plugin guidelines and
+  unqualified ChatGPT ingestion/cache completeness. No collection, provider call,
+  installation or runtime behavior changed by this clarification.
+
+## Unreleased — Relay work-state plugin development build
+
+- Add authoritative append-only work records, frozen source imports, explicit
+  reviewed decisions and artifact selections, retained supersession, reviewed
+  dependency impact, open issues and deterministic provenance/graph projections.
+  Imports never establish acceptance; context selection preserves production gates.
+- Add bounded continuation packets with exact requests, selected artifact hashes,
+  source evidence and coverage limits. Block stale state/files and budget overflow
+  before sending context; preserve original private records and redacted views.
+- Expose ten scoped MCP tools, a self-contained MCP Apps work UI and portable/local
+  compatibility profiles. Confirm changes through exact app-only review controls;
+  local stdio uses host identity and loopback HTTP requires a private bearer token.
+  Configurable external OAuth verifies signed owner tokens, issuer/audience/expiry
+  and tool scopes, publishes discovery/challenges and requires project allowlists.
+- Add an exact-text execution adapter with committed assignments, exclusive
+  publication, read-back receipts and explicit recovery of matching published
+  output. New versions remain candidates. No installed Desktop change, hosted
+  identity-provider setup/public publication, arbitrary worker dispatch or live
+  ChatGPT qualification.
+- Pass 28 relevant Python cases, controlled UI checks and an actual SDK developer
+  profile round trip on saved evidence. Keep qualification logs in private outputs;
+  these results do not establish installed ChatGPT operation.
+
+## Unreleased — Relay for ChatGPT product direction (documentation)
+
+- Record the user's accepted plugin scope: persistent work state and continuation
+  across requests, decisions, evidence, artifact versions, issues and execution
+  receipts. Chats are sources; topics and the graph are views over shared work.
+- Define current-state resolution, provenance, bounded continuation packets,
+  supported ingestion and the plugin implementation sequence. Keep the source
+  context pilot, planned work-state features and installed app status distinct.
+  This changes product documentation only; no plugin or runtime was deployed.
+
+## Unreleased — project context organization source pilot
+
+- Add `project-context` capture, prepare, run, inspect, recover, export and
+  exact-topic context commands. Relay collects a selected local Codex project,
+  derives its topic organization through one durable Gemini analysis job and
+  exports source-linked topic pages and context packets. Preserve original
+  requests/captures, redacted provider inputs, budgets, responses and usage.
+- Require complete source coverage, captured artifact paths and correct source
+  roles. Quarantine failed claim quotations with their original response rather
+  than inventing repairs or repeating a paid call. Commit queue ownership
+  atomically, never replay uncertain submissions and recover matching partial
+  exports without overwriting edited files.
+- This is a source CLI pilot; Desktop installation, sidebar changes, ChatGPT
+  history access and automatic context routing are outside this change.
+- Add a deterministic graph projection of saved project context with chat/topic,
+  message/document, artifact-inventory and claim-citation relationships. Record
+  model-proposed associations separately from captured ownership and exact quote
+  checks; retain failed citations as review gaps. Graph export preserves its
+  request and hashes, recovers identical partial output and makes no model call.
+  This supplies backend data for the proposed Relay ChatGPT plugin Context
+  Explorer; it does not register a plugin or claim access to all ChatGPT history.
+
+## 0.13.152 — conversation results, workflow and history (local)
+
+- Open a conversation workflow on its latest result. Results, Workflow and
+  History views sit below the job heading; the full graph no longer interrupts
+  the answer. Show recorded search/page coverage above each research result.
+- Keep linked earlier failed preparation and its unchanged attempts in History,
+  outside the active graph. Conversation steps open their saved answer and omit
+  irrelevant planned-file input placeholders. Preserve the original answer,
+  ownership, source receipts and execution gates.
+- Prevent receipt-bound Markdown/source links from also invoking the restricted
+  generic setup opener. Inert unrecorded links stay inert; setup links retain
+  their existing scope. Source-opening failures use a short local message
+  instead of exposing an internal redirect URL as a global warning.
+
+## 0.13.151 — conversation workflows and one-click public research (local)
+
+- A selected public-source recommendation starts bounded research in its original
+  Desktop conversation: at most two searches and six page downloads, using the
+  configured provider. No new job, blank planning form or plan submission is
+  required. Other recommendations prepare attached plans with existing Start
+  review. The click freezes the exact option, original question, project and
+  attachment versions; an unchanged retry returns the committed selection.
+- Show one workflow with the conversation, recorded reads, answers and attached
+  planned or executed steps. Failed proposals are explicitly unexecuted. Preserve
+  historical requests, plans and calls; explicit proven historical linkage only
+  changes display ownership. Nested recommendations stay under the original job.
+- Compile required `web.sources` query/domain fields for optional research too,
+  closing the opaque execution-schema branch. Validation feedback names missing
+  fields for the existing bounded planner correction. Keep attempts and rejected
+  data in collapsed diagnostics; lead with progress, results and a usable action.
+  Models supply data while runtime code owns schemas, scope and execution gates.
+- Move conversation Delete to the bottom history section. Existing preview,
+  confirmation, replay protection and cross-job dependency blockers still apply;
+  graph-wide history deletion is not added by this change.
+- Preserve exact offered tool IDs outside trimmed conversation overviews. Older
+  selections recover only explicitly captured availability; unknown suggested
+  tools stay blocked. Follow-up UUID ownership also blocks standalone deletion.
+- Qualification passed 103 distinct affected Python cases, two DOM checks and
+  27 browser fixture checks; 59 controlled cases passed against bundled modules.
+  The native app built successfully; the final deletion guard updated one Python
+  resource without another native compile. All 289 runtime files match source.
+  Signed installation and final live read-only checks are recorded in the roadmap.
+  No live provider rerun, research dispatch or message delivery was performed.
+
+## 0.13.150 — readable conversations and reviewed history deletion (local)
+
+- Render conversation Markdown with bundled marked and DOMPurify: headings, lists,
+  tables, fenced code and emphasis. Repair copied emphasis escapes and encoded
+  spaces only in display prose; preserve code and exact saved replies. Source
+  links require saved, hash-checked read receipts and the native opener.
+- Lead with the answer and concrete outcome choices. Keep source status compact
+  and routing, questions, retrieval records and claim references in collapsed
+  details. Options prepare editable plans with frozen inputs and existing review
+  gates. No dropdown or additional provider turn is required.
+- Compile optional claim/source data in the runtime response schema. Runtime
+  states distinguish generated text, page references, search references and
+  unresolved references; retrieving a page does not certify its factual claims.
+  Display bodies have atomic hashes binding them to exact raw and saved replies.
+  Historical footer separation requires complete identity; history stays intact.
+- Completed standalone Desktop conversations expose Delete conversation above
+  their answer. Review exact local records and traces in the existing confirmation
+  dialog. Block active work, pending delivery and other ownership. Atomically
+  clear local text while retaining submission/delivery identities and frozen
+  files. Post-commit trace cleanup has a durable, idempotent recovery receipt.
+  Job/task details also expose their existing Manage / delete entry at the top.
+- Controlled qualification passed 133 distinct affected Python cases, two DOM
+  checks and 17 real-browser text-fixture checks, including cancelled confirmation,
+  stale review, SQL rollback, retained files, receipt replay and interrupted trace
+  cleanup. 35 bundled controlled cases passed. Signed installation verified
+  app/database recovery copies, seven fresh owned health records and a reopened
+  app; all 288 installed runtime files match source. Installed read-only bridge
+  checks preserve original records and qualify the reported conversation's
+  deletion preview. No live provider rerun, message delivery or conversation
+  deletion is implied.
+
+## 0.13.149 — runtime-owned response schemas and automatic recommendations (local)
+
+- New Desktop requests let the orchestrator recommend relevant next outcomes by
+  default; remove the research dropdown. Explicit recommendation choices and
+  unchanged pending request retries retain their captured research mode and scope.
+- Relay compiles the conversational response schema, enums, limits and exact
+  available tool IDs in code. All five provider transports receive `relay_respond`
+  as a data-only function; the model supplies answer, advisory and action data,
+  never contract definitions. Its final response requires no extra provider turn.
+  Existing action validators, grants, read budgets and commit-before-dispatch rules
+  continue to own execution. Exhausted read budgets allow only the final data
+  function, and mixed read/final calls are rejected before reads execute.
+- Non-executing direct replies preserve valid explanatory advisory data when a
+  provider misplaces an enum such as `optional`. Keep the exact raw reply and an
+  atomic recovery note without inventing a recommended mode, retrying or starting
+  work. Authorizing actions and explicit source-backed requests remain strict.
+  The schema bounds exploratory prose; compatible longer direct answers remain
+  intact within existing response limits. Unsolicited implementation expansion and
+  unsupported source-verification claims still fail their existing scope guards.
+- The reported saved failure passes offline validation with its two options and
+  exact answer data retained. Historical failed rows remain unchanged. 93 distinct
+  affected Python tests, two UI checks and 21 bundled controlled cases passed.
+  Signed installation verified app/database recovery copies, seven fresh owned
+  health records, a reopened app and all 287 source-matching runtime files.
+  Installed read-only checks preserve original conversations, plans, artifacts
+  and decisions. No live provider rerun or message delivery is implied.
+
+## 0.13.148 — shared conversational entry and concrete next options (local)
+
+- New Desktop requests enter the same conversational worker, provider selection,
+  captured capability catalog and response contract as Telegram. Explicit plan
+  revisions and stage follow-ups retain their existing planning path. Save the
+  entry mode with the request identity and frozen inputs; unchanged retries cannot
+  switch paths or duplicate admission. Negative Desktop identities retain local
+  delivery ownership and separate conversation preferences.
+- Desktop Jobs also projects saved messenger conversations. It displays their exact
+  committed answer, without another generation or retroactive edits, and opens
+  source links only after checking the request's saved read receipt. Conversation
+  identities cross the native bridge as strings to preserve UUID-derived integers.
+- The orchestrator offers up to three concrete, request-specific next outcomes
+  using its entire captured available tool catalog. Unknown/disconnected routes
+  are rejected. Options are saved in the same response and start no work. Desktop
+  options open editable requests with the original question, project and frozen
+  attachment versions; messenger options remain in their original conversation.
+- Explicit no-new-research Desktop requests omit direct web tools. Guidance asks
+  for primary-page reads and claim-level citations for source checking; a direct
+  required-source response cannot claim verification when only search references
+  were recorded. Rejecting it preserves the raw reply without an automatic retry.
+  This is a structural retrieval guard, not a semantic correctness certificate.
+- Search-only grounding redirects use concise titles in conversation disclosure;
+  their exact links remain in saved evidence and the attached search report.
+  Previously delivered replies, requests, artifact versions and decisions remain
+  unchanged. Controlled checks cover both entry points, routing, recovery, source
+  receipts and option drafting; no live provider or messenger rerun is implied.
+- 147 distinct affected Python checks, three DOM checks and 15 packaged cases pass.
+  Signed installation completed with verified app/SQLite recovery copies, seven
+  fresh owned health records, a reopened app and 287 source-matching runtime files.
+  Installed read-only checks retrieve the exact reported Telegram answers and
+  preserve original conversation, plan, artifact and decision digests. Live model
+  option quality and factual support still require an authorized rerun.
+
+## 0.13.147 — direct conversation research advice and source disclosure (local)
+
+- Cover the conversational orchestrator used by Telegram and Messages, which can
+  answer directly without creating a Desktop production plan. Its live generator
+  returns request-specific research advice in the existing response, while
+  historical answer parsing remains compatible. Missing/invalid advice preserves
+  the exact provider reply and fails without replay or dispatch.
+- Direct exploratory answers stay concise and reject recognized unsolicited
+  implementation-blueprint wording. Guidance distinguishes ideas, documented
+  facts and untested implementations, and offers optional source checking rather
+  than expanding every question into research. Semantic judgment is not proven
+  by these structural checks.
+- Append relevant saved recommendations, source-check questions and actual public
+  source links to the saved reply. Hash-checked tool results distinguish fetched
+  pages from search-only references; draft citations and failed reads do not count.
+  State when no successful web lookup is recorded and disclose incomplete/capped
+  receipts. Creative/clock/status answers need no generic research push.
+- New conversational stage actions can select suggested, no-new-research or
+  source-backed planning; the same frozen stage contracts enforce evidence and
+  review, while exact request text, old plans and execution authority remain saved.
+- 109 distinct affected checks pass, including actual generator/tool-loop transport
+  with fake providers, exact response recovery, no-dispatch scope, source tamper
+  handling and stage integration. Four workflow cases need the packaged Python's
+  presentation dependency and pass against the changed source there. No live
+  provider rerun, web request or Telegram delivery was submitted by this repair.
+- Packaged Python passed nine focused cases. Signed installation completed with
+  verified app/SQLite recovery copies, seven fresh owned health records, reopened
+  app and 287 matching runtime files. Read-only digests preserve the reported
+  direct reply and both earlier exploration jobs.
+
+## 0.13.146 — request-specific research recommendations (local)
+
+- Default Desktop planning returns an orchestrator recommendation in its existing
+  response: quick or source-backed answer, a request-specific reason, whether
+  research is unnecessary/optional/required, and concrete source-check questions.
+  Save the advice with the exact proposal and display it in plan and job details.
+- The proposed graph follows that recommendation. Source-backed advice requires
+  shared independent evidence and reviewed research handoffs, using frozen routes
+  and models; quick-answer advice excludes new web research. Supplied documents
+  can satisfy the evidence requirement without a browser. Explicit user choices
+  retain authority and historical plans receive no retroactive recommendations.
+- Contextual alternatives open separate drafts with the exact request. Creative
+  requests do not get a generic research push; required source checks do not offer
+  a quick-answer shortcut. Advice never authorizes execution or selection.
+- 114 distinct affected Python checks and controlled recommendation, alternative,
+  retry, source-link and polling UI checks pass. No live provider rerun or browser
+  research was performed. Model judgment about research usefulness remains to be
+  evaluated through real new requests; structural checks do not prove that judgment.
+- The bundled Python passed 17 focused cases. Signed installation completed with
+  verified app/SQLite recovery copies, fresh owned-service health, reopened app
+  and 286 matching runtime files. Installed read-only routes and exact-record
+  digest checks preserve both historical exploration jobs without invented advice.
+
+## 0.13.145 — optional research and visible sources (local)
+
+- Offer suggested research, ideas from existing knowledge/files, or a source-backed
+  answer in the task composer. Preserve the exact request and research choice with
+  an atomic receipt identity; an unconfirmed retry cannot change its choice.
+- Source-backed text planning requires shared independent source inputs and factual
+  review; blanket disclaimers cannot replace that contract. Supplied documentation
+  can satisfy it without a new browser stage. No-new-research excludes web steps.
+- Show proposed research separately from recorded page observations and search
+  results in Sources and research. Only job-bound saved receipts generate consulted
+  links; candidate prose and configured origins are not evidence of a visit.
+  Recheck receipts before opening their URLs. Show incomplete receipt coverage and
+  supplied files honestly. Existing jobs can open a separate source-backed draft.
+- Encourage concise exploratory answers with claim-specific unknowns and a clear
+  distinction between documented facts and untested implementations.
+- 109 distinct affected Python checks and controlled source-link/retry/polling UI
+  checks pass. The bundled Python passed 12 focused checks. Signed installation
+  completed with recovery backups, fresh owned-service health and 286 matching
+  runtime files. Installed read-only inspection shows no recorded web research for
+  the two historical exploration jobs; exact requests, plans, source contexts,
+  artifacts and decisions are unchanged. No fresh provider job was submitted.
+
+## 0.13.144 — exploration scope and cited factual review (local)
+
+- New text plans preserve exploratory requests as concise ideas/feasibility
+  outputs. A bounded wording guard rejects unsolicited implementation blueprints;
+  explicit starter/build requests retain their requested scope.
+- Recognized technical/factual verification criteria require independent declared
+  source inputs for both author and reviewer. Scope can be honestly narrowed to
+  unverified ideas; file-only prose cannot promise verified facts without sources.
+- Freeze a source-verification report contract. Acceptance requires exact candidate
+  passages, source hashes and literal source quotes; circular section references,
+  forged citations, altered inputs and unsupported/uncertain claims stop acceptance.
+  Structured API/Codex reports share the supervisor's checks. A rejected API finish
+  can be corrected within the existing attempt and budget.
+- Existing saved plans, artifacts and decisions retain their contracts. Source
+  support remains model judgment; these checks do not certify complete claim
+  coverage, semantic truth, software builds or physical/electrical testing.
+- 126 affected-suite checks and one focused research-graph check passed. An offline copied historical proposal is
+  rejected independently for scope expansion and missing source evidence. Evidence
+  is kept privately under `outputs/text-source-verification/`. Signed local
+  installation completed with app/database recovery backups and fresh owned-service
+  health. All 285 installed runtime files match; 17 focused checks also passed in
+  the bundled Python. Installed read-only proposal replay and workspace inspection
+  pass. The original saved plan hash is unchanged. No live provider rerun was made.
+
+## 0.13.143 — visible plan and stage controls (local)
+
+- Keep Start/renewal and Discard above the plan scope, with the full tools and
+  limits in a disclosure and exact document confirmation unchanged. Give repeated
+  Review titles distinct saved identities, as in Jobs.
+- Allow exact workflow-stage cancellation and reversible list removal without
+  granting stage continuation or changing the workflow's ownership. Cancelling
+  one stage retains its parent plan, workflow records, other stages and files.
+- Focused desktop integration and controlled UI checks are recorded privately
+  under `outputs/desktop-review-actions-143/`. Signed installation completed with
+  recovery backups, 283 source-matching runtime files and fresh service health.
+  Native inspection confirms leading Start/Discard on the exact saved Safari plan
+  and its document-confirmation gate; no user job action was executed.
+
+## 0.13.142 — actionable shared jobs (local)
+
+- Review and start exact saved Telegram and Messages plans in Relay, retaining
+  their original result destination and workflow authority. Expired approvals
+  get explicit renewal; Start still requires the saved documents and confirmation.
+  Repeated Start identities return the committed receipt without a second run.
+- Expose standalone shared-job output selection, Pause, eligible Resume and Cancel
+  through the existing runtime contract. Show blocked-step failures beside the
+  action, with a separate new-attempt composer that preserves the stopped job.
+  Blocked or uncertain work is not automatically replayed.
+- Separate ready decisions from jobs needing attention. A ready stage belonging
+  to a cancelled workflow shows its blocker and Discard rather than Start.
+- Add confirmed, reversible removal of cancelled/completed jobs and unexecuted
+  discarded/blocked plans from Jobs and Review. Show removed jobs restores access;
+  removal retains all files, decisions, recovery records and shared history.
+  Unresolved workers block removal. Permanent deletion retains its existing
+  ownership review in Saved records.
+- Controlled focused runtime and UI validation is recorded under ignored
+  `outputs/desktop-review-actions-142/`; installed validation is recorded separately.
+
+## 0.13.141 — stable job-list interaction (local)
+
+- Preserve unchanged job rows and keyboard focus across background refreshes,
+  including timestamp-only changes. Give duplicate shortened titles distinct
+  accessibility names and retain the full title as a tooltip.
+- A controlled DOM regression checks retained focus, distinct identities and fresh
+  status rendering. This follows the native 0.13.140 check, where refreshing rows
+  with repeated titles invalidated a job click. Signed 0.13.141 installation
+  completed with recovery backups, 283 source-matching runtime files and fresh
+  owned-service health. Native job navigation and compact cancelled-job inspection
+  passed; its step details remain closed until requested.
+
+## 0.13.140 — concise job workspace (local)
+
+- Lead job detail with one status and a clear next action. Show results beside
+  their explicit review; keep other files folded. Promote current selections only
+  when artifact ID and hash match, without inferring acceptance or hiding history.
+- Keep workflow steps to names and statuses; open the inspector only on request.
+  Instructions, tools, models, attempts, version records and activity stay under
+  Details. Preserve file-change badges and exact Finder/comparison actions.
+- Put Pause, Cancel and saved-history management in Job options; retain eligible
+  Resume and blocked-step inspection. Keep one New task entry with visible Project
+  folder and optional Constraints; clarify the proposed Relay workflow and its
+  existing document review/Start gate.
+- 19 focused Python integration checks, workflow/result projection checks and
+  controlled browser cases passed, including note retention, fresh confirmation,
+  planning retry identity, narrow layout and completed/cancelled/paused/shared
+  states. Signed installation completed with recovery backups, 283 matching
+  runtime files and fresh owned-service health. Native Jobs and the blank composer
+  were inspected; a cancelled-row click exposed the polling issue fixed above.
+
+## 0.13.139 — file changes in job workflows (local)
+
+- Show exact recorded revision and selected-replacement pairs in File versions.
+  File revised badges open comparisons; Earlier version supplied marks steps whose
+  latest recorded inputs or outputs depend on the earlier version. Stop tracing
+  at the explicit revised candidate and disclose incomplete dependency evidence.
+- Add Check source files for saved desktop attachment locations. Compare current
+  original hashes with frozen copies and show Source updated outside Relay with
+  an observation time. Missing, linked, oversized and partial checks are explicit;
+  source inspection never imports an edit, selects a result or schedules work.
+- Revalidate exact versions before showing bounded UTF-8 text differences; binary
+  and larger files show hashes and sizes. Reject edits during inspection and
+  changes since the source check. Registered files above 20 MB show recorded
+  metadata without rehashing their contents. Comparisons stack in narrow panels.
+- 34 focused Python checks, workflow projection checks and controlled desktop
+  browser checks passed. Signed installation completed with app/database recovery
+  backups, 283 source-matching runtime files and fresh owned-service health.
+  Native visual inspection remained unavailable while the Mac was locked.
+
+## 0.13.138 — compact job workflows (local)
+
+- Show recorded stage dependencies as compact workflow steps, using one column
+  for sequences and parallel rows for branching jobs. Inspect instructions,
+  tool/model, latest attempt, exact review target and frozen input/output versions
+  by selecting a step. Larger active jobs can collapse completed steps.
+- Surface pending reviews, blocked work and uncertainty above the map. Keep exact
+  output-set selection in an expandable review form with the existing explicit
+  confirmation and atomic receipt; inspection never accepts or reruns work.
+- Make saved filenames reveal their exact registered version in Finder. Verify
+  frozen input artifact IDs and hashes before offering a link; show changed-file
+  errors beside the filename and preserve retained outputs as non-current.
+- Controlled checks cover sequence/branch ordering, damaged history, frozen input
+  identity, pending decisions, correction states and a 360 px workflow container.
+  Signed installation completed with app/database recovery backups, 282 matching
+  runtime files and fresh owned-service health. Native visual inspection was
+  unavailable while the Mac was locked; installed read checks are logged privately.
+
+## 0.13.137 — discoverable history and native setup (local)
+
+- Add Manage / delete saved record to production and agent job details. Open the
+  matching saved category and highlight its record; retain the existing exact
+  deletion review and confirmation. A uniquely linked production run can review
+  deletion of its whole saved workflow; ambiguous ownership stays unavailable.
+- Add Computer use — Safari alongside Browser use in Settings / Apps and tools.
+  Check the selected helper and native grants without reading pages or starting
+  sessions. Explicit controls request window permissions or open macOS Automation,
+  Accessibility and Screen Recording settings. Background Automation is checked
+  when an approved task starts; general desktop control remains unimplemented.
+- Replace the grey sidebar text bullet with the same service indicator as
+  Connections: green for healthy, amber for checking/errors, grey for stopped.
+- 31 focused desktop checks and the native-session DOM fixture passed. Controlled
+  browser checks cover setup feedback, green status and deletion cancellation.
+  Signed installation completed with app/database recovery backups, 281 matching
+  runtime files and fresh owned-service health. Native inspection confirms the
+  green dot and Safari setup; its read-only check reports the missing window grants.
+  No live job was deleted, permission granted or provider run for QA.
+
+## 0.13.136 — desktop task workspace (local)
+
+- Make Relay a task entry point with Jobs, Review, Connections and Settings.
+  New task accepts an exact request, up to ten frozen attachments and an optional
+  project folder. Planning uses the configured provider; reviewed Start approves
+  the exact saved plan and its full documents before execution.
+- Keep desktop-started stages in Relay. Inspect shared messenger jobs, current
+  progress, review concerns, verified output versions, historical outputs and
+  submission receipts. Decisions for messenger jobs retain their original channel.
+- Add exact local output-set selection and pause/resume/cancel controls with atomic,
+  idempotent receipts. Completed local stages carry selected output versions into
+  a new bounded plan for separate review and Start; agent conversations use existing
+  task routes. Blocked or uncertain stage recovery still uses the development CLI.
+- Run desktop intake independently of Telegram polling. Local service startup
+  supports an unconnected messenger; unreadable existing credentials still block
+  startup. Preserve the menu-bar shortcut for opening Relay or composing a task.
+- Preserve unconfirmed planning submissions and task instructions across window
+  reloads using the same request identity. Fixed an existing local task bridge
+  initialization error exposed by the restored follow-up flow.
+- Constrain long job titles to their row in native WebKit and narrow layouts.
+  Focused runtime and controlled browser checks pass; one pre-existing task-link
+  assertion remains outside this change. Built, signed and installed with app/database
+  recovery backups, 281 matching runtime files and fresh owned-service health.
+  No paid provider or live message was dispatched for QA.
+
+## 0.13.135 — consistent desktop action styling (local)
+
+- Apply shared typography, minimum button height, radii, spacing, colors and
+  focus/hover/disabled states across existing desktop actions. Auxiliary actions
+  retain low emphasis at the same size, including the footer update action.
+- Group home, model, browser, tool, update and native session actions; use blue
+  for leading save/allow/accept/select actions and red for destructive cache
+  cleanup. Native session details use the same review card as other decisions.
+- Four companion tests, nine setup/update tests and the native-session DOM
+  fixture pass. Controlled browser inspection covers 480/380 px layouts and
+  deletion-dialog cancellation; no provider or live task action was dispatched.
+- Built, signed and installed locally with app/database recovery backups, 279
+  source-matching runtime files and fresh owned-service health. Native WebKit
+  inspection confirmed the updated home and model-settings controls.
+
+## 0.13.128 — shared operation contracts (local)
+
+- Keep schemas, validation, persistence and completion provider agnostic; provider
+  adapters alone translate API envelopes. Scripted parity covers Gemini, OpenAI,
+  Qwen, DeepSeek and OpenRouter with identical assembled audit bytes.
+- Add a shared versioned registry with reusable research audit/candidate contracts
+  and an adapter to the existing geometry specification validator. Job parameters
+  select entity type, required fields and a bounded candidate ceiling.
+- New research plans select profile or discovery explicitly. Typed submissions
+  replace whole-audit JSON generation; Relay owns serialization, paths, IDs and
+  exact source hashes. Candidate identity and every requested field join review.
+- Commit bounded records atomically in the shared database, detect stale/conflicting
+  submissions, return identical retry receipts, and repair exports without another
+  provider/browser call. Protect contract outputs from generic writes; supervisor
+  verifies them against committed records. Include checkpoints in owned job deletion.
+- Carry optional content-contract identity/version through workflow handoffs and
+  reject incompatible JSON kinds. Reject insufficient declared capacity before
+  dispatch; preserve frozen legacy assignments and independent/user review gates.
+- 139 focused source checks and 21 installed checks passed. Installed with 278
+  matching runtime sources, signature verification and fresh service health. The
+  original blocked research attempts and frozen assignments are unchanged. Saved
+  20-claim evidence assembled in seven controlled batches; no new live research,
+  paid provider call or acceptance occurred.
+
+## 0.13.127 — preserve native launch failure diagnostics (local)
+
+- Carry bounded native protocol error codes through transport exceptions, the
+  Safari action journal and the supervisor's user-facing uncertain status.
+  Include operation and failure phase; omit arbitrary native diagnostic text.
+- Keep failed launches uncertain and unreplayed. Reporting an error code does
+  not prove whether a window was created or authorize another attempt.
+- 62 focused native session, worker, launch and provider-outcome tests passed,
+  including a real private-pipe rejection propagated to the supervisor.
+- Installed with signature/runtime verification, 276 matching source files,
+  fresh service health and 20 passing installed checks. The user authorized
+  stopping the uncertain native session and submitting a fresh workflow; the
+  original native action remains uncertain in its retained receipts. Normal
+  production cancellation releases its scheduler reservation without a replay.
+- The fresh Relay-planned discovery successfully read five X query pages and
+  saved seven unapproved post-based leads. Its two planned review attempts failed
+  on malformed provider function calls; raw evidence is retained and later stages
+  remain blocked. This does not qualify the complete twenty-person benchmark.
+
+## 0.13.126 — enforce multi-page research planning budgets (local)
+
+- New Safari plans with multiple granted URLs must budget setup, page actions,
+  evidence writes and finish: at least `2*N+8` provider requests and tool calls,
+  plus an explicit response allowance of at least 8,192 tokens. The planner must
+  split work if these floors exceed existing ceilings or explicit user limits.
+- Reject undersized proposals before dispatch and use the existing bounded
+  planning correction. Never enlarge a worker allowance silently. Single-page
+  work and previously frozen planning contexts retain their contracts.
+- The floor is a conservative planning policy, not proof that a worker can cover
+  every source or that the requested prospect total will be reached.
+- Installed with verified signatures, 276 matching runtime sources and fresh
+  service health. All 27 affected source tests and 13 installed checks passed.
+  The authorized full-workflow retry stopped at the orchestrator provider with
+  HTTP 402 (depleted prepayment credits), before any research worker dispatch.
+
+## 0.13.125 — research workflow batching and navigation (local)
+
+- Guide the orchestrator to plan complete multi-person research as one durable
+  workflow with bounded batches, reviewed source handoffs and preserved totals.
+  Existing stage, attempt and URL limits remain enforced; this adds no retry loop
+  or automatic acceptance. Live batch qualification is recorded in the roadmap.
+- Let background Safari navigate to an exact approved URL when incidental text
+  changes. Process/window/tab identity, current URL, challenge checks, latest token
+  and the destination grant still apply. Raw observations remain unchanged;
+  scrolling retains its refresh behavior.
+- Transfer unexecuted Desktop plan ancestry to Telegram atomically with Start,
+  preserving original channel/request identities in a production receipt. This
+  keeps worker ownership and result delivery consistent. Desktop can still inspect
+  its transferred plan; old failed runs are not migrated or replayed.
+
+## 0.13.124 — correct exact citations before research delivery (local)
+
+- Check producer citations against journal-verified captures at finish, and again
+  in the supervisor, so formatting errors can be corrected before reviewer handoff.
+- Report the failing post and field. Whitespace-only differences can suggest one
+  exact captured slice; strict matching still rejects the original altered quote.
+  Apply the same diagnostic to reviewer support quotes. No paraphrase acceptance,
+  source mutation, native replay or budget extension is added.
+- Preserve blocked attempts and their original artifacts. Controlled regressions
+  cover same-attempt correction, ambiguous whitespace, altered claims, tampered
+  captures, supervisor rejection and exhausted budgets; no live research is run.
+- 90 affected tests passed. Installed 0.13.124 with recovery backups, verified
+  signatures, 276 matching runtime files and fresh service health. All eight
+  citation cases pass against installed modules; blocked-production metadata
+  remains unchanged. No paid rerun was dispatched.
+
+## 0.13.123 — bounded research scope and claim-by-claim review (local)
+
+- New Safari research plans freeze recognized post ceilings, display them in the
+  preview, and enforce selected-post counts at worker finish and in the supervisor.
+  Preserve complete raw captures; reject duplicate posts, invalid excerpts and
+  unlabeled summary claims instead of quietly trimming or accepting them.
+- Require an independent audit of every labeled observation, inference and
+  limitation against exact raw captures. Bind source/candidate hashes and check
+  literal citations. Incomplete audits and unsupported or uncertain claims cannot
+  receive accept. Semantic support remains the reviewer's explicit judgment.
+- Add a sectionable JSON review audit while retaining automatic Markdown review
+  output, original budgets and the user selection gate. Existing results and
+  assignments are unchanged; no native replay or new paid run is authorized.
+- 113 controlled scope, audit, planning, native-worker, generation-recovery and
+  shared API/browser integration tests passed. No live browser or paid provider
+  ran for this change.
+- Installed 0.13.123 with recovery backups, verified signatures, 276 matching
+  runtime files and fresh service health. All 14 new quality cases pass against
+  installed modules; completed-production metadata is unchanged. Stricter live
+  research qualification remains open before multiple-prospect expansion.
+
+## 0.13.122 — preserve task scope during source selection (local)
+
+- Request only missing source ID lists during bounded orchestrator correction.
+  Merge them onto the saved proposal before normal validation, preserving exact
+  deliverables, destinations, capabilities, budgets and existing selections.
+  This avoids rejecting a fresh research request merely because the model
+  paraphrased its task while excluding unrelated uploads.
+- Preserve original, correction and validated response receipts separately.
+  Unknown IDs and scope changes still block; ambiguous source choices can ask a
+  question. Interrupted calls remain uncertain, with no automatic replay.
+- Seventy-four controlled routing, planning, source-handoff and provider-format
+  tests pass. No live browser, paid provider or production retry ran for this fix.
+- Installed 0.13.122 with recovery backups, verified signatures, 275 matching
+  runtime files and fresh service health. Five new regression cases pass against
+  installed modules. Failed-request and blocked-production metadata remain unchanged.
+
+## 0.13.121 — bounded Safari output-generation recovery (local)
+
+- Permit a computer worker to recover a received output-limit or malformed local
+  write/report response when all dispatched native actions are confirmed complete.
+  Discard the entire incomplete response and disable native tools for the remainder
+  of this writing recovery. Keep original provider, response, request, tool, time,
+  cancellation and ownership limits; no transport or uncertain native replay.
+- Expose checked `file_append` to computer workers, including final writing time,
+  and request small output sections and concise citations instead of duplicate raw
+  captures. Reviewers still receive the authoritative raw captures separately.
+- Seventy-eight controlled generation, computer, raw-review, API-loop and browser
+  integration tests pass. Includes sectioned recovery, repeated limits, incomplete
+  native-call rejection, action gaps, transport uncertainty and pause. No paid
+  provider or Safari exercise ran for this fix.
+- Installed 0.13.121 with recovery backups, verified signatures, 275 source-matching
+  runtime files and fresh service health. All ten new controlled cases pass against
+  installed modules. Before/after metadata hashes confirm the blocked production
+  remains unchanged; no paid rerun was dispatched.
+
+## 0.13.120 — raw Safari review evidence and action completion (local)
+
+- Bind each new computer-task reviewer to the exact producer attempt's saved
+  native text captures and action outcomes. Verify file hashes, scope and ownership
+  before dispatch; freeze the pack as a read-only registered input. Missing or
+  changed captures block instead of falling back to producer-authored summaries.
+- Require text reviewers to read the full raw pack. Its instructions distinguish
+  captured-source checking from live website verification and user acceptance.
+- Track requested navigation/scroll actions that returned a no-action refresh.
+  Successful finish requires an explicit matching action; otherwise the worker
+  must report blocked. The supervisor checks the journal too. A later scroll on
+  another URL does not satisfy the original action; no automatic replay is added.
+- Controlled checks: 28 focused worker/review/action tests and 87 affected runtime,
+  API-loop, launch, session and ownership tests passed. No browser or paid provider
+  ran for these changes. Existing production results and user decisions are preserved.
+- Installed 0.13.120 locally with recovery backups, verified signatures, 275
+  source-matching runtime files and fresh health from both existing services. Ten
+  synthetic failure/recovery tests also pass against the installed modules. A new
+  paid model-driven qualification has not been run.
+
+## 0.13.119 — background Safari service attribution and observation recovery (local)
+
+- Associate the packaged Python service with the Task Relay app in new service
+  definitions and local updates, preserving data bindings. An app-associated
+  background qualification completed with the installed worker and native helper;
+  the earlier unassociated probe timed out before opening a research window.
+- Allow bounded additional settling of dynamic page text. Preserve sanitized native
+  failure codes in uncertain-action receipts without replaying the failed operation.
+- A fresh native X qualification read profile and loaded post text, extracted dynamic
+  post links and executed one scroll after the Safari JavaScript setting was enabled.
+  No model/provider calls occurred; the earlier failed trial remains preserved.
+- Thirty-six focused service/installer/handoff and scripting-diagnostic tests passed.
+  Version 0.13.119 is installed with 274 source-matching runtime files, verified
+  signatures, recovery backups and fresh health from both existing services. The
+  Safari worker is available with the new background default.
+- The installed app-associated background worker completed synthetic navigation
+  and file delivery with the Mac locked. A separate installed-native X qualification
+  read loaded posts and post links and executed one scroll, with locked status
+  before and after both runs. Zero paid requests; no old production was retried.
+  This qualifies the bounded transport, not a complete model-driven research job.
+
+## Live background Safari qualification follow-up
+
+- A real configured-model research worker and separate reviewer completed a bounded
+  profile job. Read-only auditing verified all three artifacts and both native
+  receipts; no follow-up provider run or user selection was dispatched.
+- The scroll request produced a no-action refresh and was not subsequently executed.
+  The reviewer checked producer-authored outputs without raw native captures. Record
+  these as action-completeness and source-verification gaps, not full acceptance.
+
+## 0.13.118 — built-in background Safari research (local)
+
+- New Safari scopes use the bundled Apple Event adapter: dedicated one-tab windows,
+  bounded loaded text and link evidence, exact granted navigation, and fixed scrolling
+  when Safari permits JavaScript. No extension or separately installed app.
+- Keep visual scopes separate. Background launches record their transport and do not
+  claim foreground acquisition. Existing tokens, committed intents, ownership controls,
+  cancellation and no-replay recovery remain in force. Saved scopes cannot switch modes.
+- Check Automation before provider dispatch. Detect JavaScript access in the owned tab;
+  omit the scroll tool when unavailable and reject it before a native action claim.
+  DOM links are available with JavaScript; HTML-source links otherwise have explicit
+  coverage limits. No arbitrary JavaScript is accepted from workers.
+- Forty-eight focused tests and native synthetic worker execution pass. A bounded
+  native X trial reads the profile and, after settling, loaded post text without any
+  provider call. Installed permission identity, scrolling and locked native-worker
+  qualification are recorded separately below as they complete.
+
+## Development qualification — background Safari scripting
+
+- A local Apple Event proof can create a dedicated Safari window, read dynamic
+  page text and HTML links, and navigate two synthetic pages while macOS remains
+  locked. Fixture cleanup was verified after unlocking and UI inspection; initial
+  scripting window lists were stale. No extensions or paid calls.
+- At this earlier prototype checkpoint, JavaScript scrolling was disabled and
+  the adapter was not installed. Subsequent integration and qualification are
+  recorded in 0.13.118–0.13.119 above.
+
+## 0.13.117 — Safari research planning and standalone ownership (local)
+
+- Treat router-inferred Safari executor choices as capability routing when the
+  user did not name a provider/executor. The selected computer profile remains the
+  default, while configured companion profiles are captured for text-only review.
+  Explicit provider/executor locks and saved executable scopes remain unchanged.
+- A fresh child proposal can recover an old blocked, unexecuted inferred Safari
+  lock without rewriting its request, context, results or failure receipts.
+- Approved standalone plans register native sessions under the existing standalone
+  result/export job identity, atomically with the assignment. No shadow pipeline
+  or accepted result is created. Unapproved or conflicting ownership blocks before
+  native launch and provider calls; saved receipts still prohibit replay.
+- Fifty-six focused session, worker, launch and ownership/deletion checks pass,
+  including scripted standalone launch, ownership rollback and conflict rejection.
+- Forty focused planning/worker checks pass. The saved corrected proposal that
+  exposed the bug validates offline with a Safari researcher and same-provider
+  text reviewer under a proposed corrected catalog; no provider calls, worker
+  execution or mutation of the failed live plan occurred.
+- Local 0.13.117 is installed with fresh service health. Packaged dependencies,
+  signed helper, all 274 release-source files and installed offline proposal
+  validation pass. The computer profile is available without a selected target.
+  No paid provider request or automatic retry of the failed job was performed.
+
+## 0.13.116 — automatic Safari worker windows (local)
+
+- Approved Safari workers can create and foreground a dedicated default-profile
+  Safari window, navigate to the declared initial URL and bind the resulting
+  process/window/tab automatically. Planning no longer needs a manually selected
+  target when the bundled launcher is available; explicit selections still work.
+- Startup is journaled before dispatch, with new-window and foreground receipts.
+  Lost outcomes are retained without reopening windows or retrying the provider.
+  Take over, Stop, cancellation and focus loss prevent subsequent actions; Relay
+  does not reclaim focus. Existing windows/tabs are not used for navigation.
+- Ship the native helper with the app, bind its receipt to the final signed
+  executable, and verify it in packaged-runtime checks. Permission readiness is
+  checked before creating a window; macOS access remains a one-time prerequisite.
+- Native synthetic testing passed background-to-foreground startup, creation of
+  one new window, bound scrolling/navigation and saved evidence, with zero paid
+  requests. Local 0.13.116 is installed with fresh service health. The installed
+  interpreter/worker/helper passed synthetic new-window, scroll/navigation and
+  receipt checks; a configured computer worker is available with no selected target.
+  Real model-driven X research, fully quit Safari startup and installed UI button
+  clicks remain unqualified.
+
+## 0.13.115 — Safari workers and visible ownership (local, O15.3)
+
+- Added configured `*-computer` profiles and `computer.use` planning, resolved from
+  an explicitly selected Safari target. Approved pipeline stages create workers
+  through the existing API loop/supervisor and native action journal.
+- Added a non-activating ownership panel showing worker/task/state with Pause,
+  Stop and Take over. Controls stop subsequent requests/actions and preserve
+  in-flight receipts; explicit recovery is required. No extra Dock app is created.
+- Live text changes return a fresh observation/token and a positive no-action
+  receipt. Bounded settling never repeats actions; window/tab/URL checks remain.
+  Equal window bounds use exact unique title disambiguation at initial binding.
+- Controlled worker/planner/recovery tests and native local Safari qualification
+  pass using a scripted provider (zero paid requests). Local 0.13.115 is installed;
+  both existing services restarted with fresh health. Installed signature,
+  packaged dependencies, worker imports, helper receipt compatibility and the
+  read-only desktop session route pass. The native helper remains a separately
+  built development app and no production Safari target is selected.
+- Release checking now uses the package version instead of a stale constant;
+  26 update/recovery tests pass. Configured-model X qualification, installed
+  native permission/ownership controls and complete research delivery remain open.
+
 # Changelog
+
+## Unreleased — first live Safari/X trial (O15.3)
+
+- The development helper read a real X profile, completed a native scroll and
+  navigated to its replies view. A separate fresh observation captured visible
+  reply text. No model call or social action ran in this trial.
+- Separate changes to document geometry from window/tab identity checks so the
+  bounded post-action settling loop can discard an unstable observation without
+  repeating the action. Native compilation/signature checks and 23 focused tests
+  passed. Earlier failed receipts and explicit reconciliation remain preserved.
+- A later scroll still blocked when page text changed between observations.
+  Safe pre-action refresh, individual post/link discovery and the research worker
+  remain open; this is supervised development capability, not unattended or
+  installed research readiness.
+
+## Unreleased — blind XLSX agent handoff (O14)
+
+- Extend the persistent impact handoff to reviewed XLSX fact changes. Freeze the
+  exact request, source versions and impact plan before agent dispatch; expose
+  a desktop-independent CLI action and stale-plan inspection.
+- Admit an external agent's XLSX under an idempotent key only when the exact
+  affected cells change and all other values, formulas, styles and links remain
+  unchanged. Preserve the candidate, checks and independent technical review
+  in the `.relay` JSON/SQLite views. Mark external dispatch/attempt evidence as
+  outside Relay's runtime; block deletion of shared source versions cited by
+  another job's XLSX handoff.
+- A pre-frozen, small blind case passed: one affected, one supported unchanged
+  and two unknown material cells were handled correctly. Four of eight XLSX
+  package members changed during the agent export; the 19 untouched cell states
+  were preserved. The candidate is technically reviewed but unselected. Forty-four
+  focused controlled tests passed. The installed app and live jobs were unchanged.
+
+## Unreleased — frozen Safari text reviewer (O15.3)
+
+- Add a fresh, tool-free Gemini reviewer with pinned pack versions, explicit claims,
+  one-call/output limits, native usage and literal text citations. Screenshot and
+  broader coverage claims remain insufficient; review does not imply acceptance.
+- Commit submission before provider work, preserve unknown outcomes without replay,
+  and finalize saved responses locally after publication interruption. Invalid
+  replies and reconciliation notes remain in the shared job record.
+- Register both pack and review as declared downstream inputs, include review
+  history in job views, and preserve ownership/deletion blockers. Controlled
+  scripted tests and a saved native-pack trial pass; scripted reports are clearly
+  labeled. Live provider execution requires its separate explicit CLI grant.
+- The first authorized provider trial returned the expected three synthetic-text
+  verdicts and retained usage, but report publication was rejected because
+  `limitations` was a string rather than a list. Preserve that invalid response
+  without replay. New requests now freeze an explicit output schema and clarify
+  the limitations list; controlled regression checks pass. A separately authorized
+  second call with that schema returned HTTP 400 (invalid argument), with no report
+  or usage receipt. Preserve the unresolved attempt and block replay. The rejected
+  argument is not identified.
+- Simplify new provider schemas to types, required fields and verdict enums;
+  preserve the strict local size, extra-field, citation and coverage checks.
+  A newly authorized call on the same synthetic pack now passes live validation
+  and registers its review report. The prior invalid reply and reconciled failed
+  attempt remain preserved. This qualifies saved synthetic text, not real-site
+  research or installed behavior. Twenty-six focused checks pass.
+- Retain bounded, redacted provider field violations when supplied, and save
+  provider rejection diagnostics in the review record without automatic retry.
+
+## Unreleased — selected-bundle continuation (O14)
+
+- Add a bounded continuation contract for a selected native/companion set. An
+  exact request freezes the selected parent, decision receipt, PPTX text/notes
+  manifest, JSON patches, cross-file checks and reused artifact identities before
+  candidate production. Submission reconstructs every declared edit, compares
+  all PPTX members, rejects changed image bytes or relationships, and registers
+  new candidate versions atomically. The job views, process ledger and deletion
+  ownership include the new records.
+- The copied rose job now has a second candidate updating selection and image-use
+  wording from the user's saved decisions. Four of 262 PPTX members changed;
+  image bytes, relationships and 258 other members were reused. All 13 declared
+  cross-file checks passed. The two affected slides were rendered and inspected.
+  The user's exact positive review was recorded, and the second set was selected
+  in the isolated job copy. The first selected set remains in history; the live
+  app and pipeline are unchanged. The relevant focused suite passed 102 tests.
+- Add separate exact-version continuation review and selection decisions. A
+  selected continuation supersedes its parent in the job view while retaining
+  both versions and their receipts. The copied rose job now exercises this path.
+
+## Unreleased — saved Safari evidence handoff (O15.3)
+
+- Freeze settled native sessions into a versioned ZIP with exact text/PNG bytes,
+  source URLs, timestamps, coverage limits, approved scope, action receipts and
+  recovery decisions. Register the pack as an immutable artifact for declared
+  downstream inputs; integrity checks never imply independent review or acceptance.
+- Journal export intent before publication. Interrupted exports recover only from
+  the frozen saved bytes or the exact already-written ZIP. Changed, missing or
+  unresolved source evidence blocks export; no helper or provider is invoked.
+- Add CLI export, inspection and offline verification, plus optional post-commit
+  `.relay` publication with separate retry. Job ownership includes pack records,
+  registration receipts and artifacts; another job's declared input blocks deletion.
+- A copied native fixture exported three prior text/PNG observations and passed
+  offline verification with zero new browser/provider calls. Focused controlled
+  tests cover corruption, interrupted registration, duplicate keys, unknown
+  outcomes, downstream ownership and job-view export. Model research and
+  independent semantic review remain open.
+
+## Unreleased — versioned native and companion revision set (O14)
+
+- Add a desktop-independent `.relay` revision bundle for a frozen native PPTX
+  replacement handoff. It records exact companion JSON patches, baseline and
+  candidate artifact hashes, the PPTX candidate, declared cross-file checks and
+  the submitted set digest. Submission is atomic and idempotent; review and
+  selection remain separate decisions. The job JSON/SQLite views, process ledger
+  and deletion ownership include the new records.
+- Add exact independent bundle review and atomic selection with its native PPTX
+  candidate. Selection projects all three revised artifacts together, supersedes
+  their baseline versions in the job view, and is blocked until both bundle and
+  native candidate reviews accept the pinned hashes. The user's exact rose
+  feedback and later permission attestation are recorded against the pinned image
+  and set. A second bundle for the same handoff cannot also be selected. The
+  approved set was selected in the isolated job copy. No live
+  pipeline or installed app changed.
+- Bundle verification reports the current decision status separately from
+  immutable submission checks, so a selected set does not appear pending solely
+  because its admission receipt predates review.
+- In an isolated copy of the 45-slide plant job, correct a misleading slide 18
+  speaker note and register matching `slides.json` and photo-manifest candidates
+  with the user-provided rose image. All 13 declared cross-file checks pass. The
+  newer PPTX changes only one notes XML member relative to the layout-reviewed
+  candidate; visible slide members are byte-identical. The revised set remains
+  unreviewed and unselected. Species, site suitability and image rights remain
+  unresolved; the original delivery and installed app were unchanged.
+
+## Unreleased — Desktop Safari session controls (O15.3)
+
+- Add a development companion panel for existing native Safari sessions. It shows
+  exact approved requests and scope, saved action receipts and recent decision
+  excerpts. Receipt hashes are displayed without claiming file verification or
+  independent evidence review.
+- Keep the saved-session entry available during unfinished messenger onboarding;
+  inspecting or stopping an existing native session does not require Telegram setup.
+  A separate native development preview confirmed this entry, required notes and
+  saved Pause/Cancel decisions for two synthetic sessions. Its database recorded
+  zero native actions; the installed app and live data were unchanged.
+- Pause and Cancel compare the inspected assignment and action state inside the
+  shared database transaction. Changed sessions require a refresh; cancellation
+  preserves unresolved actions, and a lost control reply is never automatically
+  retried. No helper, browser or provider is invoked by this panel.
+- Nineteen focused Python tests and an isolated DOM/controller fixture pass,
+  including in-flight pause, stale decisions, unknown outcomes, out-of-order UI
+  replies and no automatic retry. Generated UI assets include the panel. This is
+  source development only; session setup/resume, model research and evidence
+  handoff remain open. No installed app was rebuilt or reloaded.
+
+## Unreleased — external-agent native candidate admission (O14)
+
+- Record exact, version-bound user layout feedback separately from candidate
+  acceptance. The scoped `visual_layout` assessment appears in the read-only
+  job projection and process ledger and remains job-owned for deletion. It cannot
+  satisfy the independent semantic review or selection gate. The copied rose
+  candidate now retains the user's exact positive layout comment; no broader
+  review or selection was inferred. Forty affected controlled tests passed.
+- Add a typed native picture-replacement handoff that pins the exact user image
+  before candidate submission. Candidate admission requires that pinned hash;
+  the job view and delete ownership include the handoff input. Native PPTX
+  picture replacement can preserve portrait aspect ratio within existing bounds
+  and removes old picture bytes only when no remaining relation uses them.
+- In a copied 45-slide plant job, the user's rose image produced a separate
+  18-location candidate. Render review exposed two shared sourcing footers that
+  the first replacement draft missed; they were linked before a new handoff.
+  The final candidate matched all 262 reconstructed package members and remains
+  pending review. Species, site suitability, image rights and companion-file
+  reconciliation remain unresolved; the original delivery and installed app
+  were unchanged. The 58 focused controlled tests passed.
+- Add a desktop-independent `candidate submit-native|verify|review|select` contract
+  for a frozen, current PPTX withdrawal handoff. An agent supplies a native file,
+  exact edit manifest and declared picture inputs. Relay pins their hashes,
+  reconstructs the allowed edit from the registered baseline, and compares every
+  OOXML member before registering the candidate. Reordered ZIP members are allowed;
+  undeclared slide/package changes, stale plans and changed registered inputs fail.
+- Record candidate submission, verification checks, independent review and explicit
+  selection separately in the authoritative job database. Project them and missing
+  declared-input markers into read-only `.relay` JSON/SQLite and process records.
+  Include candidate artifacts and registration receipts in exact job deletion
+  ownership; cross-job references block deletion. Same-key submission retries a
+  failed post-commit job-view export without duplicating the candidate.
+- Five controlled candidate tests and affected job-view/deletion tests pass with the
+  presentations runtime. This does not qualify a real agent-produced plant-deck
+  revision, visual or semantic accuracy, installed-app behavior or provider execution.
+- Treat a missing native evidence reader as `unverifiable` during frozen handoff
+  inspection. It can no longer make unchanged evidence appear `stale`; the
+  controlled missing-reader and recovery checks pass. A complete runtime still
+  rechecks the saved source bytes before declaring the handoff current.
+- Add exact native PPTX speaker-note runs to reviewed links and conservative
+  impact, plus bounded note-run, table-row and shape removal edits. A structural
+  removal must cover every reviewed run or picture it deletes; orphaned picture
+  bytes are removed from the PPTX package. The copied 45-slide Oleander case
+  exposed six previously untracked notes runs, then admitted a removal-only
+  candidate against a new 16-location handoff. The candidate is pending review;
+  its photo slide has empty space and the older companion files still contain
+  Oleander. No live job or installed app changed.
+
+## Unreleased — bounded native Safari sessions (O15.2)
+
+- Add finite `computer-use session-*` approval, run, inspection, pause/cancel and
+  explicit recovery commands for existing saved pipeline jobs. Freeze exact
+  requests, URL/action scope, limits, helper identity and output ownership in the
+  shared database; commit action intent before native dispatch.
+- Retain a selected Safari tab in a private persistent helper process. Navigate
+  through the identified address field and scroll only the document control;
+  check focus, tab, URL and text before actions. Serialize sessions/diagnostics
+  with a host-user lease. Native pipe reads and writes have bounded waits.
+- Preserve unknown results and skip consumed actions after an explicit recovery
+  decision. Completed duplicates verify saved evidence without dispatch. Include
+  the new records in the job process ledger and block deletion until active or
+  uncertain work is reconciled; preserve native files.
+- A local native sequence captured page one, navigated to page two and scrolled
+  to its expected marker, preserving three text/PNG receipts. A native tab switch
+  blocked a queued scroll. Focused controlled tests cover dispatch ordering,
+  interruption, no replay, pause/cancel, stale replies, budgets and ownership.
+  Earlier native failures and their explicit stop decisions remain preserved.
+- Development CLI only: Desktop controls, provider-driven research and reviewed
+  evidence handoff remain later work. Native redirect/permission-loss cases and
+  installed signing/permission behavior remain unqualified. No live job,
+  installed-app update, paid provider call or account research was performed.
+
+## Unreleased — Computer Use observation foundation (O15.1)
+
+- Add `computer-use build|status|windows|request-permissions|observe`, portable
+  request/evidence validation and a standalone macOS 14+ Swift helper using public
+  Accessibility and ScreenCaptureKit APIs. Development bundles are ad-hoc signed
+  and pinned to source/executable hashes; status never prompts or reads pages.
+- Bind each local observation to an exact Safari process launch, window and current
+  URL; check active document/focus/text before and after capture. Exclude editable
+  values, bound text/PNG output, and fail on unknown or changed targets. Preserve
+  exact intent and hashed unreviewed evidence; incomplete output cannot silently
+  replay or overwrite the observation.
+- Eleven controlled Python tests pass, covering identity/URL changes, interruption,
+  native aborts, publication failure, scope/bounds and unsupported hosts. Native
+  compilation and signature verification pass. After user-granted Accessibility,
+  a local Safari fixture returned five exact text lines and a selected-window PNG;
+  a wrong expected URL was rejected. Preserve failed receipts from earlier attempts.
+- Mark the uniquely focused window in discovery without returning titles or URLs;
+  identical bounds remain ambiguous. Verify the loaded web area's `AXURL` because
+  Safari did not expose window `AXDocument`. Initialize AppKit for the one-shot
+  helper before ScreenCaptureKit to fix the native screenshot crash. Installed
+  permission attribution and upgrade behavior remain unqualified. No provider
+  call, installation, production dispatch or runtime migration occurred.
+- Navigation, production action journals, desktop controls, provider-driven
+  research and independent evidence review remain later O15 steps. New output
+  folders contain local diagnostic receipts, not a second job database.
+
+## Unreleased — model-neutral change-plan handoff
+
+- Record an exact change request, caller key, actor, registered baseline and
+  conservative native-subject impact plan in one authoritative transaction.
+  Same-key retries reuse an identical frozen plan; changed evidence marks it
+  stale. Export the handoff after commit to the read-only `.relay` JSON/SQLite
+  job views and process ledger. A desktop-independent CLI inspects freshness;
+  recording or inspecting never edits a deliverable or dispatches an agent.
+- Include handoffs in exact job deletion ownership and block deletion when
+  another job's handoff references the baseline artifact. The current adapter
+  covers one typed PPTX subject withdrawal; agent consumption and candidate
+  validation remain to qualify.
+
+## Planned — native Computer Use (O15)
+
+- Add a [feature plan](docs/computer-use.md) and ordered roadmap gates for native
+  macOS Computer Use: selected Safari observation, bounded navigation and recovery,
+  provider-driven research with frozen evidence review, then installed live
+  qualification. Reuse the portable runtime and shared database with OS-specific
+  mechanisms behind a host adapter; no dependency on Codex's private controller.
+- This is documentation and planning only. No runtime behavior, capability
+  registration, installed version, OS permissions or execution authority changed.
+  General desktop actions, other OS adapters, bulk prospect research and automatic
+  requalification remain outside the initial scope.
+
+## Unreleased — exact native PPTX table-cell locations
+
+- `presentation inspect` reports zero-based row and column coordinates for
+  native table cells. A version-1 `pptx.edit` text edit can target one exact
+  cell when the same text occurs elsewhere in the table shape; missing or
+  ambiguous targets fail before a candidate is saved. Existing shape-targeted
+  manifests remain valid.
+- Freeze a read-only, hash-pinned 45-slide Bullhead City plant case. It locates
+  the Oleander schedule cell, photo and credit, and marks climate coverage
+  incomplete. A controlled in-memory edit changed that cell and preserved all
+  other package parts. No deliverable, provider run or comparative Work test occurred.
+- Add a bounded `native_subject` link adapter for exact JSON research lines and
+  photo-manifest entries to native PPTX table runs, text and pictures. Record
+  explicit coverage in authoritative SQLite and project it into the read-only
+  `.relay/job.sqlite`. A read-only withdrawal plan classifies reviewed linked
+  locations as affected, independent complete links as unaffected, and absent,
+  pending or stale links as unknown. Whole-slide completeness is unsupported.
+  Job deletion now owns these rows and blocks deletion when another job links to
+  its artifact. The isolated real-deck case projects 10 structural links, 17
+  coverage rows and a 10 affected / 0 certified unaffected / 7 unknown plan;
+  underlying botanical claims and photo identity remain unreviewed.
+- Accept exact page-and-text locators for registered PDF evidence. Project native
+  PowerPoint text-run coverage with the run value in its key, so two claims in
+  one shape remain distinct. Two independently reviewed primary-source PDFs add
+  eight exact climate-value links to the isolated plant job. Its current plan is
+  10 affected / 8 supported unaffected runs / 7 unknown broader slide
+  assessments; no whole slide or real candidate is certified.
+
+## 0.13.114 — in-window destructive confirmation
+
+- Replace the Tauri-blocked `window.confirm` calls for task Delete, job Delete
+  and local history Forget with one accessible in-window dialog. Cancel and
+  Escape leave the reviewed record untouched; the final button keeps the
+  existing exact-state digest check.
+- The 0.13.113 installed click exposed a serious confirmation bug: the host
+  denied the browser dialog command, but its pending Promise was truthy to the
+  synchronous guard. The target pavilion task received a complete local Delete
+  receipt at 12:00:59 UTC. Version 0.13.114 opened the new dialog for a second
+  eligible task; Cancel closed it, and read-only database inspection confirmed
+  that task still exists with no deletion receipt.
+
+## 0.13.113 — saved-work actions and desktop control rules
+
+- Allow the packaged Tauri host to dispatch the existing task Delete, job Delete
+  and shared-history actions. A packaged-host regression check now compares
+  companion action calls with the Rust allowlist, preventing a visible control
+  from failing before it reaches the Python bridge.
+- Show task and pipeline Delete errors inside the affected Saved work card.
+  Style Delete and Forget with one destructive button variant. Document the
+  companion's existing buttons, fields, cards, feedback and interaction rules in
+  [Desktop UI controls](docs/desktop-ui-system.md).
+
+## 0.13.112 — shared-history ownership guard
+
+- Require each retained Telegram request to have a completed, task-free
+  incoming-update deduplication row and an exact Telegram channel binding before
+  its local conversation text can be removed. Return the specific legacy or
+  blocked-history reason through the desktop bridge.
+- Fifty focused and affected source tests passed. Built and installed the signed
+  local update with 256 source-matching runtime files, app/database recovery
+  copies and fresh owned-service health. The installed runtime passed 30
+  standalone/job deletion tests; read-only bridge inspection showed zero
+  eligible current histories and the exact missing-ownership reason for the
+  older deleted job. No live history or provider/channel work was touched.
+
+## 0.13.111 — bounded shared Telegram history deletion
+
+- Freeze a standalone job's exact retained request and sent-event IDs in its
+  guarded deletion receipt. The receipt and preview digest include retained
+  delivery rows so a later history action cannot infer ownership from names.
+- Add a separately confirmed Saved work action that removes those local
+  conversation request rows and clears sent Telegram notice text atomically.
+  Preserve event IDs, sent acknowledgements, incoming-update deduplication,
+  channel and reply routing, external Telegram messages, native files, uploads
+  and already frozen copies. Missing, pending, newly referenced or altered
+  history blocks the action. Legacy receipts and Messages history are excluded.
+- Fifteen focused standalone tests, 34 affected job/task/library tests, and a
+  controlled synthetic job on a consistent real-database copy passed. The only
+  previously deleted live job has a legacy receipt and is correctly ineligible.
+  No live history was deleted or channel/provider work submitted.
+- Built and installed signed local 0.13.111 with 256 source-matching runtime
+  files, app/database recovery copies and fresh owned-service health. The
+  installed runtime passed 29 standalone/job deletion tests; the installed
+  read-only bridge listed no eligible legacy history action.
+
+## 0.13.110 — guarded managed-task history lifecycle
+
+- Add a development-source Delete preview and exact-state deletion for one idle,
+  exclusively owned Relay-managed provider task. It removes proven local task,
+  turn, routing and sent-delivery records atomically and retries private provider
+  trace cleanup from a durable receipt. External channel/provider conversations,
+  project folders and native/input files remain. Active, uncertain, shared,
+  pipeline-linked or unclassified work blocks deletion. Saved work offers Delete
+  only for an unblocked task.
+- Extend exact ownership to one direct image/video request with one completed
+  provider turn. Preserve completed attachment batches and uploaded files as
+  once-only caption history, keyed by the permanent deletion receipt. A late
+  album member remains a notice and cannot resubmit the deleted caption.
+- Eleven focused task-deletion tests and 31 affected job/library tests passed. An
+  isolated copy of a real independent image task deleted 28 owned rows and
+  three copied private traces while retaining its attachment batch and upload.
+  Four of 18 current managed tasks have unblocked read-only previews. No live
+  task was deleted. Three broader desktop task submission tests failed in
+  an unchanged bridge path that assigns `policy_path` to a null Telegram fixture;
+  they do not exercise the new Delete path.
+- Built and installed signed local 0.13.110 with 255 source-matching runtime
+  files, app/database recovery copies and fresh owned-service health. Installed
+  runtime task and job deletion tests passed 25 checks. The installed read-only bridge
+  listed 206 saved tasks, including four eligible managed tasks, and verified
+  one unblocked 28-row independent image preview. No live task was deleted or
+  provider/channel work submitted. Installation evidence is under
+  `outputs/app-update-013110/`.
+
+## 0.13.109 — standalone result ownership and guarded Delete
+
+- Record a selected standalone result's exact root plan, request hash, channel and
+  current run in authoritative SQLite before exporting its `.relay` view. The
+  process ledger projects that ownership row and marks older exports missing it.
+  Repeated handoff of the same run leaves the record stable.
+- Let Saved work preview and delete a proven standalone result graph after fresh
+  digest confirmation. A selected historical result can receive an explicit
+  verified ownership backfill when its database ancestry, sent handoff and Relay
+  folder marker agree. Active work, pending delivery, missing records, shared
+  plans/runs, external artifact use and unknown typed references block deletion.
+  The database deletion is atomic; private view cleanup retries from a durable
+  receipt. Native deliverable copies and shared channel conversation and sent
+  delivery records remain. This does not delete ordinary watched agent chats.
+- Installed signed local 0.13.109 with 254 source-matching runtime files, strict
+  signature verification, app/database recovery copies and fresh owned-service
+  health. 83 focused tests and bundled-runtime ownership tests passed. A read-only
+  in-memory copy of the real database produced two historical ownership previews:
+  one blocked by active/uncertain work and one unblocked. The installed read-only
+  bridge lists both historical registration candidates; no live ownership
+  backfill or deletion occurred. Checks are under `outputs/standalone-ownership/`
+  and `outputs/app-update-013109/`.
+- Post-install live trial, 2026-09-28: after explicit user approval, registered
+  the historical Cidade Velha Rhino result, reviewed the fresh installed-app
+  Delete preview and deleted its 155 owned records. The receipt completed,
+  private `.relay` metadata was removed, the selected 3DM/script/checks hashes
+  matched before and after, and shared sent delivery records remained. The
+  installed workflow listing no longer shows the job. Verification is under
+  `outputs/standalone-ownership/live-delete-result.json`.
+
+## 0.13.108 — local app update, Grasshopper and revision review
+
+- Installed a signed local 0.13.108 bundle with 254 source-matching runtime files,
+  strict signature verification, guarded app/database recovery copies and fresh
+  owned-service health. The installed runtime registers `rhino.grasshopper` and
+  detects Rhino 8.35. A read-only installed bridge check on a disposable Yamaha
+  job copy lists and verifies the newer translation candidate and permits review;
+  it made no review decision or selection. The fixed native Grasshopper fixtures
+  below were run against development source, not through the installed app.
+
+### Rhino 7 Grasshopper compatibility
+
+- Extend `rhino.grasshopper` to the selected Rhino 7 installation on macOS,
+  using IronPython 2.7 and its bundled Grasshopper/GhPython libraries. Keep exact
+  runtime/library approval, independent reopen/solve checks and no-replay rules.
+- Reuse Rhino 7's loaded or cached assemblies only when their bytes match the
+  selected libraries; avoid duplicate CLR type identities. Decode authoring
+  source as UTF-8 and preserve Unicode object names and diagnostic line numbers.
+  Preparation validates Rhino 7 script bounds/encoding without treating Python 3
+  syntax validation as authoritative; native IronPython compiles before authoring.
+- Add an explicit per-process `--rhino-version` qualification selector. Rhino 7
+  uses owned workers and must be closed before execution; it does not gain Rhino
+  8's shared-session transport.
+- The fixed native fixture passed on Rhino 7.32 in separate owned build and
+  verification processes, with `.gh`/`.ghx`, embedded GhPython/template data,
+  preserved Unicode names and no solve errors or warnings. 85 focused tests
+  passed. Earlier confirmed failures and subsequent corrected attempts are
+  retained under `outputs/grasshopper-support/`; no uncertain attempt was replayed.
+
+### Grasshopper definition authoring
+
+- Add `rhino.grasshopper` for new definitions in Rhino 8 on macOS using the
+  installation's `Grasshopper.dll`, `GH_IO.dll` and `GhPython.gha`. Approved Python
+  can author sliders, components, wires, panels and embedded generator/template
+  data. Relay writes genuine `.gh` and `.ghx` with `GH_DocumentIO.SaveQuiet`, then
+  independently reopens and solves each to check graph identities, connections,
+  runtime errors and declared output counts. Warnings require review.
+- Bind approval to exact script, checks, assets, application and library hashes;
+  retain source, native candidates, verification and execution receipts. Reuse
+  Rhino's host adapter and no-replay recovery rules. Planner preparation supplies
+  the frozen Grasshopper contract and validator; execution requires a separate
+  Start, independent output review and candidate selection.
+- A controlled four-object native fixture passed on Rhino 8.35, including embedded
+  GhPython and template data in both saved formats, with no runtime errors or
+  warnings. Focused regression checks cover preparation, approval, failure,
+  tampering, coexistence and delivery. Commands and results are recorded under
+  `outputs/grasshopper-support/`. Installation does not qualify a live
+  provider/channel run. Editing existing definitions,
+  baking, third-party plugin installation and visual/geometric fidelity remain
+  outside the operation.
+
+### Selected translation link continuation
+
+- On explicit acceptance and selection of a translation candidate, validate and
+  carry each exact row link to the selected workbook in the same transaction as
+  the selection receipt. Bind transferred rows to the replacement source version;
+  retain historical bindings only for rows that cannot be matched. A changed
+  translation remains unresolved and loses its prior confirmation URL. Each new
+  link records the parent link, selection ID and candidate hash. A supported row
+  with an unresolved replacement source blocks selection.
+- Controlled tests proved a second source-name revision after restart, atomic
+  rollback on link-transfer failure, and idempotent recovery after a committed
+  selection whose job-view export failed. 58 focused tests passed. No real
+  candidate was accepted or selected. Checks are recorded under
+  `outputs/o14-link-continuation/`.
+- A frozen real-file Yamaha holdout changed a different part and moved two source
+  rows. The isolated candidate identified one affected, six supported unchanged
+  and three unknown names; exact candidate review passed without acceptance or
+  selection. The original ten-cell scoring rule missed three justified source
+  locator updates for unresolved rows, so the strict preregistered assertion
+  failed and the adjudicated semantic check passed. An unsupported fixture channel
+  interrupted job-view export; recovery reused the same committed candidate.
+  This was not an independent-agent comparison or installed-app check. Records
+  are under `outputs/o14-holdout/`.
+- A fresh general-agent control independently revised the same frozen Yamaha
+  inputs. It passed the original ten-cell rule; Relay failed that strict rule by
+  three valid source-locator edits, and both passed the separately documented
+  semantic rule. Both removed the unsupported translation and preserved six
+  supported names. The control retained the green confirmed fill on the new
+  review state; Relay used yellow. Installed 0.13.107 listed but could not verify
+  the newer candidate in a read-only disposable job copy (`stale plan`). Installed
+  0.13.108 now verifies it; no live decision or selection occurred. The comparison
+  and earlier bridge receipts are under `outputs/o14-independent/`.
+
+### Motorcycle revision provenance and comparison
+
+- Rebind exact source file locators when a reviewed translation pilot is revised
+  against a replacement source. Reject a reviewed link whose native output source
+  locator disagrees with the registered source, update the stored source row
+  when replacement rows move, and classify non-name source record drift as
+  unknown instead of supported unchanged. The prior isolated candidate remains
+  unselected; the fix is in installed 0.13.108.
+- Compare the selected ten-part motorcycle pilot against a fresh general agent
+  using a frozen five-file input set. Both methods flagged part `10014`, kept six
+  supported names and three unknown Yamaha names, and produced reviewable work.
+  The control found five stale source locators in Relay's original candidate.
+  After the fix, Relay and the control changed the same 11 logical cells; the
+  corrected Relay candidate changed two OOXML parts versus nine for the control.
+  This post-control repair is not a blind advantage claim. Focused tests passed
+  54 checks; run records are under `outputs/o14-comparative/`. No candidate was
+  reviewed or selected, and no live job or provider was used.
+
+## 0.13.107 — exclusive media-task deletion
+
+- Allow pipeline Delete to include one proven exclusive completed Gemini image
+  task, its Relay-local routes, provider records and delivery receipts. Reused,
+  active, uncertain, incomplete or externally referenced tasks block deletion.
+  Freeze exact private provider trace paths and hashes in the atomic deletion
+  receipt; interrupted file cleanup can retry without replaying database deletion.
+  Native deliverables and shared channel conversation history remain.
+- Focused tests and an isolated SQLite copy of a completed real media pipeline
+  passed. The copy removed one media task and three private provider traces while
+  preserving shared conversation records and native output. Built, locally signed
+  and installed 0.13.107 with 252 source-matching runtime files, strict signature,
+  app/database recovery copies and fresh owned-service health. The installed
+  runtime gave an unblocked read-only preview of that real pipeline: one media
+  task and 394 owned rows. No live job was deleted or provider work submitted.
+
+## 0.13.106 — media-stage process ownership
+
+- Record an exact media-stage link to its request, backend job and separate agent
+  task in the enqueue transaction. Version 2 of the job-process projection includes
+  the linked agent execution, frozen media inputs and attributable delivery
+  receipts, and explicitly marks shared conversation history outside job scope.
+  An explicit verified backfill populated the link on an isolated copy and then
+  on one completed live media pipeline: 25 media-stage records, eight attributable
+  delivery records and no unrelated backend turns. Its refreshed JSON and SQLite
+  job views agree on one snapshot. Pipeline Delete still blocks on the separate task.
+- Built, locally signed and installed 0.13.106 with 252 source-matching runtime
+  files and strict signature verification. The installer completed with app and
+  database recovery copies and fresh owned-service health. The first prepared
+  manifest was refused because a bundled Python import created two cache files
+  after preparation; a clean rebuilt and signed candidate passed the fresh
+  manifest. No pipeline was deleted or provider work resubmitted.
+
+## 0.13.105 — saved work deletion and `.relay` priority
+- Add a permanent Delete control for saved pipelines with an exact ownership
+  preview and confirmation. It removes proven pipeline, plan, run, attempt,
+  revision and delivery records atomically; active, uncertain, missing and shared
+  downstream work blocks deletion. A durable receipt retries private `.relay`
+  view and Relay metadata cleanup after interruption or service restart. Native
+  deliverable copies and external project files remain. Watched agent tasks and
+  shared conversation history have separate ownership boundaries.
+- Focused tests and a controlled desktop fixture passed. An isolated copy of a
+  completed pipeline removed 254 owned rows across 29 tables while preserving
+  a PPTX deliverable copy; the live database was not changed. Built, signed and
+  installed 0.13.105 locally with 251 matching runtime files, strict signature,
+  app/database recovery copies and fresh owned-service health. Installed Saved
+  work shows 13 pipelines and their Delete controls. An actual live deletion
+  remains unexercised. Same-version repairs corrected the UI version string,
+  Tauri action allowlist and ownership guard for media stages linked to separate
+  agent tasks. Private-view cleanup now uses the exporter's per-job lock and
+  leaves a retry receipt when that lock is busy.
+
+- Project exact committed requests, stage plans, assignments, attempts, checks,
+  decisions, exceptions and recovery receipts into the versioned job JSON and
+  format-neutral `.relay/job.sqlite`. Publish per-category coverage and named
+  gaps for missing referenced records and an external marker for shared channel
+  history. A standalone Python reader inspects the SQLite view without Relay
+  Desktop. The shared database remains authoritative.
+- Add paginated saved tasks and pipeline, run, plan and linked-workflow inventory
+  to the desktop companion. Hide the revision-candidates control when no candidate
+  is registered. Only proven saved pipelines currently offer Delete.
+- Clarify that the per-job SQLite file is an incomplete read-only projection.
+  Prioritize a complete process ledger before the real-case revision comparison.
+
+## 0.13.104 — reject unlinked presentation source plans
+
+- Refuse a PPTX impact plan when the claimed original source has no reviewed
+  link to the baseline deck. A controlled regression check covers that failure;
+  49 focused revision, export and desktop tests pass.
+- Rebuilt, signed and installed the local app. The installer completed with app
+  and SQLite backups and fresh owned-service health; all 248 installed runtime
+  files match source, the strict signature verifies and the installed bundled
+  bridge verifies the unreviewed synthetic PPTX candidate read-only. The normal
+  companion reports version 0.13.104. This is a local update, not a public release.
+
+## 0.13.103 — bounded PPTX revision transfer
+
+- Add explicit reviewed links from XLSX source cells to exact PPTX slide text
+  runs. A registered source replacement classifies declared runs as affected,
+  supported unchanged or unknown. `pptx.edit` creates a distinct candidate for
+  changed runs and verifies untouched package parts; review and selection remain
+  separate exact-version decisions. Job JSON and SQLite exports and the desktop
+  review screen expose the same reviewed-link and impact records.
+- A synthetic three-slide replay changed one plant run, preserved the climate
+  slide byte-for-byte and kept an unlinked statement unknown. The candidate was
+  rendered for visual inspection and displayed in the installed app using a
+  disposable job copy. No review, selection, provider work or live message was
+  recorded. Focused tests passed 48 checks, including exact desktop decision
+  receipts in a controlled fixture.
+- Built and locally installed a signed 0.13.103 app; 248 installed runtime files
+  match source and the strict signature verifies. The installer saved app and
+  SQLite recovery copies, then retained a `needs_inspection` receipt because its
+  Telegram poll heartbeat did not refresh within the health window. The poll
+  heartbeat later recovered and the normal companion reported Relay running.
+  This is not a public release or a completed installer health receipt. Details
+  are under `outputs/o14-pptx-transfer/`.
+
+## 0.13.102 — installed revision review inspection
+
+- Opened the installed review screen against a disposable copy of the ten-part
+  motorcycle job. It displayed the exact candidate and version hashes, six
+  changed cells in the affected row, one affected translation, six supported
+  unchanged translations, three unknowns, saved evidence and separate review
+  controls. No accept, revise or selection action was taken; the live job and
+  messaging service retained their prior state.
+- Correct the local app status footer to report the installed package version
+  rather than the public release metadata. The installed footer now shows
+  0.13.102. Focused launcher/companion/bridge checks passed 17 tests. The signed
+  local update passed strict signature and 247-file source identity checks; the
+  installer saved app/database recovery copies and recorded fresh owned-service
+  health. This is a local update, not a public release. Checks and limitations
+  are under `outputs/o14-shared-links/`.
+
+## 0.13.101 — local O14 revision update
+
+- Built and installed the locally signed Mac app after preserving the earlier
+  candidate plan digest for compatibility. An isolated motorcycle candidate
+  still verifies with one affected, six supported unchanged and three unknown
+  rows; no review or selection was recorded. New candidates separately verify
+  their saved shared impact record. The installer completed with app and SQLite
+  backups, fresh owned-service health, 247 installed runtime files matching
+  source, and strict signature verification. The installed UI review click path
+  has not been qualified; this is a local update, not a public release.
+- Focused revision, workflow export, migration and desktop bridge tests passed
+  58 tests after the compatibility fix. The built and installed bundled bridges
+  both passed a read-only check against the earlier isolated job. Exact commands
+  and limitations are under `outputs/o14-shared-links/`.
+
+- Normalize the material-cell and parts-translation pilots into one reviewed-link
+  model with typed source/output locators, evidence, coverage and exact version
+  hashes. Both planners now attach a common affected/unaffected/unknown record;
+  unsupported unaffected claims fail. Candidate registration saves that record
+  atomically with the candidate, and read-only job JSON/SQLite exports expose
+  the links, coverage and impact. The desktop review reads these shared links.
+  Focused `tests.test_fact_revisions tests.test_translation_revisions
+  tests.test_workflow_files tests.test_migrations tests.test_desktop_bridge` passed
+  57 tests with the bundled Python runtime before the 0.13.101 build above.
+- Add one desktop revision review surface for the material-cell and parts-translation
+  adapters. It displays affected, supported unchanged and unknown locations,
+  exact artifact hashes, saved evidence and candidate checks. Human accept/revise
+  and later selection are separate actions with exact-version validation and
+  idempotent desktop request receipts. Decisions refresh read-only job exports
+  after commit. The selected real motorcycle pilot is still unreviewed and
+  unselected; direct interaction with the installed review screen remains unqualified.
+- Focused source checks: bundled Python `-m unittest tests.test_translation_revisions
+  tests.test_fact_revisions tests.test_workflow_files tests.test_migrations
+  tests.test_desktop_bridge tests.test_companion tests.test_desktop_staging`
+  passed 61 tests. `node --check task_relay/assets/companion.js`,
+  `npm run sync-ui` and a local headless Chrome companion fixture passed. Rust
+  was unavailable for that source-stage check; the 0.13.101 app was later built.
+  A saved candidate remains readable on an older database that lacks the new
+  decision tables; the screen requires a service restart before accepting input.
+  The generic read-only preview of the
+  isolated real candidate reported one affected, six supported unchanged and
+  three unresolved rows. No live decision or provider work occurred.
+- Add a bounded translation revision path for the selected ten-part motorcycle
+  pilot. It binds exact original source rows and reviewed output rows, plans a
+  source-name change conservatively, and writes a separate XLSX candidate that
+  clears the affected Russian name and name-confirmation URL for review. Saved
+  catalog evidence remains historical; no lookup or translation is invented.
+  The read-only job SQLite export includes these links and revisions.
+- An isolated real-file replay changed only a copy of Harley `Лист1!B7` (`CLAMP`
+  to `BOLT`). It marked one translation for review, preserved six supported
+  translations, left three unresolved names blank, and did not select the
+  candidate. A direct workbook comparison found changes only at `D8`, `F8`,
+  `G8`, `H8`, `O8` and `P8`; original input hashes stayed unchanged. This was a
+  development-source check, not an installed-app or provider run.
+- Focused checks: bundled Python `-m unittest tests.test_translation_revisions
+  tests.test_fact_revisions tests.test_workflow_files tests.test_migrations`
+  passed 43 tests. The private real-file replay and direct candidate inspection
+  passed; commands and limits are recorded under `outputs/o14-motorcycle-revision/`.
+- Freeze a tiny supplier-to-catalog acceptance case with one changed material,
+  one independent material and one missing-source output. Add opt-in reviewed
+  source fact and output-cell bindings to the authoritative SQLite database.
+- Add read-only impact planning for an explicit source version replacement. It
+  distinguishes affected, supported unaffected and unknown locations, and
+  rejects missing or duplicate keys, stale artifacts and conflicting evidence.
+- Export a queryable, read-only `.relay/job.sqlite` projection for saved workflows.
+  Register a distinct simple-XLSX candidate only for exact reviewed patches;
+  verify unchanged cell values, formulas and styles. Add separate candidate
+  review and explicit selection records. Candidate generation does not select a
+  result or dispatch a worker; app-facing controls remain open.
+- Controlled checks: `python3 -m unittest tests.test_fact_revisions
+  tests.test_workflow_files tests.test_migrations` passed 41 tests using the
+  bundled Python runtime. This is source behavior, not an installed app or
+  real supplier-case qualification; independent candidate review remains open.
+
+## 0.13.100 — recover a reviewed file-stage chain
+
+- Permit a bounded sequential chain of file-only producer/reviewer pairs when
+  each later producer depends on the preceding review. Browser work and
+  registered operations are not enabled by this graph shape. The default
+  planning proposal remains one pair, and every proposed plan still needs the
+  user's Start approval. `plan-222690940` proposed the requested four tasks twice but the
+  old gate treated its attached catalog packet as supplied evidence and then
+  rejected four file tasks before checking the graph.
+- In that file-stage chain, accept a separately registered baseline copy only
+  when its size, SHA-256 and filename match the selected historical artifact.
+  Record both artifact IDs in plan provenance and the approval preview.
+  Different bytes still fail.
+- Controlled checks: `tests.test_external_evidence_planning` passed 14 tests;
+  read-only validation of saved planner call 2 now yields the requested four
+  tasks and an explicit baseline-copy receipt. No browser, provider, worker or
+  Telegram message was dispatched by these checks.
+- Installed the signed local macOS app with app/database recovery backups,
+  243 matching runtime files, strict signature verification and fresh owned-service
+  health. The saved proposal remains blocked and unstarted until the user runs
+  `/orchestrator recover-plan plan-222690940` and reviews the new Start card.
+
+## 0.13.99 — recover the saved four-task proposal
+
+- Treat an explicit request to research exact catalog articles, record URLs and
+  then produce a workbook as an external-evidence stage. `plan-222690935` was
+  classified as a simple producer/reviewer pair, so both four-task planner
+  responses failed before dispatch. The saved second response now validates
+  offline with four tasks and a 16-request browser research limit.
+- Add `/orchestrator recover-plan PLAN_ID` for a blocked, unstarted Telegram
+  proposal. It revalidates a saved response and publishes a new approval card
+  without another planning provider call, while preserving the failed record.
+  Planning-only cards still require an explicit execution request and Start.
+- Controlled checks: `tests.test_external_evidence_planning` (13 tests) and
+  `tests.test_orchestrator_chat` (29 tests) passed. No saved plan was recovered
+  or worker dispatched during the repair.
+- Installed the signed local macOS app with app/database recovery backups, 243
+  matching runtime files and fresh owned-service health. The original plan
+  remains blocked with two calls, no run and no recovered successor.
+
+## 0.13.98 — reject empty browser evidence
+
+- In `production-222690930`, the browser research worker made eight provider
+  requests but never submitted a Yamaha part-number search. It opened Google's
+  home page, wrote `{}` as its evidence file, and claimed completion. The
+  independent reviewer rejected the empty output, so the workbook tasks did not
+  start. This run remains blocked; its attempts are not replayed.
+- Browser text outputs now reject empty objects, arrays and placeholder content
+  when written. Browser research instructions direct the worker to exact search
+  or listing URLs early and require observed findings or explicit unresolved
+  gaps. A controlled browser worker regression reproduces the empty-output
+  attempt and confirms that no deliverable is recorded from it.
+- Installed the signed 0.13.98 local macOS app with app/database recovery
+  backups. All 243 installed runtime files match source, the installed signature
+  verifies, and owned-service health is fresh. No browser search or workbook
+  worker was rerun during the repair.
+
+## 0.13.97 — deduplicate browser research inputs
+
+- Keep a browser research worker's explicit source choices and include only one
+  implicit copy of each byte-identical text source captured across parent and
+  follow-up plans. The saved four-part plan `plan-222690929` had two copies of
+  several source files, making its browser input pack 565,904 bytes and exceeding
+  the 512 KB worker limit before dispatch. Exact artifact versions remain in the
+  job record; this change does not raise the worker limit.
+- Controlled check: `python3 -m unittest tests.test_external_evidence_planning
+  tests.test_stage_setup` passed 23 tests, including selected and implicit
+  duplicate-source regression cases. The saved second planner response validated
+  offline with seven browser inputs. No worker or provider ran in that replay.
+- Installed the signed local macOS app with app/database recovery backups. All
+  243 installed runtime files match source, the installed signature verifies and
+  owned-service health is fresh. The blocked plan retains its two calls and has
+  no run; no provider replan or worker dispatch was performed during this repair.
+
+## 0.13.96 — typed browser planning contract
+
+- Require the planner's browser object to contain the profile, exact origins,
+  interaction scope, action/tab limits and transfer lists. The four-part follow-up
+  plan `plan-222690928` supplied `browser: {}` and stopped before worker dispatch;
+  the wire schema had previously allowed that empty object.
+- Place the browser contract requirement alongside the article-research planning
+  guidance. Controlled browser-planning and schema tests passed (21 tests),
+  including the recorded empty-object failure. The saved second response passed
+  offline validation when supplied a complete synthetic public browser scope.
+- Installed the signed local macOS app with app/database backups, 243 matching
+  runtime files and fresh owned-service health. The blocked proposal and earlier
+  production remain unchanged. No browser worker, catalog search or final review
+  was run during this repair.
+
+## 0.13.95 — source review handoff after the 10-part pilot
+
+- Require a file producer that consumes a reviewed public research output to
+  receive the independent source review report as a declared input. The pilot
+  builder received the source pack but not the review that found cross-entry
+  evidence for Harley-Davidson part 1000, and blocked before final review.
+- Clarify in the plan preview and web documentation that Gemini/Google can
+  rewrite effective search terms and Relay attempts only the first two grounded
+  links for each submitted query. The 10-part live pilot left four Yamaha names
+  unresolved; no new lookup or approved translation is claimed by this change.
+- Controlled check: `python3 -m unittest tests.test_external_evidence_planning`
+  passed 11 tests after an initial fixture media-type mismatch was corrected.
+  The signed local macOS app was installed with app/database backups and fresh
+  owned-service health. All 243 installed runtime files match source. The saved
+  pilot remains blocked at its existing builder attempt; no provider rerun,
+  message dispatch or final workbook review was performed.
+
+## 0.13.94 — typed web source planning
+
+- Require literal `queries` and `domains` in the planner's `web.sources`
+  parameters. Bind an omitted text model from the frozen operation catalog and
+  record that binding; reject an explicit mismatch. The failed 10-part proposal
+  had submitted empty parameters twice, so no workers had started.
+- Correct the planner instructions so text-source query rules are separate from
+  image collection. Controlled planning and contract tests passed, including the
+  empty-parameters failure and reviewed source-pack handoff.
+- Installed the signed local macOS app as 0.13.94. All 243 release runtime files
+  match working source, the installed search capability is available with the
+  configured Gemini model, and fresh owned service health passed. No live search
+  or translation was started during the repair.
+
+## 0.13.93 — public source search and evidence planning
+
+- Add registered `web.sources` for bounded public text search in production.
+  A reviewed plan can pass its versioned source pack to a file producer. Queries,
+  page hashes, timestamps and gaps are retained; search candidates are not
+  verified OEM facts. Controlled tests passed; no live search was run.
+- Detect requests for article-specific source verification before planning. A
+  file-only scope with no selected catalog source now returns `needs_input`
+  before a planner or production worker runs.
+- Permit a bounded, reviewed browser research step to feed a separate file
+  producer. Reject ready plans that claim external verification without that
+  evidence path. An inferred `codex-cli` default no longer locks this kind of
+  request out of browser-capable workers; an explicitly named Codex choice stays
+  locked. Unstarted follow-ups may refresh available worker profiles.
+- Controlled planning tests passed. The blocked parts-translation production was
+  not rerun, and no catalog access or translated output is claimed here.
+- Installed the signed local macOS app as 0.13.93. The installer saved a database
+  and app backup, restarted owned services, and recorded fresh Telegram,
+  production, orchestrator, scan, poll and Messages health. All 243 bundled
+  runtime files match working source. The installed operation catalog lists
+  `web.sources` available with the configured Gemini text model. No live search
+  or parts translation was started during installation.
+
+## 0.13.92 — versioned job view, pipeline context and PPTX editing
+
+- Export a versioned, read-only `job-state.json` with each workflow snapshot,
+  derived from the committed database. Record exact artifact versions, selected
+  decisions, declared potential dependencies, attempts and replacement warnings.
+- Construct a stage-specific working set before a pipeline model call, with the
+  full captured job view available through bounded `context_read`.
+- Preserve existing approval and dispatch boundaries. The view does not establish
+  semantic fact/slide use or import edits to exported files.
+- Add `pptx.edit` and `presentation inspect`/`edit` for hash-bound revisions of
+  native PPTX text and pictures. Keep the exact original, write a distinct candidate, and
+  preserve untargeted package parts. Planning requires a selected baseline,
+  reviewed edit manifest, actual-deck review and candidate selection.
+- Installed the signed macOS desktop app locally as 0.13.92. All 241 bundled
+  runtime files match source; the installer recorded a recovery backup and fresh
+  Telegram, production, orchestration and Messages health. An installed-runtime
+  synthetic PPTX edit passed. No live user deck or provider run was performed.
+
+## 0.13.91 — Gemini image-to-video routing
+
+- Expose the existing Gemini/Veo video backend to conversational requests and
+  `/video` in orchestrator context, independently of local rendering qualification.
+- Pass one exact PNG/JPEG first frame to Gemini instead of dropping video inputs;
+  preserve original requests, captions, model choices and artifact versions.
+- Reject extra or unsupported references. Retain atomic queue/delivery receipts,
+  changed-source checks and operation-only recovery without uncertain resubmission.
+- Keep video discovery through context compaction and delivery on the originating
+  channel.
+- Installed locally as 0.13.91 with matching signed runtime and fresh services.
+  The user-authorized saved request completed in one Gemini/Veo submission and
+  delivered a four-second 720p MP4 in Telegram. Original request/response and prior
+  job records remain preserved; visual quality is not treated as user acceptance.
+
+## 0.13.90 — experimental design intent
+
+- Maintain a cited design brief through selected modeling lineage. Retain exact
+  user corrections, unaffected requirements and superseded entries; distinguish
+  agent proposals and unresolved questions from user decisions.
+- Propose a representative geometric prototype before full development. Selecting
+  preparation code is not a visual checkpoint; development needs an exact selected
+  prototype model/preview pair or an explicit quoted user bypass.
+- Bind independent review to the intent version and require evidence for every
+  active entry. Technical validity does not establish design fidelity. Reported
+  design concerns retain the existing human quality gate.
+- Carry corrections to both workers and subsequent selected stages without
+  creating global user preferences, new extraction calls or database migrations.
+  Existing frozen plans, execution approvals and recovery receipts are preserved.
+- Controlled fixtures test orchestration and evidence boundaries; live modeling
+  quality and reduced review effort remain unqualified. See `docs/design-intent.md`.
 
 ## 0.13.89 beta — accumulated public release
 
@@ -2079,3 +4288,120 @@
 See [the roadmap](ROADMAP.md) for scope and [native qualification](docs/native-qualification.md)
 for platform evidence. Development-series versions do not imply production readiness
 or qualification of every provider, channel and application adapter.
+## 0.13.129 — research campaign controller (local)
+
+- Compile a provider-neutral campaign policy into bounded discovery/assessment
+  slots in the existing pipeline. Relay owns batching, reviewed yield, conservative
+  URL deduplication, replenishment, early stopping and an explicit shortfall.
+- Add `research.batch` records: required facts and criterion decisions are
+  independently audited against saved raw evidence. All required criteria must
+  be met to qualify; unknowns remain held and unmet criteria retain rejection
+  reasons. Search snippets alone cannot qualify an unvisited profile.
+- Freeze one-attempt worker budgets; preserve failed/uncertain work without replay.
+  Empty and duplicate discovery consume batch capacity. Commit receipt ingestion
+  and stage completion atomically; deliver exact raw captures with the final
+  campaign ledger and show reviewed progress. Include ledger receipts in job deletion.
+- Controlled tests include 20 entities through production completion, planning,
+  typed checkpoints, source changes, crash rollback, deduplication, shortfall,
+  pause/cancel and no uncertain replay. No live campaign or paid provider run is
+  implied. Dedicated workbook/draft renderers remain separate work.
+- Installed locally with 279 matching release sources, verified signatures and
+  fresh service health. All 22 installed worker/controller checks passed; the
+  prior blocked run's task states, attempts and frozen assignments are unchanged.
+## 0.13.130 — Safari campaign preflight and timeout diagnostics (local)
+
+- Reject X home/explore pages and searches without an actual query in campaign
+  discovery grants before dispatch. The planner must choose exact search or source
+  URLs for the navigate/read/scroll worker; an instruction to search grants no
+  typing or clicking capability.
+- Label Safari Apple Event timeouts by native step: readiness, window creation
+  and identification, JavaScript probe, document/link read, navigation or scroll.
+  Preserve the existing timeout, uncertain outcome and no-replay behavior.
+- Thirty controlled campaign/scripting checks passed. A read-only installed-helper
+  check confirmed Safari responsiveness and Automation access. This does not
+  establish whether the earlier uncertain launch created a window or fix an
+  unobserved transient Safari stall. No research attempt was replayed.
+- Installed locally with 279 matching sources, verified signatures and fresh
+  service health. All 30 installed campaign/scripting checks passed; the exact
+  saved home-only plan is rejected by the new preflight. The uncertain run's
+  states, counts and frozen assignment remain unchanged pending user recovery.
+
+
+## 0.13.131 — isolate Safari window creation (local)
+
+- Run the single Safari create-document command in a bounded child AppleScript
+  process. The AppKit helper's in-process create timed out on synthetic localhost
+  pages; direct scripting succeeded, and the repaired helper completed the local
+  worker flow. Preserve the eight-second Apple Event timeout and never retry a
+  missing acknowledgement. No arbitrary script API or new browser grant is added.
+- Identify the created window from numeric before/after snapshots instead of
+  iterating Safari's live window references; require exactly one new ID, one tab
+  and the exact granted URL. Distinguish creation, snapshots and binding failures.
+- Keep uncertain production actions and attempts intact. Local qualification uses
+  scripted model replies and separate test storage; it is not live X research.
+
+
+## 0.13.132 — retain bound Safari process identity (local)
+
+- Verify the existing Safari PID, bundle identifier and launch timestamp after
+  native actions instead of rediscovering Safari in the global application list.
+  Installed 0.13.131 created the local test windows successfully, but subsequent
+  global lookup failed with Safari still running. Process replacement still stops
+  the session; no identity guard is removed and uncertain actions remain unreplayed.
+- Installed with verified signatures, 279 matching runtime files and fresh owned
+  service health. All 24 installed worker checks pass. The installed app-associated
+  localhost flow passes creation, binding, reading, navigation and delivery with
+  scripted responses; zero paid requests. The failed research attempt is unchanged.
+  Live X and locked-session qualification remain separate.
+
+
+## 0.13.133 — freeze encoded Safari URL grants (local)
+
+- Encode non-ASCII path/query characters before freezing new Safari worker grants.
+  Preserve existing escapes, ASCII bytes, query order and duplicate parameters;
+  keep original planner requests intact. Require ASCII/IDNA host spelling and
+  reject canonical duplicates or an initial URL absent from the submitted scope.
+  Shared planning logic applies equally to every provider; execution grants stay
+  exact and existing frozen assignments are never rewritten.
+- Create and identify one blank Safari window before assigning the initial granted
+  URL. Keep document loading out of the create-document command; blank pages are
+  never returned as research evidence. Wait boundedly for the exact destination
+  after one acknowledged setter; unexpected URLs or failure to arrive stop without
+  retrying creation/navigation.
+- A direct localhost comparison reproduced the navigation defect: raw Cyrillic
+  URL acknowledged but left the tab on its source; encoded URL navigated exactly.
+  Forty-six focused launch, worker and campaign checks pass. Live X verification
+  remains separate from local fixtures; the failed attempt remains uncertain.
+
+
+## 0.13.134 — kernel-backed Safari process identity (local)
+
+- Bind scripting sessions to the OS process ID, kernel start timestamp and executable
+  path after initial Safari bundle discovery. Check that identity directly before
+  native work, avoiding transient AppKit metadata failures. A terminated process,
+  replacement start time or different executable still stops the session.
+- Keep the encoded URL grants, blank-window setup, exact destination checks and
+  no-replay rules from 0.13.133. No old failed attempt is altered or resumed.
+- Signed candidate and installed worker/helper both passed the delayed localhost
+  Cyrillic-query flow through delivery, with four scripted responses each and zero
+  paid requests. Installed signatures, 279 source matches, fresh service health and
+  all 46 focused checks pass. The failed live attempt remains unchanged; live X and
+  locked-session verification are separate.
+## Unreleased — Task Relay Web plugin 0.3.2 hosting candidate (2026-10-02)
+
+- Added an isolated, non-root container build for only the stateless web runtime
+  and its UI assets. No Desktop runtime, project database or development profile
+  enters that deployment. Health reports the runtime version.
+- Bound HTTP request size, upload inactivity, concurrent calls and per-process
+  request rate. Rejected/cancelled uploads release capacity; busy responses give
+  a retry interval. Counters retain no user identifiers or request bodies.
+- Corrected the selected OpenAI file tool's open-world annotation. Prepared five
+  positive and three negative host review cases, the confirmed publisher name,
+  free-commerce declaration and unrestricted country targeting.
+- Five controlled hosting tests and direct live HTTPS MCP checks pass, including
+  independent export/import, bounded fresh context, exact work revision lineage,
+  separate Skill improvements and rejection boundaries. Live transport checks
+  do not qualify ChatGPT interpretation, browser downloads or Library placement.
+- Public directory submission and publication remain pending. The user requested
+  clarification of hosting versus a skills-only native ChatGPT workflow; the
+  hosted custom-panel implementation is a candidate, not a final release choice.

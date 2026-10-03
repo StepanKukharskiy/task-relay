@@ -12,6 +12,8 @@ from task_relay import workflows
 
 class Tests(unittest.TestCase):
     def setUp(self):
+        projects=patch('task_relay.task_creation.projects',return_value=[])
+        projects.start();self.addCleanup(projects.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.state = State(Path(self.temp.name) / 'state.sqlite')
         self.telegram = TelegramFake()
@@ -67,6 +69,15 @@ class Tests(unittest.TestCase):
         self.assertFalse(self.state.get('orchestrator_mode'))
         self.message('/orchestrator why?',2);self.message('/orchestrator why?',2)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],1)
+
+    def test_explicit_saved_plan_recovery_uses_no_new_planner_job(self):
+        with patch('task_relay.production_planning.recover_validated_response',
+                   return_value=('plan-recovered',{})) as recover:
+            self.message('/orchestrator recover-plan plan-blocked',2)
+            self.message('/orchestrator recover-plan plan-blocked',2)
+        recover.assert_called_once_with(self.state,'plan-blocked')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_chats').fetchone()[0],0)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM incoming WHERE id=2').fetchone()[0],1)
 
     def test_task_and_unknown_replies_do_not_fall_through_to_mode(self):
         self.message('/orchestrator')
@@ -295,12 +306,14 @@ class Tests(unittest.TestCase):
         self.assertEqual(winter['central_europe']['abbreviation'],'CET')
 
     def test_provider_request_replaces_stale_clock_with_fresh_host_clock(self):
-        response={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':self.result()}]}}]}
+        value=json.loads(self.result());value['next_options']=[];value['research_advice']={'recommended_mode':'none','requirement':'unnecessary','reason':'The supplied host clock answers this question.','questions':[]}
+        response={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(value)}]}}]}
         with patch.object(chat.gemini,'read_config',return_value={'api_key':'test'}), \
              patch.object(chat.gemini,'DATA',Path(self.temp.name)), \
              patch.object(chat.gemini,'Client') as client, \
              patch.object(chat,'clock_context',return_value={'utc':'fresh-clock'}):
-            client.return_value.request.return_value=response
+            from tests import intake_fixtures as intake
+            client.return_value.request.side_effect=[intake.response('gemini'),response]
             chat.generate({'id':'clock-fixture','provider':'gemini','model':'test-model'},{'host_clock':{'utc':'stale-clock'},'user_message':'CET now?'})
         sent=client.return_value.request.call_args.args[1]
         payload=json.loads(sent['contents'][0]['parts'][0]['text'])

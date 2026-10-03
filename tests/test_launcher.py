@@ -9,7 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from task_relay import credentials, launcher, onboarding
+from task_relay import __version__, credentials, launcher, onboarding
 from task_relay.host import Host
 from task_relay.relay_paths import Paths
 
@@ -70,6 +70,7 @@ class LauncherTests(unittest.TestCase):
         code, raw, _ = self.request('GET', 'api/status')
         self.assertEqual(code, 200)
         data = json.loads(raw)
+        self.assertEqual(data['version'], __version__)
         self.assertEqual(data['project']['available'], False)
         self.assertEqual(data['telegram']['configured'], False)
         self.assertFalse(self.paths.data.exists())

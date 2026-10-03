@@ -11,7 +11,7 @@ from tests import test_production_planning as fixtures
 
 class BindingTests(unittest.TestCase):
     def setUp(self):
-        fixtures.Tests.setUp(self);del self.fail
+        fixtures.Tests.setUp(self)
     tearDown=fixtures.Tests.tearDown
     request=fixtures.Tests.request
     action=fixtures.Tests.action

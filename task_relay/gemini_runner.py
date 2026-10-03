@@ -40,7 +40,17 @@ def make_request(state, job, run):
     cap = run['capability']
     options = json.loads(run['options_json'])
     if cap == 'video':
-        return {'instances': [{'prompt': job['prompt']}], 'parameters': {
+        refs=options.get('references',[])
+        if len(refs)>1 or any(r['mime'] not in ('image/png','image/jpeg') for r in refs):
+            raise ValueError('Gemini video requires at most one PNG or JPEG first-frame image.')
+        instance={'prompt':job['prompt']}
+        if refs:
+            ref=refs[0]
+            data=Path(ref['path']).read_bytes()
+            if len(data)>gemini.MAX_INPUT or hashlib.sha256(data).hexdigest()!=ref['sha256']:
+                raise ValueError('The first-frame reference changed after this video was queued. Attach it again.')
+            instance['image']={'bytesBase64Encoded':base64.b64encode(data).decode(), 'mimeType':ref['mime']}
+        return {'instances': [instance], 'parameters': {
             'aspectRatio': options['aspect_ratio'], 'durationSeconds': options['duration_seconds'], 'resolution': '720p'}}
     parts = [{'text': job['prompt']}]
     for ref in options['references']:

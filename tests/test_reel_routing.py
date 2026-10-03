@@ -37,7 +37,6 @@ class RequestTests(unittest.TestCase):
 
     def setUp(self):
         pf.Tests.setUp(self)
-        del self.fail
         p=patch.object(hyperframes_project,'available',return_value={'adapter':'controlled'});p.start();self.addCleanup(p.stop)
 
     def test_short_followup_carries_selected_sources_and_keeps_mp4_pending(self):

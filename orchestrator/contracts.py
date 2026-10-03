@@ -54,7 +54,7 @@ def assignment(value):
         validate(a)
     elif 'review_correction' in a:
         raise ValueError('Operation correction policy requires a registered operation.')
-    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser'],['files','python']):
+    elif a.setdefault('tools', ['files', 'shell']) not in (['files','shell'],['files'],['files','browser'],['files','python'],['files','computer']):
         raise ValueError('Use a supported files or files + shell capability profile')
     outputs = a.get('outputs')
     if not isinstance(outputs, list) or not 1 <= len(outputs) <= 30:
@@ -106,6 +106,12 @@ def assignment(value):
                     and revision.get('kind')=='visual_review_recovery' and revision.get('previous_attempt')):
                 raise ValueError('Browser work permits one attempt; revisions require an explicit visual review recovery')
     elif 'browser' in a:raise ValueError('Browser authority requires the browser executor profile')
+    if a.get('tools')==['files','computer']:
+        from .computer_contract import validate
+        validate(a.get('computer'))
+        if a.setdefault('resource','computer-safari')!='computer-safari':raise ValueError('Safari uses one host session resource.')
+        if a.setdefault('max_attempts',1)!=1:raise ValueError('Computer work permits one attempt; no automatic replay.')
+    elif 'computer' in a:raise ValueError('Computer authority requires the computer executor profile')
     criteria = a.get('criteria')
     if not isinstance(criteria, list) or not 1 <= len(criteria) <= 30:
         raise ValueError('Specify 1–30 review criteria')
@@ -145,6 +151,24 @@ def assignment(value):
         validate(a)
     if 'source_fidelity' in a:
         from .source_fidelity import validate_assignment
+        validate_assignment(a)
+    if 'output_contracts' in a:
+        from .deliverable_outputs import validate_assignment
+        validate_assignment(a)
+    if 'text_output' in a:
+        from .text_outputs import validate_assignment
+        validate_assignment(a)
+    if 'source_verification' in a:
+        from .source_verification import validate_assignment
+        validate_assignment(a)
+    if 'design_review' in a:
+        from .design_review import validate_assignment
+        validate_assignment(a)
+    if 'research_delivery' in a or 'research_audit' in a:
+        from .research_quality import validate_assignment
+        validate_assignment(a)
+    if a.get('operation_contract'):
+        from .operation_contracts import validate_assignment
         validate_assignment(a)
     if len(encoded(a)) > 180000:
         raise ValueError('Assignment exceeds 180,000 characters')
@@ -252,6 +276,18 @@ def plan(value):
                     or a['source_fidelity']['criterion']!=len(expected_criteria)+1):
                     raise ValueError('Source comparison must strengthen a native producer review.')
                 expected_criteria=expected_criteria+[CRITERION]
+            if a.get('design_review'):
+                from .design_review import CRITERION
+                if a['design_review']['criterion']!=len(expected_criteria)+1:
+                    raise ValueError('Design review must strengthen the producer criteria.')
+                expected_criteria=expected_criteria+[CRITERION]
+            if tasks[target].get('research_delivery'):
+                from .research_quality import CRITERION
+                if not a.get('research_audit') or a['research_audit']['producer']!=target:
+                    raise ValueError('Research delivery requires its independent claim audit.')
+                expected_criteria=expected_criteria+[CRITERION]
+            elif a.get('research_audit'):
+                raise ValueError('Research audit requires a bound research producer.')
             if a['criteria'] != expected_criteria:
                 raise ValueError('Reviewer must check the producer criteria without weakening them')
             reviewers.add(target)
@@ -321,8 +357,16 @@ def report(value, frozen):
         raise ValueError('Invalid result instruction')
     if value['decision'] in ('accept', 'delivered') and not all(c['passed'] for c in checks):
         raise ValueError('Delivery/acceptance cannot advance with reported failed criteria')
+    if value['decision']=='accept' and frozen.get('computer_review',{}).get('unexecuted_actions'):
+        raise ValueError('Raw Safari evidence records unexecuted actions; revise or block instead of accepting.')
     if value['decision'] == 'revise':
         nonempty(value.get('instruction'), 'revision instruction')
     from .source_fidelity import validate_report
+    validate_report(value, frozen)
+    from .design_review import validate_report
+    validate_report(value, frozen)
+    from .research_quality import validate_accept
+    validate_accept(value, frozen)
+    from .source_verification import validate_report
     validate_report(value, frozen)
     return value

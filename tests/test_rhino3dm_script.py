@@ -240,7 +240,6 @@ model.Objects.Add(rhino3dm.Sphere(rhino3dm.Point3d(0,0,0),1).ToBrep(),attr)
 class PlanningTests(unittest.TestCase):
     def setUp(self):
         planning_fixture.Tests.setUp(self)
-        del self.fail
     tearDown=planning_fixture.Tests.tearDown
     request=planning_fixture.Tests.request
     action=planning_fixture.Tests.action

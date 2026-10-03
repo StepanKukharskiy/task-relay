@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Task Relay</title><link rel="stylesheet" href="panel.css"></head>
+<body>
+<header><button id="new-text" class="quiet">New</button><button id="options" class="quiet more" aria-label="More options" aria-expanded="false">⋯</button></header>
+<main>
+<section id="capture-view">
+<h1 id="flow-heading">Make a Skill.</h1><p id="start-hint" class="muted">Select text in your chat.</p>
+<button id="make-now" class="primary main-action">Turn into Skill</button><button id="make-job" class="alternate">Turn into Relay job</button>
+<div id="analysis-section" hidden><h2 id="analysis-heading" class="sr">Make a Skill</h2><p id="handoff-status" role="status"></p>
+<div id="chat-flow" hidden><div class="actions"><button id="get-chatgpt-result" class="primary" hidden>Download SKILL.md</button><button id="paste-reply" hidden>Paste AI reply</button></div>
+<div id="response-import" hidden><label>AI reply<textarea id="answer" placeholder="Paste your AI’s reply"></textarea></label><label>Or choose a response file<input type="file" id="response-file" accept=".json,.txt"></label><button id="review-answer" class="primary">Get results</button></div></div></div>
+</section>
+<section id="review-view" hidden><h1 id="result-heading">Your Skill.</h1><p id="review-intro" class="muted"></p><div id="proposal-items"></div></section>
+<section id="reuse-view" hidden><h1>Continue saved work.</h1><label>Skill or Work files<input type="file" id="open-files" accept=".md" multiple></label><p id="opened-files" class="muted"></p><label id="reuse-work-label" hidden>Local Work<select id="reuse-work"></select></label><label id="reuse-skill-label" hidden>Local Skill<select id="reuse-skill"><option value="">No Skill</option></select></label><label>Next request<textarea id="new-request" placeholder="What do you want to do next?"></textarea></label><button id="prepare-context" class="primary">Prepare continuation</button><div id="context-preview" hidden><textarea id="context" readonly aria-label="Continuation context"></textarea><button id="copy-context">Copy for my AI chat</button></div></section>
+<section id="library-view" hidden><h1 id="library-heading">Recent Work</h1><div id="library-items"></div><button id="refresh">Refresh</button></section>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="settings" hidden aria-label="Options"><h2>Options</h2>
+<div class="actions"><button id="open-saved">Open files</button><button id="back-current" hidden>Return to request</button><button id="insert-chatgpt" hidden>Restore message</button><button id="previous-request" hidden>Previous capture</button><button id="recover-chatgpt">Recover this chat’s result</button><button id="forget">Clear preview</button></div>
+<div id="preview" class="capture" hidden><p id="capture-title" class="muted"></p><textarea id="capture-text" readonly aria-label="Selected text"></textarea></div>
+<div id="source-settings" hidden><h3>Source</h3><p id="capture-url" class="url"></p><p id="capture-meta" class="muted"></p><p id="capture-limits" class="muted"></p><label id="work-label" hidden>Add to<select id="work-target"><option value="">No work selected</option></select></label><label>Note<input id="source-note" placeholder="Why keep this?"></label><div class="actions"><button id="export-source">Download evidence</button><button id="save-source" hidden>Save evidence locally</button></div></div>
+<h3>Manual handoff</h3><div class="actions"><button id="keep">Capture text only</button><button id="use-chat">Prepare request</button><button id="capture-progress">Update saved work</button><button id="import-response">Paste AI reply</button></div><p id="analysis-description" class="muted"></p><textarea id="analysis-prompt" readonly aria-label="Prepared request for your AI chat"></textarea><button id="copy-prompt" hidden>Copy request</button>
+<div id="desktop-advanced"><h3>Relay Desktop</h3><p id="connection" class="muted">Desktop connection is off.</p><button id="connect-desktop">Connect Relay Desktop</button><button id="disconnect-desktop" hidden>Disconnect Desktop</button><div class="actions"><button id="local-work-option" hidden>Local Work</button><button id="local-skills-option" hidden>Local Skills</button><button id="local-sources-option" hidden>Local Sources</button></div><label id="skill-label" hidden>Skill to improve<select id="skill-target"><option value="">Create a new Skill if useful</option></select></label><div id="advanced-analysis" hidden><p class="muted">Uses your configured provider; charges may apply.</p><button id="analyze">Analyze with Relay</button></div></div>
+<p class="muted">Only the text you choose. No browsing history, cloud account, or automatic saving. You send the AI request.</p>
+</section>
+</main><script type="module" src="panel.js"></script></body></html>

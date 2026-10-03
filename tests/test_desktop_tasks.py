@@ -59,6 +59,21 @@ class DesktopTasksTests(unittest.TestCase):
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM backend_jobs').fetchone()[0], 1)
         self.assertEqual(list_tasks(self.paths)['tasks'][0]['title'], 'Fixture task')
 
+    def test_task_inventory_paginates_entire_history(self):
+        with self.state.db:
+            for index in range(42):
+                self.state.db.execute('INSERT INTO watched(id,title,status,updated_at) VALUES (?,?,?,?)',
+                                      (f'older-{index}', f'Older {index}', 'completed', index))
+        first = list_tasks(self.paths)
+        self.assertEqual(len(first['tasks']), 40)
+        self.assertEqual(first['total'], 43)
+        second = list_tasks(self.paths, first['next_offset'])
+        self.assertEqual(len(second['tasks']), 3)
+        self.assertIsNone(second['next_offset'])
+        self.assertEqual(len({row['id'] for row in first['tasks'] + second['tasks']}), 43)
+        with self.assertRaises(DesktopTaskError):
+            list_tasks(self.paths, -1)
+
     def test_old_service_or_changed_request_is_rejected_before_side_effect(self):
         request_id = str(uuid.uuid4())
         with self.assertRaises(DesktopTaskError):

@@ -14,7 +14,6 @@ from tests.test_orchestrator import pair
 class PlanningTests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
-        del self.fail  # Shared routing fixture's flag shadows unittest.fail.
         app=patch('task_relay.host_apps.rhino',return_value=dict(available=True,executable='/fixture/rhino',evidence='fixture'))
         app.start();self.addCleanup(app.stop)
         self.source=self.root/'survey.dxf'

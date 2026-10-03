@@ -72,6 +72,8 @@ class Tests(unittest.TestCase):
             self.assertEqual(result['decision'],'delivered');self.assertEqual(len(client.calls),5)
             from orchestrator.browser_contract import WEBSITE_TASK_INSTRUCTIONS
             self.assertIn(WEBSITE_TASK_INSTRUCTIONS,client.calls[0]['systemInstruction']['parts'][0]['text'])
+            self.assertIn('navigate to a search results URL for an exact identifier',
+                          client.calls[0]['systemInstruction']['parts'][0]['text'])
             self.assertEqual([a[0] for a in driver.actions],['fill','click'])
             receipt=json.loads((self.control/'browser-result.json').read_text())
             self.assertEqual(len(receipt['actions']),3);self.assertFalse(receipt['uncertain_actions'])
@@ -107,6 +109,22 @@ class Tests(unittest.TestCase):
         self.assertEqual({t['name'] for t in client.calls[6]['tools'][0]['functionDeclarations']},{'file_write','finish'})
         self.assertEqual([t['name'] for t in client.calls[7]['tools'][0]['functionDeclarations']],['finish'])
         self.assertIn('Host UTC time at worker start:',client.calls[0]['systemInstruction']['parts'][0]['text'])
+
+    def test_empty_research_file_cannot_be_delivered_after_homepage_visit(self):
+        frozen=self.browser_frozen();client=ScriptedBrowser(frozen)
+        def respond(path,payload,**kwargs):
+            client.calls.append(copy.deepcopy(payload));n=len(client.calls)
+            if n==1:name,args='browser_open',{'url':frozen['browser']['origins'][0]+'/form'}
+            elif n==2:name,args='file_write',{'path':frozen['outputs'][0]['path'],'text':'{}'}
+            else:name,args='finish',report(frozen)
+            return {'candidates':[{'finishReason':'STOP','content':{'role':'model','parts':[{'functionCall':{'name':name,'args':args}}]}}]}
+        client.request=respond
+        with closing(sqlite3.connect(':memory:')) as db:
+            with self.assertRaisesRegex(ValueError,'request budget'):
+                run(frozen,self.control,db,self.root,client=client,config_reader=lambda:(CONFIG,frozen['backend']),driver_context=nullcontext(Driver()))
+        self.assertIn('not evidence',json.loads((self.control/'tool-02-00.json').read_text())['result']['error'])
+        self.assertFalse((self.ws/frozen['outputs'][0]['path']).exists())
+        self.assertFalse((self.ws/'.relay/result.json').exists())
 
     def test_reviewer_cannot_accept_candidate_without_independent_page_evidence(self):
         frozen=self.browser_frozen();frozen['review_of']='produce';client=file_fixtures.Scripted(frozen)

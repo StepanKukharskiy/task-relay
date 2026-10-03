@@ -237,6 +237,13 @@ def propose(state,run,feedback=None):
         original_request=prior['request'])
     payload.pop('previous_stage',None)
     payload.pop('execution_recovery',None)
+    if payload.get('design_intent_policy'):
+        from . import design_intent
+        retained=design_intent.saved(prior,state)
+        if feedback is not None:retained=design_intent.feedback_record(retained,feedback,'quality_feedback:'+new_id)
+        payload.update(design_intent_previous=retained,design_intent_request=feedback or '')
+        result['design_intent']=dict(phase='revision',representation='Focused correction: '+retained['representation'],
+            advance_quote='',additions=[])
     # This successor prepares corrected code; it is not an execution selection.
     if payload.pop('operation_builder',None):
         from . import operation_builders, planning_contract

@@ -730,7 +730,8 @@ class Bridge:
     def __init__(self, state, telegram, config, desktop_factory=Desktop):
         self.state, self.telegram, self.config = state, telegram, config
         self.desktop_factory = desktop_factory
-        telegram.policy_path = channel_policy.database_path(state.db)
+        if telegram is not None:
+            telegram.policy_path = channel_policy.database_path(state.db)
 
     def send(self, text, thread_id=None):
         parts = list(telegram_text.parts(text, split_text))
@@ -1452,7 +1453,7 @@ class BackgroundWorkers:
         self.threads = []
 
     def start(self):
-        for name, interval in [('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('task-creation', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
+        for name, interval in [('desktop', .5), ('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('task-creation', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
             thread = threading.Thread(target=self.work, args=(name, interval),
                                       name=f'bridge-{name}', daemon=True)
             self.threads.append(thread)
@@ -1460,13 +1461,14 @@ class BackgroundWorkers:
 
     def work(self, name, interval):
         state = State(self.state_path)
-        bridge = Bridge(state, self.telegram_factory(self.config['token'], self.pacer), self.config)
+        bridge = Bridge(state, service_transport(self.config, self.pacer, self.telegram_factory), self.config)
         watcher = self.watcher_factory(state)
         backend_worker = backends.BackendWorker(state, backend='claude' if name == 'backends' else name) if name in ('backends', 'gemini', *api.SPECS) else None
         provider_worker = providers.Worker(state, telegram=bridge.telegram) if name == 'providers' else None
         production_worker = production_control.Worker(state, telegram=bridge.telegram) if name == 'production' else None
         from . import releases
-        job = {'updates': lambda: releases.tick(state, bridge.telegram),
+        job = {'desktop': lambda: process_desktop(bridge),
+               'updates': lambda: releases.tick(state, bridge.telegram),
                'scan': watcher.scan,
                'reference-packs': reference_packs.Worker(state).tick,
                'task-routing': task_routing.Worker(state, Desktop).tick,
@@ -1522,6 +1524,13 @@ class BackgroundWorkers:
             thread.join(timeout=7 if thread.name in ('bridge-backends', 'bridge-gemini', 'bridge-providers', *('bridge-' + p for p in api.SPECS)) else .2)
 
 
+def process_desktop(bridge):
+    from .desktop_tasks import process_commands
+    from .desktop_plans import process_requests
+    process_commands(bridge)
+    process_requests(bridge.state)
+
+
 def receive_updates(bridge):
     """Commands are polled independently of scans, notifications and uploads."""
     state = bridge.state
@@ -1551,14 +1560,28 @@ def receive_updates(bridge):
         if polled_at >= accept_after and len(updates) < 100:
             state.put('channel:telegram:accept_after', accept_after)
         state.put('health:poll', {'last_success': time.time()})
-    from .desktop_tasks import process_commands
-    process_commands(bridge)
-    from .desktop_plans import process_requests
-    process_requests(state)
+
+
+class UnconnectedTelegram:
+    """Local service has no messenger transport; saved remote work is held."""
+    def __getattr__(self, name):
+        def unavailable(*args, **kwargs):
+            raise BridgeError('Telegram is not connected. Saved messages remain held.')
+        return unavailable
+
+
+def service_config():
+    # A missing connection permits local work. An unreadable saved credential
+    # remains an error rather than silently replacing an existing installation.
+    return read_config() if (DATA / 'config.json').exists() else {'token': None}
+
+
+def service_transport(config, pacer, factory=Telegram):
+    return factory(config['token'], pacer) if config.get('token') else UnconnectedTelegram()
 
 
 def run():
-    config = read_config()
+    config = service_config()
     DATA.mkdir(mode=0o700, exist_ok=True)
     lock = (DATA / 'bridge.lock').open('w')
     try:
@@ -1571,7 +1594,7 @@ def run():
     require_consolidated(DATA / 'state.sqlite', PATHS.messages)
     state = State(DATA / 'state.sqlite')
     pacer = SendPacer()
-    bridge = Bridge(state, Telegram(config['token'], pacer), config)
+    bridge = Bridge(state, service_transport(config, pacer), config)
     # A restart after a lost acknowledgement cannot safely replay a command.
     with state.db:
         uncertain = state.db.execute("SELECT id,thread_id,status FROM incoming WHERE status IN ('submitting','received') AND NOT EXISTS (SELECT 1 FROM backend_tasks b WHERE b.id=incoming.thread_id)").fetchall()
@@ -1585,6 +1608,10 @@ def run():
         state.db.execute("UPDATE incoming SET status='failed' WHERE status='received' AND NOT EXISTS (SELECT 1 FROM backend_tasks b WHERE b.id=incoming.thread_id)")
     from .desktop_tasks import recover_commands
     recover_commands(state)
+    from .job_delete import recover_pending
+    recover_pending()
+    from .task_delete import recover_pending as recover_task_deletions
+    recover_task_deletions()
     workers = BackgroundWorkers(DATA / 'state.sqlite', config, pacer)
     workers.start()
     shutdown_requested = threading.Event()
@@ -1598,7 +1625,12 @@ def run():
     try:
         while not shutdown_requested.is_set():
             try:
-                receive_updates(bridge)
+                if config.get('token'):
+                    receive_updates(bridge)
+                else:
+                    shutdown_requested.wait(.5)
+                with state.db:
+                    state.put('health:service', {'last_success': time.time(), 'telegram_connected': bool(config.get('token'))})
                 backoff = 2
             except (BridgeError, OSError, ValueError, sqlite3.Error) as exc:
                 state.db.rollback()

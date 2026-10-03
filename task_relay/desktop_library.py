@@ -15,7 +15,8 @@ def _object(raw):
 
 
 def workflows(kind='linked', offset=0, paths=PATHS):
-    tables = {'linked': 'workflows', 'runs': 'production_runs', 'plans': 'production_plans'}
+    tables = {'linked': 'workflows', 'runs': 'production_runs',
+              'plans': 'production_plans', 'pipelines': 'relay_pipelines'}
     if kind not in tables or type(offset) is not int or not 0 <= offset <= 1000000:
         raise DesktopTaskError('Choose a workflow category and valid page.')
     result = {'items': [], 'total': 0, 'next_offset': None, 'kind': kind}
@@ -39,6 +40,12 @@ def workflows(kind='linked', offset=0, paths=PATHS):
                 item = dict(id=row['name'], title=row['name'], status=data.get('status', 'Unknown'),
                             detail=' · '.join(str(data.get(k) or '') for k in ('phase', 'cwd', 'reason')),
                             request=data.get('direction', ''), channel=channel(row['name'], 'workflow'), revision=row['revision'])
+            elif kind == 'pipelines':
+                view = paths.generated / 'workflows' / row['id'] / '.relay' / 'job.sqlite'
+                item = dict(id=row['id'], title=row['title'], status=row['status'],
+                            request=row['request'], channel=row['channel'],
+                            detail='Job view available' if view.is_file() else 'No job view exported yet',
+                            job_view=str(view) if view.is_file() else None)
             elif kind == 'plans':
                 item = dict(id=row['id'], title=row['request'].split('\n')[0][:180],
                             status=row['status'], request=row['request'], channel=row['channel'],
@@ -51,6 +58,20 @@ def workflows(kind='linked', offset=0, paths=PATHS):
                 item = dict(id=row['id'], title=plan.get('title') or plan.get('name') or row['id'],
                             status=row['status'], request=plan.get('goal', ''), channel=channel(row['id'], 'production'),
                             detail='Recorded execution stages', steps=steps)
+                from .job_ownership import standalone_candidate
+                owner = standalone_candidate(db, row['id'], paths)
+                if owner:
+                    view = paths.generated / 'workflows' / owner['id'] / '.relay' / 'job.sqlite'
+                    item.update(job_id=owner['id'],
+                                registration_needed=owner['registration_needed'],
+                                job_view=str(view) if view.is_file() else None)
+                elif _table(db, 'relay_pipeline_steps') and _table(db, 'relay_pipelines'):
+                    owners = db.execute('''SELECT DISTINCT p.id FROM relay_pipelines p
+                        JOIN relay_pipeline_steps s ON s.pipeline=p.id
+                        WHERE s.target_kind='production_run' AND s.target=?''', (row['id'],)).fetchall()
+                    if len(owners) == 1:
+                        item.update(job_id=owners[0]['id'],
+                                    detail='Part of saved workflow ' + owners[0]['id'] + '; deletion review covers the whole workflow')
             result['items'].append(item)
         if offset + len(result['items']) < result['total']:
             result['next_offset'] = offset + len(result['items'])
@@ -85,6 +106,7 @@ def automation_tools():
                             route='Ask in Telegram or Messages; file access follows the selected project scope.'))
     descriptions = {
         'generate_image': 'Generate or revise an image using selected references.',
+        'generate_video': 'Generate a Gemini video from text and an optional PNG/JPEG first frame.',
         'collect_references': 'Freeze selected project references with version identities.',
         'delegate_task': 'Send a bounded instruction to an existing compatible agent job.',
         'plan_production': 'Draft a pipeline with steps, outputs, checks and limits.',
@@ -106,8 +128,8 @@ def automation_tools():
     }
     for ident in (*capabilities.IMMEDIATE, *capabilities.GATED):
         actions.append(dict(id=ident, description=descriptions.get(ident, ident.replace('_', ' ').capitalize()),
-                            availability=('Provider configuration required' if ident == 'generate_image' and not gemini.read_config() else 'Supported; scope and configuration checked when requested'),
-                            route='Ask in the original Relay channel. Desktop planning is in Workflows.' if ident != 'generate_image' else 'Ask for an image in Telegram or Messages; generation may incur API charges.'))
+                            availability=('Provider configuration required' if ident in ('generate_image','generate_video') and not gemini.read_config() else 'Supported; scope and configuration checked when requested'),
+                            route='Ask in the original Relay channel. Desktop planning is in Workflows.' if ident not in ('generate_image','generate_video') else 'Ask for media in Telegram or Messages; generation may incur API charges.'))
     actions.extend([
         dict(id='discover_guides', description='Find reusable guides in known project folders.', availability='Read-only discovery', route='Ask the Relay assistant to find a guide; select it before use.'),
         dict(id='perplexity.search', description='Create and continue a Perplexity Search conversation.', availability='Account-browser pilot; live qualification incomplete', route='Connect the dedicated browser profile through Relay. No general Computer workflow or upload support.'),

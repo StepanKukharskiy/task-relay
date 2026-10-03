@@ -14,6 +14,8 @@ for (const [route, file, type] of [
   ['/style.css', 'style.css', 'text/css; charset=utf-8'],
   ['/logo.png', 'logo.png', 'image/png'],
   ['/llms.txt', 'llms.txt', 'text/plain; charset=utf-8'],
+  ['/chatgpt', 'chatgpt/index.html', 'text/html; charset=utf-8'],
+  ...['support', 'privacy', 'terms'].map(slug => ['/chatgpt/' + slug, 'chatgpt/' + slug + '.html', 'text/html; charset=utf-8']),
   ['/guides/', 'guides/index.html', 'text/html; charset=utf-8'],
   ['/guides/guide.css', 'guides/guide.css', 'text/css; charset=utf-8'],
   ...['architectural-site-analysis', 'rhino-model-revisions', 'rhino-named-view-renders', 'blender-asset-handoff', 'design-review-presentation',
@@ -30,6 +32,7 @@ for (const [route, file, type] of [
 ]) assets.set(route, { body: await readFile(new URL(`./public/${file}`, import.meta.url)), type });
 assets.set('/index.html', assets.get('/'));
 assets.set('/guides', assets.get('/guides/'));
+assets.set('/chatgpt/', assets.get('/chatgpt'));
 for (const [route, asset] of [...assets]) {
   if (route.startsWith('/guides/') && asset.type.startsWith('text/html') && !route.endsWith('/')) assets.set(route + '/', asset);
 }

@@ -1,0 +1,31 @@
+/* Task Relay Desktop controls, with a flowing web review panel. */
+body { min-width: 260px; }
+header { padding-bottom: 8px; }
+main { max-width: 760px; padding-top: 10px; }
+#status { margin: 0 0 16px; color: var(--muted-text); line-height: 1.5; overflow-wrap: anywhere; }
+#status.error { color: var(--danger-text); }
+.card { background: var(--surface); border: 1px solid var(--control-border); border-radius: var(--card-radius); padding: 20px; margin-bottom: 18px; }
+.hero h1 { font-size: 27px; }
+.hero { max-width: 500px; margin: 8px auto 18px; padding: 28px; }
+.hero > button, .return-path button { width: 100%; }
+.return-path { border-top: 1px solid var(--divider); margin-top: 24px; padding-top: 20px; }
+.small { font-size: 12px; }
+.badge { display: inline-block; padding: 4px 8px; font-size: 12px; color: var(--muted-text); border: 1px solid var(--control-border); border-radius: 20px; }
+nav { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+nav [aria-pressed=true] { background: var(--control-hover); border-color: var(--action-blue); }
+.document-row { padding: 12px 0; border-bottom: 1px solid var(--divider); }
+.document-row label { margin: 0; color: var(--control-text); font-size: 14px; }
+.document-row label input { margin-right: 9px; }
+.document-row p { margin: 7px 0 8px; }
+.proposal-editor { border-top: 1px solid var(--divider); padding-top: 8px; }
+.proposal-editor textarea { min-height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+.proposal-editor label { color: var(--control-text); }
+.review-text { overflow-wrap: anywhere; }
+.review-text h3 { margin: 18px 0 8px; }
+.review-text p { white-space: pre-wrap; }
+.proposal-editor details, #reuse-section > details, #reuse-request > details { padding: 12px 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 420px; overflow: auto; background: var(--canvas); border-radius: 6px; padding: 12px; }
+details.card { border: 1px solid var(--control-border); }
+summary { cursor: pointer; line-height: 1.5; }
+@media(max-width: 560px) { header { padding: 16px 16px 4px; } main { padding: 10px 16px 20px; } .card { padding: 20px; } .section-title { align-items: flex-start; } }
+@media(prefers-color-scheme: dark) { :root { color-scheme: dark; --canvas: #15171b; --surface: #202328; --control-text: #edf0f5; --muted-text: #b1b8c3; --control-border: #404650; --divider: #383e47; --control-hover: #2b3039; --danger-text: #ffb19f; } button.primary { color: #fff; } }

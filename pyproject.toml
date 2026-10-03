@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.13.89"
+version = "0.13.154"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,6 +13,7 @@ requires-python = ">=3.11"
 dependencies = ["pypdf==6.18.1"]
 
 [project.optional-dependencies]
+plugin = ["mcp==1.30.0", "PyYAML==6.0.3"]
 rhino3dm = ["rhino3dm==8.35.0"]
 presentations = ["python-pptx==1.0.2"]
 images = ["Pillow==12.2.0"]

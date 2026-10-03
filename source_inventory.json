@@ -2,6 +2,37 @@
   "version": 2,
   "groups": [
     {
+      "kind": "chrome-extension",
+      "release": false,
+      "patterns": [
+        "extensions/chrome/*.json",
+        "extensions/chrome/*.js",
+        "extensions/chrome/*.html",
+        "extensions/chrome/*.css",
+        "extensions/chrome/*.png"
+      ]
+    },
+    {
+      "kind": "chatgpt-plugin",
+      "release": false,
+      "patterns": [
+        "plugins/relay/*.json",
+        "plugins/relay/README.md",
+        "plugins/relay/assets/*.png",
+        "plugins/relay/skills/*/SKILL.md",
+        "plugins/relay/skills/*/references/*.md",
+        "plugins/relay/hosted/*.json",
+        "plugins/relay/hosted/README.md",
+        "plugins/relay/hosted/skills/*/SKILL.md",
+        "plugins/relay/hosted/skills/*/references/*.md",
+        "plugins/relay/server/Dockerfile",
+        "plugins/relay/server/requirements.txt",
+        "plugins/relay/server/railway.json",
+        "plugins/relay/server/start.py",
+        "plugins/relay/server/README.md"
+      ]
+    },
+    {
       "kind": "website",
       "release": false,
       "patterns": [
@@ -19,6 +50,7 @@
         "website/public/robots.txt",
         "website/public/sitemap.xml",
         "website/public/guides/*.html",
+        "website/public/chatgpt/*.html",
         "website/public/guides/*.css",
         "website/public/guides/assets/file-recipes.py",
         "website/public/guides/assets/invoice-sample.zip",
@@ -112,7 +144,9 @@
       "patterns": [
         "tests/*.py",
         "tests/fixtures/*.sql",
-        "tests/*.cjs"
+        "tests/*.cjs",
+        "tests/*.html",
+        "tests/fixtures/*.json"
       ]
     },
     {
@@ -145,6 +179,7 @@
         "AGENTS.md",
         "README.md",
         "ROADMAP.md",
+        "ROADMAP-HISTORY.md",
         "CHANGELOG.md",
         "docs/architecture-pipeline-benchmark.md",
         "docs/artifact-dependencies.md",
@@ -155,6 +190,7 @@
         "docs/continuity-experiment.md",
         "docs/conversation-handoffs.md",
         "docs/execution-providers.md",
+        "docs/execution-results.md",
         "docs/host-adapters.md",
         "docs/linked-workflows.md",
         "docs/llm-orchestration.md",
@@ -182,6 +218,14 @@
         "docs/platform-architecture.md",
         "docs/production-selections.md",
         "docs/project-structure.md",
+        "docs/project-context.md",
+        "docs/relay-chatgpt-plugin.md",
+        "docs/chrome-extension.md",
+        "docs/relay-chatgpt-connection.md",
+        "docs/relay-chatgpt-hosted-panel.md",
+        "docs/relay-chatgpt-hosted-connection.md",
+        "docs/relay-chatgpt-local-runtime.md",
+        "docs/relay-chatgpt-local-connection.md",
         "docs/reference-collection.md",
         "docs/rhino.md",
         "docs/sketchup.md",
@@ -195,12 +239,17 @@
         "docs/general-browser.md",
         "docs/account-sites.md",
         "docs/desktop-browser.md",
+        "docs/computer-use.md",
         "docs/image-sourcing.md",
         "docs/workflow-handoffs.md",
         "docs/contract-boundary-tracker.md",
         "docs/reels.md",
         "docs/result-policy.md",
-        "docs/typed-contract-builders.md"
+        "docs/typed-contract-builders.md",
+        "docs/design-intent.md",
+        "docs/desktop-ui-system.md",
+        "docs/research-campaigns.md",
+        "docs/shared-operation-contracts.md"
       ]
     }
   ],

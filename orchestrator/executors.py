@@ -15,7 +15,8 @@ BROWSER_TYPES = ('gemini-browser', 'openai-browser', 'qwen-browser')
 PROVIDERS = ('gemini','openai','qwen','deepseek','openrouter')
 FILE_TYPES = tuple(p+'-agent' for p in PROVIDERS)
 CODE_TYPES = tuple(p+'-code' for p in PROVIDERS)
-API_TYPES = (*FILE_TYPES, *BROWSER_TYPES, *CODE_TYPES)
+COMPUTER_TYPES = tuple(p+'-computer' for p in PROVIDERS)
+API_TYPES = (*FILE_TYPES, *BROWSER_TYPES, *CODE_TYPES, *COMPUTER_TYPES)
 
 
 def code_budgets(task, backend, response_budgets=True):
@@ -46,7 +47,7 @@ def provider_for(backend):
 
 
 def configured_worker(provider, kind='agent'):
-    if provider not in PROVIDERS or kind not in ('agent','browser','code'):raise ValueError('Unsupported worker profile.')
+    if provider not in PROVIDERS or kind not in ('agent','browser','code','computer'):raise ValueError('Unsupported worker profile.')
     if provider=='gemini':config,base=configured()
     else:
         from task_relay import api_providers as api
@@ -82,6 +83,10 @@ def validate_input_sizes(items,backend):
 
 def validate(backend):
     if not isinstance(backend, dict):raise ValueError('Specify an execution backend.')
+    if backend.get('type') in COMPUTER_TYPES:
+        validate({'type':backend['type'].replace('-computer','-agent'),'model':backend.get('model')})
+        if set(backend)!={'type','model'}:raise ValueError('Computer workers require an exact model only.')
+        return ['files','computer']
     if backend.get('type') in CODE_TYPES:
         if set(backend)!={'type','model','runtime'} or not isinstance(backend['runtime'],str) or not re.fullmatch('[a-f0-9]{64}',backend['runtime']):raise ValueError('Code workers require an exact model and verified native runtime identity.')
         validate({'type':backend['type'].replace('-code','-agent'),'model':backend['model']})
@@ -176,6 +181,10 @@ def available(backend):
         from task_relay.app_access import require
         require('codex')
         return
+    if backend['type'] in COMPUTER_TYPES:
+        from task_relay.computer_target import runtime
+        runtime(required=True)
+        return available({'type':backend['type'].replace('-computer','-agent'),'model':backend['model']})
     if backend['type'] in CODE_TYPES:
         from task_relay.code_runtime import available as runtime_available
         runtime_available(backend['runtime'])
@@ -267,6 +276,14 @@ def catalog(state=None):
             _,item['backend']=configured_worker(provider,'code');available(item['backend']);item['available']=True
             from task_relay.code_runtime import available as runtime_available
             item['runtime_tools']=runtime_available(item['backend']['runtime'])['tools']
+        except (ValueError,RuntimeError,OSError) as exc:item['blocker']=str(exc)
+        result.append(item)
+    for provider in PROVIDERS:
+        item={'id':provider+'-computer','backend':None,'tools':['files','computer'],
+              'available':False,'limits':GEMINI_LIMITS.copy(),
+              'permissions':'Creates and foregrounds a dedicated Safari window, or uses an explicitly selected target. Exact approved URLs; observe/navigate/scroll only. Visible ownership controls. Page text is sent to the selected provider. No social actions, shell or credentials.'}
+        try:
+            _,item['backend']=configured_worker(provider,'computer');available(item['backend']);item['available']=True
         except (ValueError,RuntimeError,OSError) as exc:item['blocker']=str(exc)
         result.append(item)
     for item in result:

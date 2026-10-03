@@ -54,11 +54,37 @@ not mean those files are relevant: use [] for unrelated sources. For requested f
 select their exact IDs; never omit requested inputs to make validation pass. Read
 omitted evidence if needed. If source identity is ambiguous, return action null and
 ask one short question naming the relevant files/versions in ordinary language.
-Otherwise keep the same routing kind, destination(s), capabilities and all existing
-selections; add only the missing fields. Do not expand the request, invent IDs, claim
+Otherwise return the usual answer/action envelope, but action must be a source-only
+patch: exactly the keys in routing_source_correction.missing_fields and their selected
+ID lists. For example, if only reference_ids is missing, return
+{"answer":"No uploaded files are needed.","action":{"reference_ids":[]}}.
+Do not repeat kind, destinations, deliverables, capabilities or existing selections.
+Relay merges this patch onto the saved action and validates it before dispatch.
+Do not expand the request, invent IDs, claim
 dispatch or ask the user to supply JSON fields. This is one response correction,
 not a retry of an external submission.
 '''
+
+
+def complete_source_action(previous, missing, selected):
+    """Fill only absent source decisions; never regenerate the task's scope."""
+    fields=set(missing)
+    if (not fields or fields-set(('artifact_ids','research_ids','reference_ids'))
+            or fields & set(previous)):
+        raise ValueError('Invalid source correction scope; no action was taken.')
+    if selected is None:
+        return None
+    if not isinstance(selected,dict):
+        raise ValueError('Invalid source selection response; no action was taken.')
+    # Accept older full-action responses only when every saved field is identical.
+    # The advertised protocol needs only a patch, avoiding prose regeneration.
+    if set(selected)==fields:
+        return {**previous,**selected}
+    if set(selected)==set(previous)|fields and all(selected[k]==v for k,v in previous.items()):
+        return {**previous,**{k:selected[k] for k in missing}}
+    if set(selected)<=set(previous) and all(previous[k]==v for k,v in selected.items()):
+        raise MissingSourceSelection(missing)
+    raise ValueError('Relay could not complete the source selection without changing the proposed task. No new job was queued.')
 
 INSTRUCTIONS='''snapshot.production_artifacts lists the 100 most recent generated output versions,
 including reports and drafts from blocked attempts. For Codex route_task, choose_task

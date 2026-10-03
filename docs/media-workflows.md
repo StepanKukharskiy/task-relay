@@ -1,7 +1,8 @@
 # Media workflows
 
 Controlled qualification uses tiny media fixtures and fake model responses.
-No paid generation, native modeling or live message delivery was run for this change.
+Live qualifications are recorded separately; controlled tests do not submit paid
+generation, perform native modeling or send messages.
 Packaged Task Relay.app installations require
 an app update; restarting an existing bundle does not activate repository changes.
 
@@ -20,7 +21,7 @@ making generation calls. Catalog presence is not proof of quota or account acces
 | --- | --- | --- |
 | Conversation | Connected Gemini, OpenAI, Qwen, DeepSeek, OpenRouter | Existing text orchestration and task adapters |
 | Images | Gemini, OpenAI, OpenRouter, Runway, Higgsfield | Gemini direct image task or provider-specific production image operation |
-| Video clips | Gemini/Veo, Runway, Higgsfield | Gemini `/video DESCRIPTION`, or a reviewed Runway/Higgsfield production plan |
+| Video clips | Gemini/Veo, Runway, Higgsfield | Gemini chat or `/video DESCRIPTION`, or a reviewed Runway/Higgsfield production plan |
 | 3D assets | Meshy | Reviewed text-to-3D plan producing one untextured GLB |
 | Modeling and rendering | Available Blender/Rhino workflows | Existing planned native operations |
 
@@ -43,6 +44,40 @@ Attempt completion remains distinct from review, acceptance and delivery.
 
 Video composition and editable Blender/Rhino work retain their separate workflows.
 Choosing a default does not submit generation or purchase credits.
+
+## Gemini video from an image
+
+Ask “Use Gemini to generate a video with this image,” or send an image with a
+`/video` caption. The conversational `generate_video` action uses the existing
+Gemini/Veo managed backend. It does not depend on HyperFrames qualification or a
+`gemini.video` production graph operation. An explicit provider takes precedence;
+otherwise the video default applies. Ordinary reel composition remains a separate
+planned workflow and does not authorize generated footage.
+
+The current scope is text-to-video or one PNG/JPEG first-frame image, up to 10 MB.
+Uploads and production image artifacts retain exact versions, original request text
+and supplied captions. Multiple images or unsupported files are rejected rather
+than silently discarded. Existing native Gemini tasks also pass their single active
+image reference through `/video`; remove other active references before generating.
+The selected model, references, configured aspect ratio and duration are frozen
+when queued. Existing defaults are 16:9, four seconds and 720p.
+
+Queue, source consumption, dispatch receipt and channel delivery notice commit
+atomically. The worker checks the image hash again before its one submission.
+A saved Google operation can be polled/downloaded again without resending the
+image or starting another generation; unknown submissions remain uncertain.
+Changing settings does not rewrite saved jobs. Configured credentials establish
+adapter availability, not paid access or successful generation.
+
+The first-frame REST payload follows the image conversion in the
+[official Google Gen AI SDK](https://github.com/googleapis/python-genai/blob/main/google/genai/models.py),
+using the [Gemini Veo API](https://ai.google.dev/gemini-api/docs/veo).
+Controlled routing, identity and recovery evidence is in
+`outputs/gemini-video-support/`. A subsequent user-authorized 0.13.91 installation
+and saved-request recovery passed: one Gemini/Veo submission produced a four-second
+720p H.264/AAC video, with Telegram media delivery recorded as sent. Original
+requests and historical jobs remained intact. This establishes that provider and
+delivery path on the installed host; visual quality and user acceptance are separate.
 
 ## Replies and source versions
 

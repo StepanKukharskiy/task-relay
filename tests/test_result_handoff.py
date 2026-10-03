@@ -1,7 +1,8 @@
 import json
+import sqlite3
 from pathlib import Path
 import unittest
-from task_relay import result_handoff as handoff, production_control as pc, relay_channels
+from task_relay import result_handoff as handoff, production_control as pc, relay_channels, job_record
 from tests import test_production_control as fixtures
 
 
@@ -85,8 +86,19 @@ class Tests(unittest.TestCase):
                     VALUES (?,?,?,'telegram','Exact original request','{}','{}','hash','test','test','started',?,0,?,0)""",
                     ('plan-'+str(n),100+n,parent,'token-'+str(n),run))
         root=handoff.sync(self.state,'demo')
+        owner=self.state.db.execute('SELECT * FROM relay_standalone_jobs WHERE root_plan=?',
+                                    ('plan-1',)).fetchone()
+        self.assertEqual(owner['last_run'],'demo')
+        self.assertEqual(root.name,owner['id'])
+        handoff.sync(self.state,'demo')
+        self.assertEqual(self.state.db.execute('SELECT updated FROM relay_standalone_jobs WHERE id=?',
+                                               (owner['id'],)).fetchone()[0], owner['updated'])
         self.assertEqual((root/'request.txt').read_text(),'Exact original request')
         manifest=json.loads((root/'manifest.json').read_text())
         self.assertEqual(manifest['stages'][0]['plans'],['plan-1','plan-2'])
         self.assertEqual(handoff.ancestry(self.state,'demo')[0],'plan-1')
         self.assertEqual(len(manifest['artifacts']),len(self.rt.status('demo')['artifacts']))
+        with sqlite3.connect(root/'.relay/job.sqlite') as view:
+            self.assertEqual(view.execute("SELECT count(*) FROM process_records WHERE source_table='production_plans' AND category='stage_plans'").fetchone()[0],2)
+            self.assertEqual(view.execute("SELECT count(*) FROM process_records WHERE source_table='relay_standalone_jobs' AND category='assignments'").fetchone()[0],1)
+        self.assertNotIn('missing_pipeline', {gap['kind'] for gap in job_record.inspect(root/'.relay/job.sqlite')['gaps']})

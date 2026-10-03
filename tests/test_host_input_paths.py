@@ -48,7 +48,6 @@ class PathTests(unittest.TestCase):
 class InspectionTests(unittest.TestCase):
     def setUp(self):
         native.Tests.setUp(self)
-        del self.fail
     tearDown=native.Tests.tearDown
     request=native.Tests.request
     action=native.Tests.action
@@ -79,7 +78,6 @@ class InspectionTests(unittest.TestCase):
 class SelectedScriptTests(unittest.TestCase):
     def setUp(self):
         rhino.Tests.setUp(self)
-        del self.fail
         signature=patch('task_relay.host_evidence.application_signature',return_value={'path':'/fixture/rhino'})
         signature.start();self.addCleanup(signature.stop)
     tearDown=rhino.Tests.tearDown

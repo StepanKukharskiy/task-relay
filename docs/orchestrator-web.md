@@ -41,9 +41,21 @@ to the answer, including source links and the Google Search suggestions widget i
 sandboxed frame. Telegram cannot render that widget inline; open the attached HTML
 document to inspect it. Simple page reads do not add an extra document.
 
-Browsing alone does not import research into a production or change a frozen worker
-assignment. Existing input registration and stage controls remain responsible for
-those handoffs.
+Conversational browsing does not import research into a production or change a
+frozen worker assignment. A separate registered production operation,
+`web.sources`, can submit 1–20 explicit public text queries in a reviewed plan.
+It uses the configured Gemini text model for grounded search; Google may rewrite
+the effective search terms. Relay attempts the first two grounded links per query
+and reads public HTML/text pages when accessible. Optional domain filters restrict
+source hosts. A failed fetch or an off-target first link can leave an article
+unresolved even when another public catalog page exists.
+The exact `delivery/source-pack.json` contains query terms, grounded candidate
+URLs, fetched text with raw response hashes and timestamps, and explicit gaps.
+Search hits are candidates, not verified facts or exact OEM matches. A downstream
+file worker must consume the declared source pack, and an independent reviewer
+checks the matches. The operation neither signs in nor reads PDF/JavaScript sites.
+It has controlled tests and is installed locally in 0.13.94; no live source
+coverage is claimed.
 
 Examples:
 

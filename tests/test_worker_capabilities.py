@@ -213,13 +213,19 @@ class PlanningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'no dynamic worker catalog'):
             planning.validate_result(json.dumps(self.dynamic()),row)
 
-    def test_clarification_retains_catalog_despite_new_configuration(self):
+    def test_unstarted_clarification_captures_current_workers_without_changing_parent(self):
         with patch.object(workers,'capture',return_value=copy.deepcopy(CATALOG)):
             self.queue()
         planning.Worker(self.state,lambda *_:(json.dumps({'decision':'needs_input','message':'Which file?','plan':None}),{})).tick()
-        with patch.object(workers,'capture',side_effect=AssertionError('Must retain old catalog')):
+        browser=workers.entry({'type':'gemini-browser','model':GEMINI['model']})
+        original=dict(self.row())
+        with patch.object(workers,'capture',return_value=CATALOG+[browser]) as capture:
             row=self.queue(ident=2,action=self.action(parent_id='plan-1'),text='Use the supplied file.')
-        self.assertEqual(json.loads(row['options'])['worker_catalog'],CATALOG)
+        capture.assert_called_once()
+        self.assertEqual(json.loads(row['options'])['worker_catalog'],CATALOG+[browser])
+        self.assertEqual(self.row(1)['context'],original['context'])
+        self.assertEqual(self.row(1)['result'],original['result'])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
 
     def test_blocked_proposal_refreshes_workers_only_in_new_unlocked_scope(self):
         browser=workers.entry({'type':'gemini-browser','model':GEMINI['model']})

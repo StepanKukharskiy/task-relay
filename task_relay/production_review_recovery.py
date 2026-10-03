@@ -80,6 +80,11 @@ def prepare(state,run,request,backend=None):
     payload['execution_recovery']={'kind':'review_revision','baseline':baseline,'request':request,
         'reused_completed_tasks':sorted(done),'completed_deliverables':retained,'review_instruction':reason['instruction']}
     payload['options']=options
+    if payload.get('design_intent_policy'):
+        from . import design_intent
+        retained=design_intent.feedback_record(design_intent.saved(parent,state),request,'review_recovery:'+new_id)
+        payload.update(design_intent_previous=retained,design_intent_request=request)
+        result['design_intent']=dict(phase='revision',representation=retained['representation'],advance_quote='',additions=[])
     result['message']='Correct the saved draft, independently review it, then resume the unstarted operations.'
     values=dict(parent);values.update(id=new_id,request_id=ident,parent_id=parent['id'],request=prompt,
         options=c.encoded(options),context=c.encoded(payload),context_hash=c.digest(payload),status='ready',calls=0,

@@ -2,5 +2,5 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Task Relay sends replies to your paired Messages conversation.</string>
+  <string>Task Relay reads and navigates approved Safari research pages and sends replies to your paired Messages conversation.</string>
 </dict></plist>

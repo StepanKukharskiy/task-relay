@@ -32,6 +32,18 @@ REGISTRY = {
         'permissions':'Host Blender process with normal OS permissions; fixed Relay code and bounded primitive JSON only; no arbitrary scripts or existing blend inputs.'},
 }
 
+REGISTRY['web.sources'] = {
+    'version': 1, 'kind': 'api', 'input_types': [], 'min_inputs': 0,
+    'output_type': 'application/json', 'outputs': {'delivery/source-pack.json': 'application/json'},
+    'max_inputs': 0, 'input_bytes': 0, 'seconds': 1800, 'output_bytes': 2000000,
+    'criteria': ['The exact literal queries, grounded search candidates, fetched public page versions and failures are recorded; no source candidate is asserted as a verified fact.'],
+    'parameters': {'queries': '1–20 distinct literal public search queries',
+                   'domains': '0–8 exact allowed public domains; empty permits any public domain',
+                   'model': 'Exact configured Gemini text model'},
+    'external_requests': 60,
+    'cancellation': 'Stop after the current request; an uncertain search submission is never replayed.',
+    'permissions': 'Public Google-grounded search and bounded HTTPS page reads; no login, JavaScript or private network.'}
+
 from .reel_contract import OUTPUTS as REEL_OUTPUTS
 from .hyperframes_contract import PREVIEW_OUTPUTS,RENDER_OUTPUTS,ASSET_TYPES
 REGISTRY['hyperframes.preview']={
@@ -69,6 +81,15 @@ REGISTRY['pptx.create'] = {
     'criteria':['The bounded slide specification produced a PPTX that reopened with matching editable text, tables, chart data and embedded images; visual layout and Keynote import require separate review.'],
     'parameters':{}, 'external_requests':0,
     'cancellation':'Terminate the local process; preserve partial results and never automatically replay.'}
+
+REGISTRY['pptx.edit'] = {
+    'review_correction':'application/json', 'version':1, 'kind':'procedure',
+    'input_types':['application/json','application/vnd.openxmlformats-officedocument.presentationml.presentation','image/png','image/jpeg'],
+    'output_type':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'min_inputs':2, 'max_inputs':20, 'input_bytes':51000000, 'seconds':120, 'output_bytes':50000000,
+    'criteria':['The exact baseline PPTX and guarded manifest produced a new editable PPTX; every untargeted package part retained its bytes and edited text or pictures reopened correctly. Visual fit requires separate review.'],
+    'parameters':{}, 'external_requests':0,
+    'cancellation':'Terminate the local process; preserve the baseline and partial evidence; never automatically replay.'}
 
 REGISTRY['images.collect'] = {
     'version':1,'kind':'procedure','input_types':list(TEXT_TYPES),'output_type':'application/zip',
@@ -199,7 +220,7 @@ REGISTRY['rhino.run_python'] = {
                   'script_sha256':'Exact reviewed source SHA-256 for the selected Rhino interpreter', 'checks_sha256':'Exact Rhino checks JSON SHA-256',
                   'permissions':'unrestricted_host'}, 'external_requests':None,
     'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. A shared script may continue; retain its pending receipt and never replay. Script side effects cannot be undone.',
-    'permissions':'Exact-script approval required for IronPython 2.7 (Rhino 7) or CPython 3 (Rhino 8)/RhinoCommon with normal host filesystem/network access. No OS isolation. Grasshopper support is paused.'}
+    'permissions':'Exact-script approval required for IronPython 2.7 (Rhino 7) or CPython 3 (Rhino 8)/RhinoCommon with normal host filesystem/network access. No OS isolation. Grasshopper authoring requires the separate rhino.grasshopper operation.'}
 
 REGISTRY['rhino.render'] = {
     'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/vnd.rhino','application/json'],
@@ -208,7 +229,19 @@ REGISTRY['rhino.render'] = {
     'criteria':['The selected model rendered through built-in Rhino Render from the exact named-view/resolution manifest; PNG dimensions and source-copy preservation were checked.'],
     'parameters':{'manifest_sha256':'Exact registered render manifest SHA-256'},'external_requests':0,
     'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. Retain partial files and pending receipts; no automatic replay.',
-    'permissions':'Fixed host rendering with model materials/lighting and normal OS permissions. No arbitrary script, third-party renderer or model save; Grasshopper paused.'}
+    'permissions':'Fixed host rendering with model materials/lighting and normal OS permissions. No arbitrary script, third-party renderer or model save; Grasshopper is outside this operation.'}
+
+REGISTRY['rhino.grasshopper'] = {
+    'version':1, 'kind':'host', 'input_types':[*TEXT_TYPES,'text/x-python','application/json','application/octet-stream'],
+    'output_type':None, 'max_inputs':20, 'input_bytes':100000000, 'seconds':600, 'output_bytes':100000000,
+    'outputs':{'delivery/candidate.gh':'application/vnd.grasshopper','delivery/candidate.ghx':'application/vnd.grasshopper',
+               'delivery/definition.py':'text/plain','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['The exact approved interpreter-specific Rhino 7/8 Python authored a new Grasshopper definition; official SaveQuiet wrote .gh and .ghx, both independently reopened and solved with preserved graph identities/wires, no runtime errors and exact declared output counts. Inputs remain unchanged; candidates await independent review and selection.'],
+    'parameters':{'scene_sha256':'null; new definitions only','script_sha256':'Exact reviewed authoring Python SHA-256',
+                  'checks_sha256':'Exact reviewed Grasshopper checks SHA-256','permissions':'unrestricted_host'},
+    'requires_registered_inputs':True, 'external_requests':None,
+    'permissions':'Exact script/checks/input approval for Rhino 7 IronPython 2.7 or Rhino 8 CPython 3 and installed Grasshopper/GhPython APIs, including embedded code during build and verification solves. Normal host filesystem/network permissions, not isolation. No edits to existing definitions, baking or UI control.',
+    'cancellation':REGISTRY['rhino.run_python']['cancellation']}
 
 
 REGISTRY['sketchup.startup'] = {
@@ -250,6 +283,10 @@ def catalog():
         configured_model=(config.get('models',{}).get(ident.split('.')[1],gemini.DEFAULT_MODELS[ident.split('.')[1]]) if config and ident.startswith('gemini.') else None))
         for ident,spec in REGISTRY.items()]
     for entry in result:
+        if entry['id']=='web.sources':
+            entry.update(available=bool(config and config.get('models',{}).get('text')),
+                         configured_model=(config or {}).get('models',{}).get('text'),
+                         availability_evidence='Configured Gemini text model and public page reader; live search and source coverage are checked during execution.')
         if entry['id']=='rhino3dm.run_python':
             from .rhino3dm_script import discover
             from .rhino3dm_script_contract import DESCRIPTION
@@ -305,6 +342,12 @@ def catalog():
             try:pptx_document.available()
             except ValueError as exc:entry.update(available=False,availability_evidence=str(exc))
             else:entry['availability_evidence']='Local python-pptx dependency available; native-app import and visual quality are not qualified.'
+        if entry['id']=='pptx.edit':
+            from . import pptx_edit
+            entry['edit_schema']=pptx_edit.DESCRIPTION
+            try:pptx_edit.available()
+            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
+            else:entry['availability_evidence']='Local OOXML package editor available; visual fit and native-app import require review.'
         if entry['id'] in IMAGE_PROVIDERS and IMAGE_PROVIDERS[entry['id']] != 'gemini':
             provider=IMAGE_PROVIDERS[entry['id']]; selected=api_providers.read_config(provider)
             model=(selected or {}).get('models',{}).get('image')
@@ -320,8 +363,11 @@ def catalog():
             if entry['id']=='rhino3dm.run_python':continue
             if entry['id'].startswith('sketchup.'):continue
             if entry['id'].startswith('rhino.'):
-                rhino_app=rhino()
+                rhino_app=native_profile(entry['id']).discover()
                 entry.update(available=rhino_app['available'],availability_evidence=rhino_app['evidence'])
+                if entry['id']=='rhino.grasshopper':
+                    from .grasshopper_contract import DESCRIPTION
+                    entry['checks_schema']=DESCRIPTION
                 if entry['id']=='rhino.run_python':
                     from .rhino_contract import DESCRIPTION
                     entry['checks_schema']=DESCRIPTION
@@ -357,12 +403,23 @@ def validate(a):
     if not spec or type(e['version']) is not int or e['version']!=spec['version']:
         raise ValueError('Unknown capability or unsupported execution version.')
     params=e['parameters']
-    if not isinstance(params,dict) or set(params)!=set(spec['parameters']):raise ValueError('Invalid registered-operation parameters.')
+    if not isinstance(params,dict) or set(params)!=set(spec['parameters']):
+        expected=set(spec['parameters']);actual=set(params) if isinstance(params,dict) else set()
+        issues=[]
+        if expected-actual:issues.append('missing '+', '.join(sorted(expected-actual)))
+        if actual-expected:issues.append('unsupported '+', '.join(sorted(actual-expected)))
+        if not isinstance(params,dict):issues.append('expected an object')
+        raise ValueError('Invalid registered-operation parameters for '+e['capability']+': '+'; '.join(issues)+'.')
     if e['capability']=='images.collect':
         from .image_sources import validate_subjects
         validate_subjects(params['subjects'])
         if any(not str(o.get('path','')).endswith('.zip') for o in a.get('outputs',[])):
             raise ValueError('Image collection requires a .zip output.')
+    if e['capability']=='web.sources':
+        from .web_sources import validate as validate_queries
+        validate_queries(params['queries'], params['domains'])
+        if not isinstance(params['model'],str) or not params['model'].strip():
+            raise ValueError('Web source collection requires an exact text model.')
     if e['capability']=='images.fetch' and any(not o['path'].endswith('.zip') for o in a.get('outputs',[])):
         raise ValueError('Image fetching requires a .zip output.')
     if e['capability'] in CLOUD_MEDIA:
@@ -399,7 +456,9 @@ def validate(a):
         for media,count in (('application/vnd.sketchup.skp',int(params['scene_sha256'] is not None)),('text/x-ruby',1),('application/json',1)):
             if sum(i.get('media_type')==media for i in a.get('inputs',[]))!=count:raise ValueError('SketchUp needs exact Ruby/checks and a model only for edits')
         if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):raise ValueError('SketchUp accepts only already registered inputs')
-    if e['capability'] in ('rhino.run_python','rhino3dm.run_python'):
+    if e['capability']=='rhino.grasshopper' and params['scene_sha256'] is not None:
+        raise ValueError('Grasshopper supports new definitions only; scene_sha256 must be null')
+    if e['capability'] in ('rhino.run_python','rhino3dm.run_python','rhino.grasshopper'):
         if params['permissions']!='unrestricted_host':raise ValueError('Rhino Python requires unrestricted_host; no isolation is enforced')
         for key in ('scene_sha256','script_sha256','checks_sha256'):
             if key=='scene_sha256' and params[key] is None:continue
@@ -443,6 +502,12 @@ def validate(a):
             raise ValueError('PPTX creation requires exactly one JSON slide specification.')
         if any(not isinstance(o,dict) or not str(o.get('path','')).endswith('.pptx') for o in a.get('outputs',[])):
             raise ValueError('PPTX creation requires a .pptx output path.')
+    if e['capability']=='pptx.edit':
+        types=[i.get('media_type') for i in a.get('inputs',[]) if isinstance(i,dict)]
+        if types.count('application/json')!=1 or types.count('application/vnd.openxmlformats-officedocument.presentationml.presentation')!=1 or any(t not in REGISTRY['pptx.edit']['input_types'] for t in types):
+            raise ValueError('PPTX edit requires one baseline PPTX, one JSON edit manifest and optional declared PNG/JPEG pictures.')
+        if any(not isinstance(o,dict) or not str(o.get('path','')).endswith('.pptx') for o in a.get('outputs',[])):
+            raise ValueError('PPTX edit requires a .pptx output path.')
     if a.setdefault('tools',[])!=[]:raise ValueError('Registered operations have no agent tools.')
     if a.get('criteria')!=spec['criteria']:raise ValueError('Use the registered operation criteria; semantic review is a separate agent step.')
     if not isinstance(a.get('inputs'),list) or not spec.get('min_inputs',1)<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
@@ -497,6 +562,11 @@ def validate(a):
 
 def available(a):
     spec=validate(copy.deepcopy(a))
+    if a['execution']['capability']=='web.sources':
+        from task_relay import gemini
+        config=gemini.read_config()
+        if not config or config.get('models',{}).get('text')!=a['execution']['parameters']['model']:
+            raise ValueError('The configured Gemini text model for web.sources is unavailable or changed.')
     if a['execution']['capability'].startswith('hyperframes.'):
         from .hyperframes_project import available as project_available
         project_available()
@@ -511,6 +581,9 @@ def available(a):
     if a['execution']['capability']=='pptx.create':
         from .pptx_document import available as pptx_available
         pptx_available()
+    if a['execution']['capability']=='pptx.edit':
+        from .pptx_edit import available as pptx_edit_available
+        pptx_edit_available()
     if (a['execution']['capability'] in IMAGE_PROVIDERS or a['execution']['capability'] in CLOUD_MEDIA and a['execution']['capability'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
         raise ValueError('Image conversion dependency is missing; no provider request was sent. Install task-relay[images] or update the desktop app.')
     if spec['kind']=='host':

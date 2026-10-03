@@ -203,10 +203,30 @@ def rhino(environ=None, platform=None, respect_access=True):
         available=False;blocker='Selected Rhino is off in Settings → Apps and tools.'
     return dict(id='rhino', available=available, executable=str(path.resolve()) if present else None,
         version=version, major=major, interpreter='IronPython 2.7' if major==7 else 'CPython 3' if major==8 else None,
-        executor='Registered rhino.startup / rhino.inspect / rhino.run_python / rhino.render; exact Python/checks approval for modeling',
+        executor='Registered rhino.startup / rhino.inspect / rhino.run_python / rhino.render / rhino.grasshopper; exact Python/checks approval for authoring',
         evidence='Executable/bundle version only; runtime, license and rendering require a host check.', blocker=blocker,
         outputs=['Editable .3dm candidate', 'Viewport .png preview or native Rhino Render image', 'Python source and verification/receipt JSON'],
-        verification='Reopen saved candidate in a separate owned Rhino process and check declared geometry/preservation. Grasshopper is paused.')
+        verification='Reopen saved candidate in a separate owned Rhino process and check declared geometry/preservation. Grasshopper authoring requires the separate rhino.grasshopper operation.')
+
+
+def grasshopper(environ=None, platform=None, respect_access=True):
+    """Discover the selected Rhino 7/8 bundle's official libraries without launching."""
+    app = dict(rhino(environ, platform, respect_access))
+    blocker = app.get('blocker')
+    libraries = []
+    if not blocker:
+        if app.get('major') not in (7, 8):
+            blocker = 'Grasshopper authoring requires selected Rhino 7/8; no automatic version switch.'
+        else:
+            root = Path(app['executable']).parents[1] / 'Frameworks/RhCore.framework/Versions/A/Resources/ManagedPlugIns/GrasshopperPlugin.rhp'
+            libraries = [str(root / name) for name in ('Grasshopper.dll', 'GH_IO.dll', 'Components/GhPython.gha')]
+            if not all(Path(p).is_file() for p in libraries):
+                blocker = 'Selected Rhino bundle is missing required Grasshopper/GhPython libraries.'
+    app.update(available=blocker is None, blocker=blocker, grasshopper_libraries=libraries,
+               outputs=['Editable .gh and .ghx definitions', 'Authoring Python and checks/execution JSON'],
+               verification='Independently reopen and solve both definitions; check graph identities/wires and declared output counts.',
+               evidence=blocker or 'Selected Rhino bundle and Grasshopper libraries found; license, component loading and solves require execution.')
+    return app
 
 
 def video_tools(environ=None, which=None):

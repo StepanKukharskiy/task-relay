@@ -1,4 +1,4 @@
-/* Desktop companion: connections and exact decisions, never a second inbox. */
+/* Shared connection settings and exact reviews for the Relay workspace. */
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__;
 let snapshot = null;
@@ -10,6 +10,10 @@ let handoff = null;
 let firstRead = true;
 let readFailed = false;
 const submittedDecisions = new Set();
+let activeRevision = null;
+const revisionRequests = new Map();
+let savedWorkOffset = null;
+let savedWorkRequest = 0;
 const keyURLs = {
   gemini: 'https://aistudio.google.com/apikey', openai: 'https://platform.openai.com/api-keys',
   qwen: 'https://www.alibabacloud.com/help/en/model-studio/get-api-key',
@@ -46,13 +50,13 @@ function renderModelDefaults(settings) {
       provider.append(new Option(row.selected.provider + ' — disconnected', row.selected.provider));
     }
     provider.value = row.selected?.provider || '';
-    const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save ' + labels[row.capability].toLowerCase() + ' default';
+    const save = document.createElement('button'); save.type = 'submit'; save.className = 'primary'; save.textContent = 'Save ' + labels[row.capability].toLowerCase() + ' default';
     const detail = document.createElement('p'); detail.className = 'hint';
     const connect = document.createElement('button'); connect.type = 'button'; connect.className = 'quiet'; connect.textContent = 'Connect provider';
     const refreshModels = document.createElement('button'); refreshModels.type = 'button'; refreshModels.className = 'quiet'; refreshModels.textContent = 'Refresh image models';
     detail.textContent = !row.available ? (row.capability === 'text' ? 'Connect a text provider in AI connection first.' : row.capability === 'mesh' ? 'Connect Meshy above to generate 3D assets.' : 'Connect a supported provider above, or Gemini in AI connection.') :
       row.selected && !row.selected_available ? 'The selected provider is disconnected. Relay will not switch providers automatically.' :
-      row.capability === 'video' ? 'Runway and Higgsfield clips use a reviewed production plan. Gemini tasks retain /video. Video editing and composition remain separate workflows.' :
+      row.capability === 'video' ? 'Runway and Higgsfield clips use a reviewed production plan. Gemini clips accept a prompt and an optional first-frame image in chat or /video. Video editing and composition remain separate workflows.' :
       row.capability === 'mesh' ? 'Meshy creates an untextured GLB from a text description. Texturing and image-to-3D are not available yet.' :
       row.selected ? row.inherited ? 'Using the existing provider default.' : 'Saved for future work.' : 'Existing routing remains in use until you save a default.';
     function fillModels() {
@@ -91,7 +95,9 @@ function renderModelDefaults(settings) {
       if (result) { modelDefaultsDirty = false; modelDefaultsKey = null; await refresh(); }
     };
     fillModels();
-    form.append(title, providerLabel, provider, modelLabel, model, detail, connect, refreshModels, save);
+    const actions = document.createElement('div'); actions.className = 'actions';
+    actions.append(save, connect, refreshModels);
+    form.append(title, providerLabel, provider, modelLabel, model, detail, actions);
     container.append(form);
   }
   const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'quiet'; reset.textContent = 'Reload saved choices';
@@ -105,6 +111,7 @@ function message(text, error = false) {
 }
 function text(id, value) { $(id).textContent = value ?? ''; }
 function openSettings(section) {
+  window.RelayWorkspace?.navigate(['channels-settings', 'telegram-settings', 'messages-settings'].includes(section) ? 'connections' : 'settings');
   if (['channels-settings', 'telegram-settings', 'messages-settings'].includes(section)) {
     $('channels-settings').open = true;
     if (section !== 'channels-settings') $(section).open = true;
@@ -144,7 +151,7 @@ function renderSetup(info) {
   $('home').hidden = !!setupStep;
   if (!setupStep) return;
   text('setup-title', setupStep.title);
-  text('setup-progress', `Step ${setupStep.number} of 4 · AI → Telegram → Start → Pair`);
+  text('setup-progress', `Setup · Connect AI → Start Relay`);
   text('setup-next', setupStep.detail);
   $('continue-setup').hidden = !!setupStep.form;
   $('continue-setup').disabled = mutating;
@@ -201,11 +208,12 @@ function render(info) {
   const ready = providerReady && setup.telegram.paired;
   text('version', 'Installed app version: ' + setup.version);
   text('status-title', service.error ? 'Connection needs attention' : service.healthy ? 'Relay is running' : service.loaded ? 'Checking Relay connection' : 'Relay is stopped');
-  text('status-detail', service.error || (policy?.paused ? (pending.length ? 'Messaging pause is waiting for service confirmation. Check Channels.' : 'Messaging is paused. Work already started can continue.') : service.healthy ? 'Work in your enabled messengers. Manage delivery in Channels.' : service.detail));
-  $('status-dot').className = 'dot ' + (service.healthy ? 'ready' : service.loaded || service.error ? 'attention' : '');
+  text('status-detail', service.error || (policy?.paused ? (pending.length ? 'Messaging pause is waiting for service confirmation. Check Connections.' : 'Messaging is paused. Work already started can continue.') : service.healthy ? 'Start work in Jobs, or send an instruction in a connected messenger.' : service.detail));
+  text('workspace-status', service.error ? 'Connection needs attention' : service.healthy ? 'Relay is running' : service.loaded ? 'Checking Relay connection' : 'Relay is stopped');
+  for (const id of ['status-dot', 'workspace-status-dot']) $(id).className = 'dot ' + (service.error ? 'attention' : service.healthy ? 'ready' : service.loaded ? 'attention' : '');
   $('open-conversation').disabled = !info.conversation?.url;
   $('service-action').hidden = !!service.error || service.owner === 'other';
-  $('service-action').disabled = mutating || (!service.loaded && !setup.telegram.configured);
+  $('service-action').disabled = mutating;
   text('service-action', service.loaded ? 'Stop Relay' : 'Start Relay');
   text('service-note', service.owner === 'other' ? 'Your existing service stays under its current installation until you choose a handoff in Settings.' : 'Closing this window leaves the service running. Stopping it does not undo work already performed.');
   text('provider-summary', connected.join(', ') || (setup.selected_provider === 'later' ? 'Existing agents' : 'Not connected'));
@@ -274,6 +282,11 @@ async function refresh() {
   $('refresh').disabled = true;
   try {
     render(await request('companion-status'));
+    window.RelayComputerSessions?.connect();
+    try {
+      const revisions = await request('revision-candidates');
+      $('review-revisions').hidden = !Array.isArray(revisions.items) || !revisions.items.length;
+    } catch (_) { $('review-revisions').hidden = true; }
     if (readFailed) message('Connection restored.');
     readFailed = false;
     $('grant-data-access').hidden = true;
@@ -283,10 +296,13 @@ async function refresh() {
     snapshot = null;
     renderModelDefaults({error: 'Model settings are unavailable. Refresh before saving.'});
     $('home').hidden = false;
+    $('review-revisions').hidden = true;
     $('onboarding').hidden = true;
     text('status-title', 'Could not read Relay');
     text('status-detail', 'Check local access, then refresh. Saved settings remain in place.');
     $('status-dot').className = 'dot attention';
+    $('workspace-status-dot').className = 'dot attention';
+    text('workspace-status', 'Could not read Relay');
     $('service-action').hidden = true;
     $('open-conversation').disabled = true;
     for (const id of ['channel-telegram', 'channel-messages', 'messaging-pause', 'proactive-destination', 'browser-toggle', 'browser-open', 'browser-sign-in-done', 'code-runtime-toggle', 'code-runtime-check']) $(id).disabled = true;
@@ -294,6 +310,174 @@ async function refresh() {
     $('grant-data-access').hidden = false;
     message(String(error), true);
   } finally { refreshing = false; $('refresh').disabled = false; }
+}
+function savedWorkError(card, detail) {
+  card.querySelector('.saved-work-error')?.remove();
+  const note = document.createElement('p');
+  note.className = 'feedback error saved-work-error';
+  note.setAttribute('role', 'alert');
+  note.textContent = detail;
+  card.append(note);
+  note.scrollIntoView({block: 'nearest'});
+}
+function confirmDestructive(detail, actionLabel) {
+  const dialog = $('destructive-confirm');
+  if (dialog.open) throw new Error('A deletion review is already open.');
+  $('destructive-confirm-title').textContent = actionLabel === 'Remove job' ? 'Remove job from the list' : 'Confirm deletion';
+  $('destructive-confirm-detail').textContent = detail;
+  $('destructive-apply').textContent = actionLabel;
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), {once: true});
+    $('destructive-cancel').onclick = () => dialog.close('cancel');
+    $('destructive-apply').onclick = () => dialog.close('confirm');
+    dialog.showModal();
+    $('destructive-cancel').focus();
+  });
+}
+async function loadSavedWork(append = false) {
+  const sequence = ++savedWorkRequest;
+  const kind = $('saved-work-kind').value;
+  const offset = append ? savedWorkOffset : 0;
+  if (offset === null) return;
+  const list = $('saved-work-list');
+  if (!append) list.replaceChildren();
+  $('saved-work-more').hidden = true;
+  text('saved-work-count', 'Reading saved work…');
+  try {
+    const result = kind === 'tasks'
+      ? await request('tasks', {offset})
+      : await request('workflows', {kind, offset});
+    if (sequence !== savedWorkRequest || kind !== $('saved-work-kind').value) return;
+    const items = kind === 'tasks' ? result.tasks : result.items;
+    for (const item of items) {
+      const card = document.createElement('div'); card.className = 'review-card'; card.dataset.recordId = item.id;
+      const title = document.createElement('strong'); title.textContent = item.title || item.id;
+      const identity = document.createElement('p'); identity.className = 'hint';
+      identity.textContent = `${item.status || 'Unknown'} · ${item.id}`;
+      card.append(title, identity);
+      const context = [item.backend, item.project, item.channel, item.detail].filter(Boolean).join(' · ');
+      if (context) {
+        const line = document.createElement('p'); line.className = 'hint'; line.textContent = context;
+        card.append(line);
+      }
+      if (item.job_view) {
+        const path = document.createElement('p'); path.className = 'path';
+        path.textContent = item.job_view; card.append(path);
+      }
+      if (item.request) {
+        const request = document.createElement('p'); request.className = 'saved-work-request';
+        request.textContent = item.request.length > 300 ? item.request.slice(0, 300) + '…' : item.request;
+        card.append(request);
+      }
+      if (item.steps?.length) {
+        const stages = document.createElement('p'); stages.className = 'hint';
+        stages.textContent = item.steps.map(step => `${step.id}: ${step.status}`).join(' · ');
+        card.append(stages);
+      }
+      if (kind === 'tasks' && item.delete_note) {
+        const note = document.createElement('p'); note.className = 'hint'; note.textContent = item.delete_note;
+        card.append(note);
+      }
+      if (kind === 'tasks' && item.can_delete) {
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'danger';
+        remove.textContent = 'Delete…';
+        remove.onclick = async () => {
+          remove.disabled = true;
+          card.querySelector('.saved-work-error')?.remove();
+          try {
+            const review = await request('task-delete-preview', {id: item.id});
+            if (review.blockers.length) { savedWorkError(card, 'Deletion blocked: ' + review.blockers.join(' ')); return; }
+            const records = Object.values(review.counts).reduce((sum, count) => sum + count, 0);
+            const retainedBatches = review.retained_attachment_batches || 0;
+            const approved = await confirmDestructive(`Permanently delete Relay history for task “${review.title}” (${review.id})?\n\n${records} owned database records across ${review.turns} completed provider turns will be removed, along with private provider traces. ${retainedBatches} attachment batch${retainedBatches === 1 ? '' : 'es'} and their uploads remain to prevent duplicate caption submission. External channel messages, provider conversations, native files and project folders remain. This cannot be undone.`, 'Delete task');
+            if (!approved) return;
+            const result = await request('task-delete', {id: review.id, digest: review.digest});
+            message(result.status === 'complete' ? 'Task history deleted.' : 'Task history deleted; private trace cleanup needs recovery: ' + result.error, result.status !== 'complete');
+            await loadSavedWork();
+          } catch (error) { savedWorkError(card, String(error)); }
+          finally { remove.disabled = false; }
+        };
+        card.append(remove);
+      }
+      if (kind === 'pipelines' || (kind === 'runs' && item.job_id)) {
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'danger';
+        remove.textContent = 'Delete…';
+        remove.onclick = async () => {
+          remove.disabled = true;
+          card.querySelector('.saved-work-error')?.remove();
+          try {
+            if (item.registration_needed) await request('job-delete-register', {run: item.id});
+            const review = await request('job-delete-preview', {id: item.job_id || item.id});
+            if (review.blockers.length) {
+              savedWorkError(card, 'Deletion blocked: ' + review.blockers.join(' '));
+              return;
+            }
+            const records = Object.values(review.counts).reduce((sum, count) => sum + count, 0);
+            const mediaTasks = review.media_tasks?.length || 0;
+            const approved = await confirmDestructive(`Permanently delete Relay history for “${review.title}” (${review.id})?\n\n${records} database records across ${Object.keys(review.counts).length} tables, ${review.plans.length} plans, ${review.runs.length} runs and ${mediaTasks} exclusive media agent tasks. Its private .relay job view and Relay metadata will be removed. Native deliverable copies, files outside Relay and shared channel conversation history remain. This cannot be undone.`, 'Delete job');
+            if (!approved) return;
+            const result = await request('job-delete', {id: review.id, digest: review.digest});
+            if (result.status === 'cleanup_pending') message('Database history deleted. Private job view cleanup needs recovery: ' + result.error, true);
+            else message('Job history deleted.');
+            await loadSavedWork();
+          } catch (error) { savedWorkError(card, String(error)); }
+          finally { remove.disabled = false; }
+        };
+        card.append(remove);
+      }
+      list.append(card);
+    }
+    if (!list.childElementCount) list.textContent = 'No saved work in this category.';
+    savedWorkOffset = result.next_offset;
+    $('saved-work-more').hidden = savedWorkOffset === null;
+    text('saved-work-count', `${list.childElementCount} of ${result.total} saved ${kind}`);
+    if ((kind === 'pipelines' || kind === 'runs' || kind === 'tasks') && !append) {
+      const pending = await request(kind === 'tasks' ? 'task-delete-pending' : 'job-delete-pending');
+      const recovery = $('saved-work-recovery'); recovery.replaceChildren();
+      for (const receipt of pending.items) {
+        const line = document.createElement('p'); line.className = 'hint';
+        line.textContent = `${kind === 'tasks' ? 'Private trace' : 'Private view'} cleanup pending for ${receipt.id}. ${receipt.error || ''}`;
+        const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry cleanup';
+        retry.onclick = async () => {
+          retry.disabled = true;
+          try { const done = await request(kind === 'tasks' ? 'task-delete-recover' : 'job-delete-recover', {id: receipt.id});
+            if (done.status === 'complete') { line.remove(); retry.remove(); message('Private cleanup completed.'); }
+            else message(done.error || 'Cleanup still pending.', true);
+          } catch (error) { message(String(error), true); }
+          finally { retry.disabled = false; }
+        };
+        recovery.append(line, retry);
+      }
+      if (kind !== 'tasks') {
+        const history = await request('shared-history-list', {});
+        if (sequence !== savedWorkRequest || kind !== $('saved-work-kind').value) return;
+        for (const item of history.items) {
+          const line = document.createElement('p'); line.className = 'hint';
+          line.textContent = `Deleted job ${item.id} still has ${item.events} sent Telegram notice${item.events === 1 ? '' : 's'} in Relay's shared history.`;
+          const forget = document.createElement('button'); forget.type = 'button'; forget.className = 'danger';
+          forget.textContent = 'Forget local history…';
+          forget.onclick = async () => {
+            forget.disabled = true;
+            try {
+              const review = await request('shared-history-preview', {id: item.id});
+              if (review.blockers.length) { message('History deletion blocked: ' + review.blockers.join(' '), true); return; }
+              const approved = await confirmDestructive(`Forget Relay's local conversation text for deleted job ${review.id}?\n\n${review.requests} saved request${review.requests === 1 ? '' : 's'} and the text of ${review.events} sent notice${review.events === 1 ? '' : 's'} (${review.parts} delivery parts) will be removed. Delivery identities, sent acknowledgements, reply routes, Telegram messages, native files and any copies already frozen into other jobs remain. This cannot be undone.`, 'Forget local history');
+              if (!approved) return;
+              await request('shared-history-forget', {id: review.id, digest: review.digest});
+              message('Local conversation and delivery text deleted.');
+              await loadSavedWork();
+            } catch (error) { message(String(error), true); }
+            finally { forget.disabled = false; }
+          };
+          recovery.append(line, forget);
+        }
+      }
+    }
+  } catch (error) {
+    if (sequence !== savedWorkRequest) return;
+    text('saved-work-count', 'Could not read saved work.');
+    message(String(error), true);
+  }
 }
 async function change(action, value = {}, button = null) {
   if (mutating) return null;
@@ -318,6 +502,7 @@ async function openConversation() {
   catch (error) { message(String(error), true); }
 }
 async function reviewDecisions() {
+  window.RelayWorkspace?.navigate('agent-reviews');
   $('review').hidden = false;
   $('decision-detail').replaceChildren();
   const list = $('decision-list'); list.replaceChildren();
@@ -360,7 +545,7 @@ async function loadDecision(taskId) {
         else message('The decision could not be confirmed. Inspect its receipt in the originating app; this card will not submit again.', true);
       };
       if (card.can_allow || card.can_answer) {
-        const allow = document.createElement('button'); allow.textContent = card.can_answer ? 'Send answer' : 'Allow once';
+        const allow = document.createElement('button'); allow.className = 'primary'; allow.textContent = card.can_answer ? 'Send answer' : 'Allow once';
         allow.disabled = true; allow.onclick = () => submit(true); actions.append(allow); buttons.push(allow);
         details.addEventListener('toggle', () => { allow.disabled = !details.open || submittedDecisions.has(key); });
       }
@@ -372,6 +557,165 @@ async function loadDecision(taskId) {
     }
     if (!result.approvals.length) target.append(document.createTextNode('This decision is no longer pending.'));
   } catch (error) { message(String(error), true); }
+}
+function revisionLine(label, value) {
+  const row = document.createElement('p'); row.className = 'hint revision-line';
+  const name = document.createElement('strong'); name.textContent = label + ': ';
+  row.append(name, document.createTextNode(String(value ?? '—')));
+  return row;
+}
+function revisionValue(value) {
+  return value == null ? 'blank' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+async function reviewRevisions() {
+  window.RelayWorkspace?.navigate('revisions');
+  $('revisions').hidden = false;
+  const list = $('revision-list'); list.replaceChildren();
+  try {
+    const result = await request('revision-candidates');
+    if (!result.items.length) list.textContent = 'No registered revision candidates yet.';
+    for (const item of result.items) {
+      const button = document.createElement('button'); button.className = 'row-link';
+      button.type = 'button';
+      button.textContent = `${item.kind.replaceAll('_', ' ')} · ${item.status} · ${item.job}`;
+      button.onclick = () => loadRevision(item.candidate_artifact);
+      list.append(button);
+    }
+    $('revisions').scrollIntoView({block: 'start'});
+  } catch (error) { message(String(error), true); }
+}
+async function loadRevision(candidateArtifact) {
+  try {
+    const result = await request('revision-detail', {candidate_artifact: candidateArtifact});
+    renderRevision(result);
+  } catch (error) { message(String(error), true); }
+}
+function renderRevision(view) {
+  activeRevision = view;
+  const target = $('revision-detail'); target.replaceChildren();
+  const card = document.createElement('div'); card.className = 'review-card';
+  const title = document.createElement('h2'); title.textContent = view.title;
+  card.append(title, revisionLine('Kind', view.kind.replaceAll('_', ' ')),
+    revisionLine('Candidate', view.candidate_artifact),
+    revisionLine('SHA-256', view.candidate_sha256),
+    revisionLine('Native file', view.candidate_path || 'Verified copy unavailable in the workflow folder'));
+  if (view.candidate_path) {
+    const reveal = document.createElement('button'); reveal.type = 'button';
+    reveal.textContent = 'Reveal exact file in Finder';
+    reveal.onclick = async () => {
+      try { await native.core.invoke('companion_reveal_revision', {candidateArtifact: view.candidate_artifact}); }
+      catch (error) { message(String(error), true); }
+    };
+    card.append(reveal);
+  }
+  if (!view.verified) {
+    card.append(revisionLine('Decision blocked', view.error || 'Exact validation failed.'));
+    target.append(card); return;
+  }
+  if (view.kind === 'presentation_text') {
+    card.append(revisionLine('Changed text runs checked', view.checks.changed_locations.join(', ')),
+      revisionLine('Untouched package parts preserved', view.checks.untouched_package_parts_verified),
+      revisionLine('Visual review', view.checks.visual_review));
+  } else {
+    card.append(revisionLine('Changed cells checked', view.checks.changed_cells.join(', ')),
+      revisionLine('Untouched cells checked', view.checks.untouched_cells_verified));
+  }
+  const versions = document.createElement('details');
+  const versionsTitle = document.createElement('summary'); versionsTitle.textContent = 'Exact input versions';
+  versions.append(versionsTitle,
+    revisionLine('Original source', view.old_source),
+    revisionLine('Original source SHA-256', view.plan.old_sha256 || view.plan.source_sha256),
+    revisionLine('Replacement source', view.replacement_source),
+    revisionLine('Replacement SHA-256', view.plan.replacement_sha256),
+    revisionLine('Baseline output', view.baseline_artifact),
+    revisionLine('Baseline SHA-256', view.plan.baseline_sha256));
+  card.append(versions);
+  for (const [label, items] of [['Affected', view.plan.affected || []],
+                                ['Supported unchanged', view.plan.unaffected || []],
+                                ['Unknown or unresolved', view.plan.unknown || []]]) {
+    const group = document.createElement('details'); group.open = label === 'Affected';
+    const heading = document.createElement('summary'); heading.textContent = `${label} · ${items.length}`;
+    group.append(heading);
+    for (const item of items) {
+      const row = document.createElement('div'); row.className = 'revision-item';
+      const location = item.location || item.translation_cell || 'Output location';
+      const name = document.createElement('strong');
+      name.textContent = (item.part_number ? item.part_number + ' · ' : '') + location;
+      row.append(name);
+      if ('before' in item || 'after' in item) {
+        row.append(revisionLine('Source before', revisionValue(item.before)),
+                   revisionLine('Source after', revisionValue(item.after)));
+      }
+      if (item.reason) row.append(revisionLine('Reason', item.reason));
+      const links = (view.evidence_links || []).filter(link => link.output_location === location);
+      for (const link of links) {
+        row.append(revisionLine('Linked source location', link.source_location),
+                   revisionLine('Link review state', link.review_state));
+        if (link.evidence) row.append(revisionLine('Saved evidence', link.evidence));
+        if (link.evidence_url) row.append(revisionLine('Saved evidence URL', link.evidence_url));
+      }
+      if (!links.length && item.saved_catalog_title) row.append(revisionLine('Saved catalog title', item.saved_catalog_title));
+      if (!links.length && item.saved_evidence_url) row.append(revisionLine('Saved evidence URL', item.saved_evidence_url));
+      group.append(row);
+    }
+    card.append(group);
+  }
+  if (view.plan.coverage || view.plan.coverage_scope) {
+    card.append(revisionLine('Coverage boundary', view.plan.coverage || view.plan.coverage_scope));
+  }
+  if (view.review) card.append(revisionLine('Review',
+    `${view.review.decision} · ${view.review.reviewer} · ${view.review.note}`));
+  if (view.selection) card.append(revisionLine('Selected by', view.selection.selected_by));
+  if (view.decision_blocker) card.append(revisionLine('Decision unavailable', view.decision_blocker));
+  if (view.can_review || view.can_select) {
+    const actorLabel = document.createElement('label'); actorLabel.textContent = 'Your name';
+    const actor = document.createElement('input'); actor.maxLength = 120;
+    actorLabel.append(actor); card.append(actorLabel);
+    let note = null;
+    if (view.can_review) {
+      const noteLabel = document.createElement('label'); noteLabel.textContent = 'Review reason';
+      note = document.createElement('textarea'); note.maxLength = 2000; note.rows = 3;
+      noteLabel.append(note); card.append(noteLabel);
+    }
+    const confirmLabel = document.createElement('label'); confirmLabel.className = 'revision-confirm';
+    const confirm = document.createElement('input'); confirm.type = 'checkbox';
+    confirmLabel.append(confirm, document.createTextNode(view.can_review
+      ? 'I inspected this exact candidate and the evidence above.'
+      : 'I choose this exact accepted candidate.'));
+    card.append(confirmLabel);
+    const actions = document.createElement('div'); actions.className = 'actions';
+    for (const [verb, label] of view.can_review
+         ? [['accept', 'Record accepted review'], ['revise', 'Request revision']]
+         : [['select', 'Select exact candidate']]) {
+      const button = document.createElement('button'); button.type = 'button';
+      if (verb === 'accept' || verb === 'select') button.className = 'primary';
+      button.textContent = label;
+      button.onclick = () => decideRevision(verb, actor.value, note?.value || '', confirm.checked, button);
+      actions.append(button);
+    }
+    card.append(actions);
+  }
+  target.append(card);
+}
+async function decideRevision(verb, actor, note, confirmed, button) {
+  if (mutating || !activeRevision) return;
+  if (!actor.trim() || (verb !== 'select' && !note.trim())
+      || (verb !== 'revise' && !confirmed)) {
+    return message('Enter your name and review reason, then confirm the exact candidate before accepting or selecting.', true);
+  }
+  const value = {candidate_artifact: activeRevision.candidate_artifact, verb,
+    actor: actor.trim(), note: note.trim(), expected_sha256: activeRevision.candidate_sha256,
+    expected_plan_digest: activeRevision.plan.digest};
+  const key = JSON.stringify(value);
+  if (!revisionRequests.has(key)) revisionRequests.set(key, crypto.randomUUID());
+  value.request_id = revisionRequests.get(key);
+  const response = await change('revision-decide', value, button);
+  if (!response) return;
+  revisionRequests.delete(key);
+  renderRevision(response.detail);
+  await reviewRevisions();
+  if (response.warning) message(response.warning, true);
+  else message(verb === 'select' ? 'Exact candidate selected.' : 'Review recorded.');
 }
 async function prepareHandoff(channel) {
   const result = await change('handoff-prepare', {channel});
@@ -414,7 +758,32 @@ $('rhino-preference-form').onsubmit = async event => {
   if (result) { rhinoPreferenceDirty = false; await refresh(); }
 };
 $('review-decisions').onclick = reviewDecisions;
-$('close-review').onclick = () => { $('review').hidden = true; };
+$('close-review').onclick = () => { $('review').hidden = true; window.RelayWorkspace?.navigate('reviews'); };
+$('review-revisions').onclick = reviewRevisions;
+$('close-revisions').onclick = () => { $('revisions').hidden = true; window.RelayWorkspace?.navigate('reviews'); };
+async function openSavedWork(kind = null, id = null) {
+  if (kind) $('saved-work-kind').value = kind;
+  window.RelayWorkspace?.navigate('saved');
+  $('saved-work-panel').hidden = false;
+  await loadSavedWork();
+  if (id) {
+    const find = () => [...$('saved-work-list').children].find(card => card.dataset.recordId === id);
+    while (!find() && savedWorkOffset !== null && !$('saved-work-panel').hidden) {
+      const before = savedWorkOffset;
+      await loadSavedWork(true);
+      if (savedWorkOffset === before) break;
+    }
+    const card = find();
+    if (card) { card.classList.add('saved-record-target'); card.tabIndex = -1; card.focus(); card.scrollIntoView({block:'center'}); return; }
+    message('The saved record is unavailable in this category. Refresh Jobs to inspect its current state.', true);
+  }
+  $('saved-work-panel').scrollIntoView({block: 'start'});
+}
+window.RelaySavedWork = {open:openSavedWork, confirm:confirmDestructive};
+$('saved-work').onclick = () => openSavedWork();
+$('close-saved-work').onclick = () => { $('saved-work-panel').hidden = true; window.RelayWorkspace?.navigate('jobs'); };
+$('saved-work-kind').onchange = () => loadSavedWork();
+$('saved-work-more').onclick = () => loadSavedWork(true);
 $('service-action').onclick = () => {
   if (snapshot?.service && !snapshot.service.error) change(snapshot.service.loaded ? 'service-stop' : 'service-start', {}, $('service-action'));
 };
@@ -436,9 +805,13 @@ $('provider-form').onsubmit = async event => {
 };
 $('telegram-form').onsubmit = async event => {
   event.preventDefault();
+  const connectAfterLocalStart = snapshot?.service?.loaded && !snapshot?.setup?.telegram?.configured;
   const result = await change('telegram', {token: $('telegram-token').value}, event.submitter);
   $('telegram-token').value = '';
-  if (result) { pairingURL = result.pairing_url; $('pair-telegram').hidden = !pairingURL; }
+  if (result) {
+    pairingURL = result.pairing_url; $('pair-telegram').hidden = !pairingURL;
+    if (connectAfterLocalStart) message('Telegram is saved. Stop and start Relay in Connections to load the new bot, then pair your account. Wait for active work to finish before restarting.');
+  }
 };
 $('pair-telegram').onclick = async () => {
   if (pairingURL) try { await native.opener.openUrl(pairingURL); } catch (error) { message(String(error), true); }
@@ -509,7 +882,8 @@ $('cleanup-apply').onclick = async () => {
   await change('cleanup-apply', {manifest}, $('cleanup-apply')); $('cleanup-review').hidden = true;
 };
 document.addEventListener('click', async event => {
-  const link = event.target.closest('a'); if (!link) return;
+  if (event.defaultPrevented) return;
+  const link = event.target.closest('a'); if (!link?.hasAttribute('href')) return;
   event.preventDefault(); try { await native.opener.openUrl(link.href); } catch (error) { message(String(error), true); }
 });
 window.addEventListener('unhandledrejection', event => message(String(event.reason), true));
@@ -522,9 +896,10 @@ if (native) {
       return openSettings('channels-settings');
     }
     if (payload === 'conversation') return openConversation();
-    if (payload === 'review') return reviewDecisions();
+    if (payload === 'review') return window.RelayWorkspace?.navigate('reviews');
+    if (payload === 'new-task') return window.RelayWorkspace?.newTask();
     if (payload === 'settings') return openSettings();
-    await refresh(); window.scrollTo(0, 0);
+    window.RelayWorkspace?.navigate('jobs'); await refresh(); window.scrollTo(0, 0);
   });
   refresh();
   setInterval(() => { if (!document.hidden && !mutating && !readFailed) refresh(); }, 20000);

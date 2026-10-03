@@ -15,7 +15,7 @@ class GeminiFactory(CodexFactory):
         from . import executors
         executors.available(backend)
         provider=executors.provider_for(backend)
-        config,_=executors.configured_worker(provider,'code' if backend['type'] in executors.CODE_TYPES else 'browser' if backend['type'] in executors.BROWSER_TYPES else 'agent')
+        config,_=executors.configured_worker(provider,'code' if backend['type'] in executors.CODE_TYPES else 'computer' if backend['type'] in executors.COMPUTER_TYPES else 'browser' if backend['type'] in executors.BROWSER_TYPES else 'agent')
         control=Path(control);control.mkdir(parents=True,exist_ok=False)
         support_hash=prepare_supervisor(control,frozen)
         (control/'prompt.txt').write_text('API executor; frozen assignment supplies scope.\n')
@@ -28,10 +28,14 @@ class GeminiFactory(CodexFactory):
         if backend['type'] in executors.BROWSER_TYPES:
             from .browser_worker import support_hashes
             browser_support=support_hashes()
+        computer_support={}
+        if backend['type'] in executors.COMPUTER_TYPES:
+            from .computer_worker import support_hashes
+            worker='computer_worker.py';computer_support=support_hashes()
         command=[python,str(Path(__file__).with_name(worker)),str(control),str(workspace)]
         atomic(control/'launch.json',{'token':frozen['assignment_id'],'created':time.time(),'host_support_sha256':support_hash,'host_support_files':supervisor_support(control),'workspace':str(workspace),
             'limits':frozen['limits'],'registered_command':command,'backend':backend,
-            'browser_support':browser_support,
+            'browser_support':browser_support,'computer_support':computer_support,
             'credential_fingerprint':executors.fingerprint(config,backend)})
         return {'id':frozen['assignment_id'],'control':str(control),'adapter':'gemini-agent','backend':backend}
 
@@ -61,6 +65,21 @@ class GeminiFactory(CodexFactory):
             except (ValueError,OSError):unknown.append('invalid_browser_receipt')
         elif session['backend']['type'] in executors.BROWSER_TYPES:
             unknown.append('missing_browser_receipt')
+        if session['backend']['type'] in executors.COMPUTER_TYPES:
+            try:
+                native=json.loads((control/'computer-result.json').read_text())
+                if native['worker']!=session['id'] or not isinstance(native['uncertain_actions'],list):raise ValueError('Wrong computer receipt')
+                result['computer']=native
+                if native['uncertain_actions']:unknown.append('computer_actions')
+                failure=native.get('failure')
+                if native['uncertain_actions'] and isinstance(failure,dict):
+                    import re
+                    code=failure.get('code');operation=failure.get('operation');phase=failure.get('phase')
+                    if (isinstance(code,str) and re.fullmatch(r'[a-z][a-z0-9_-]{0,159}',code)
+                        and operation in ('launch','bind','observe','navigate','scroll')
+                        and phase in ('native_dispatch','evidence_validation','evidence_commit')):
+                        result['reason']=f'Safari {operation}: {code} ({phase}).'
+            except (OSError,ValueError,KeyError,TypeError):unknown.append('missing_or_invalid_computer_receipt')
         result.update(external_outcome='unknown' if unknown else 'no_pending_response',pending_requests=unknown)
         if provider_failures:
             result['provider_failures']=provider_failures

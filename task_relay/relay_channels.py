@@ -42,9 +42,9 @@ def event_channel(state, event_id, thread_id=None, rowid=None):
             return 'telegram'
         rowid, thread_id = row['rowid'], row['thread_id']
     parts = event_id.split(':')
-    if len(parts) > 1 and parts[0] in ('orchestrator', 'image-request', 'capability-request', 'routed', 'uncertain'):
+    if len(parts) > 1 and parts[0] in ('orchestrator', 'image-request', 'video-request', 'capability-request', 'routed', 'uncertain'):
         # Mode/status notices have nonnumeric keys and retain their default route.
-        if parts[1].isdigit():
+        if parts[1].lstrip('-').isdigit():
             return request_channel(state, int(parts[1]))
     if len(parts) > 1 and parts[0] == 'references':
         row = state.db.execute('SELECT job_id FROM reference_packs WHERE id=?', (parts[1],)).fetchone()
@@ -82,13 +82,13 @@ class ScopedState:
         return getattr(self.base, name)
 
     def get(self, key, default=None):
-        if self.channel == 'messages' and key in ('orchestrator_mode', 'orchestrator_production_focus', 'selected'):
-            return self.base.get('messages:' + key, default)
-        if self.channel == 'messages' and key in ('user_id', 'chat_id'):
+        if self.channel in ('messages', 'desktop') and key in ('orchestrator_mode', 'orchestrator_production_focus', 'selected'):
+            return self.base.get(self.channel + ':' + key, default)
+        if self.channel in ('messages', 'desktop') and key in ('user_id', 'chat_id'):
             return -1  # Internal callback adapter; the Messages pilot authenticates the real sender.
         return self.base.get(key, default)
 
     def put(self, key, value):
-        if self.channel == 'messages' and key in ('orchestrator_mode', 'orchestrator_production_focus', 'selected'):
-            key = 'messages:' + key
+        if self.channel in ('messages', 'desktop') and key in ('orchestrator_mode', 'orchestrator_production_focus', 'selected'):
+            key = self.channel + ':' + key
         self.base.put(key, value)

@@ -8,15 +8,19 @@ FORMATS={'text':'text/plain','markdown':'text/markdown','json':'application/json
          'pdf':'application/pdf','docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
          'xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','html':'text/html','svg':'image/svg+xml',
          'mp4':'video/mp4','mp3':'audio/mpeg','wav':'audio/wav',
-         'zip':'application/zip','3dm':'application/vnd.rhino','blend':'application/x-blender',
+         'zip':'application/zip','gh':'application/vnd.grasshopper','ghx':'application/vnd.grasshopper','3dm':'application/vnd.rhino','blend':'application/x-blender',
          'skp':'application/vnd.sketchup.skp','pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
 INSTRUCTIONS='''For new plan_pipeline actions use stage_details instead of stages or
 contract_version. Keep kind, title and planning_only. Each detail has id,
 instruction, route, gate, capabilities, optional visual_intent, outputs and uses.
+Optional design_intent:true enables a cited design brief for a production stage.
+For unresolved design form, keep a representative geometric prototype and its
+visual selection before full development; pass the actual model and preview onward.
 outputs is keyed by semantic deliverable ID. Each value has description and either
 format (FORMAT_NAMES),
 or operation plus port (an exact output key from the captured operation catalog;
 use port="result" only for an operation with a single output_type).
+Optional content_contract {id,version} names a registered JSON content type: research.candidates, research.batch, research.audit or geometry.specification, version 1. A uses entry can require content_contract explicitly; incompatible sources fail before dispatch. Do not label posts-only evidence as a candidate ledger.
 Optional max_bytes and slides retain exact requested bounds/quantities; never lower
 or omit a requested quantity to fit a limit. Optional together is a group name for
 outputs which must travel together. All members of that group become companions.
@@ -31,6 +35,8 @@ not an operation. Other worker abilities are resolved during stage planning.
 Format selection is a deliverable requirement, not proof of installed
 format tooling. Legacy stages remain readable; use this builder for new proposals.'''
 INSTRUCTIONS=INSTRUCTIONS.replace('FORMAT_NAMES',', '.join(FORMATS))
+from .research_campaign import INSTRUCTIONS as CAMPAIGN_INSTRUCTIONS
+INSTRUCTIONS+='\n'+CAMPAIGN_INSTRUCTIONS
 
 
 def schema(operation_ids=None):
@@ -40,16 +46,19 @@ def schema(operation_ids=None):
         operation_ids=list(REGISTRY)
     text={'type':'string'}
     capability={'type':'string','enum':list(operation_ids)}
-    extra={'description':text,'max_bytes':{'anyOf':[{'type':'integer'},{'type':'null'}]},
+    content=obj({'id':{'type':'string','enum':['research.candidates','research.batch','research.audit','geometry.specification']},'version':{'type':'integer','enum':[1]}},('id','version'))
+    extra={'content_contract':content,'description':text,'max_bytes':{'anyOf':[{'type':'integer'},{'type':'null'}]},
            'slides':{'anyOf':[{'type':'integer'},{'type':'null'}]},'together':text}
     output={'anyOf':[obj({**extra,'format':{'type':'string','enum':list(FORMATS)}},('description','format')),
                      obj({**extra,'operation':capability,'port':text},('description','operation','port'))]}
     detail=obj({'id':text,'instruction':text,'route':{'type':'string','enum':['conversation','production','browser_research','image']},
         'gate':{'type':'string','enum':['none','choice','selection']},'capabilities':array(capability),
         'visual_intent':{'type':'string','enum':['reference','synthetic']},'outputs':obj({},additional=output),
-        'uses':array(obj({'stage':text,'output':text,'consumer':text},('stage','output','consumer')))},
+        'design_intent':{'type':'boolean'},
+        'uses':array(obj({'stage':text,'output':text,'consumer':text,'content_contract':content},('stage','output','consumer')))},
         ('id','instruction','route','gate','capabilities','outputs','uses'))
-    return obj({'kind':{'type':'string','enum':['plan_pipeline']},'title':text,'planning_only':{'type':'boolean'},
+    from .research_campaign import schema as campaign_schema
+    return obj({'kind':{'type':'string','enum':['plan_pipeline']},'title':text,'planning_only':{'type':'boolean'},'research_campaign':campaign_schema(),
                 'stage_details':array(detail)},('kind','title','planning_only','stage_details'))
 
 
@@ -64,7 +73,9 @@ def build(action,snapshot):
         'type':'string','enum':accepted['properties']['stage_details']['items']['properties']['capabilities']['items']['enum']+['files.text']}
     validate(action,accepted)
     catalog=snapshot.get('capabilities',{}).get('graph_operations',[]);saved={o['id']:o for o in catalog}
-    stages=[];seen={};operations={};implicit=[]
+    from .research_campaign import slots
+    stages=slots(action['research_campaign']) if 'research_campaign' in action else []
+    seen={s['id']:s for s in stages};operations={};implicit=[]
     def selected_operation(cap):
         if cap not in saved:raise ContractError('missing_producer','Operation must be captured in the workflow request.')
         spec=operation(cap,saved[cap])
@@ -94,7 +105,7 @@ def build(action,snapshot):
                 media=ports.get(item['port'])
                 if not media:raise ContractError('missing_output','Choose an exact captured operation output port.')
             else:media=FORMATS[item['format']]
-            outputs[ident]={'media_type':media,**{k:item[k] for k in ('max_bytes','slides') if k in item}}
+            outputs[ident]={'media_type':media,**{k:item[k] for k in ('max_bytes','slides','content_contract') if k in item}}
             if 'together' in item:
                 if not item['together'].strip():raise ContractError('invalid_companions','Companion group needs a name.')
                 groups.setdefault(item['together'],[]).append(ident)
@@ -104,7 +115,9 @@ def build(action,snapshot):
         for ref in detail['uses']:
             source=seen.get(ref['stage'],{}).get('handoff',{}).get('outputs',{}).get(ref['output'])
             if not source:raise ContractError('missing_source','Select an exact earlier-stage output; forward references are not allowed.')
-            uses.append(dict(stage=ref['stage'],deliverable=ref['output'],consumer=ref['consumer'],media_type=source['media_type']))
+            edge=dict(stage=ref['stage'],deliverable=ref['output'],consumer=ref['consumer'],media_type=source['media_type'])
+            if 'content_contract' in ref:edge['content_contract']=copy.deepcopy(ref['content_contract'])
+            uses.append(edge)
         stage['deliverables']={k:v['description'] for k,v in detail['outputs'].items()}
         stage['handoff']=dict(outputs=outputs,inputs=uses)
         stages.append(stage);seen[stage['id']]=stage

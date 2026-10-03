@@ -120,7 +120,6 @@ class ContractTests(unittest.TestCase):
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         planning_fixture.Tests.setUp(self)
-        del self.fail
     tearDown=planning_fixture.Tests.tearDown
     request=planning_fixture.Tests.request
 

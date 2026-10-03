@@ -9,9 +9,9 @@ import urllib.error
 import urllib.request
 
 from . import credentials
+from . import __version__ as VERSION
 from .relay_paths import PATHS
 
-VERSION = '0.13.89'
 PROTOCOL = 2
 REPOSITORY = 'StepanKukharskiy/task-relay'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases/'

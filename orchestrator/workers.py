@@ -101,6 +101,9 @@ class CodexFactory:
         if frozen.get('report_contract'):
             from .report_builder import INSTRUCTIONS
             prompt += '\n'+INSTRUCTIONS
+        if frozen.get('source_verification'):
+            from .source_verification import INSTRUCTIONS
+            prompt += '\n'+INSTRUCTIONS
         (control / 'prompt.txt').write_text(prompt)
         (control / 'schema.json').write_text(encoded(frozen.get('report_contract',{}).get('schema',REPORT_SCHEMA)))
         support_hash=prepare_supervisor(control,frozen)
