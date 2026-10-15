@@ -2,7 +2,7 @@
 
 **Coordinate agents, tools and project work from one inbox.**
 
-[Website](https://task-relay-website-production.up.railway.app)
+[Website](https://task-relay-website-production.up.railway.app) · [Get the Chrome extension](https://chromewebstore.google.com/detail/task-relay/alicbjedflapdighdmadgbopahfhbgbd?utm_source=github&utm_medium=referral&utm_campaign=chrome_extension)
 
 Task Relay is a self-hosted execution service with desktop and messenger interfaces. Send a
 request, choose the references and review a bounded plan. Relay coordinates the
