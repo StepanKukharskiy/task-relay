@@ -42,11 +42,31 @@ export function chatgptHandoff(action, payload = {}) {
     }).filter(row => row.role && visible(row.el));
   }
   function messageText(row) {
+    if(row.role==='user'){
+      const paragraphs=[...row.el.querySelectorAll('p')].filter(el=>visible(el)&&!el.closest('pre,code,button'));
+      const header=paragraphs.map(inlineText).join('\n\n');
+      if(/TASK_RELAY_BODY_V[23]/.test(header)){
+        const code=[...row.el.querySelectorAll('pre code,code[class*="CodeContent-"]')].filter(visible);
+        const fence=header.includes('TASK_RELAY_BODY_V3')?'```':'~~~~';
+        if(code.length===1)return header+'\n'+fence+'text\n'+code[0].textContent.replace(/\n$/,'')+'\n'+fence;
+      }
+    }
     const paragraphs = row.heading && row.role === 'user' ? [...row.el.querySelectorAll('p')].filter(el => visible(el) && !el.closest('button')) : [];
     const content = paragraphs.length ? paragraphs.map(inlineText).join('\n\n') : text(row.el);
     if (!row.heading) return content;
     const label = row.heading.textContent.trim();
     return content.trimStart().startsWith(label) ? content.trimStart().slice(label.length).trimStart() : content;
+  }
+  function contextText(request){
+    if(/\nTASK_RELAY_BODY_V[23]\n/.test(request)){const fence=request.includes('\nTASK_RELAY_BODY_V3\n')?'```':'~~~~',opening=fence+'text\n',start=request.indexOf(opening);if(start<0||!request.endsWith('\n'+fence))throw Error('The literal Relay request is incomplete');request=request.slice(start+opening.length,-fence.length-1);}
+    return request.slice(request.lastIndexOf('\n\n')+2);
+  }
+  function expandRequest(row) {
+    const controls = [...row.el.querySelectorAll('button')].filter(el => visible(el) && text(el).trim() === 'Show more' && !el.disabled && el.getAttribute('aria-disabled') !== 'true');
+    if (controls.length !== 1) return null;
+    if (payload.expansionAttempted === true) return {url:here.href,handoffError:'ChatGPT is still expanding the request. Try Download again.',handoffCode:'request_expanding'};
+    controls[0].click();
+    return {url:here.href,handoffError:'Expanding the submitted Relay request.',handoffCode:'request_expanded'};
   }
   function composer() {
     const inputs = [...document.querySelectorAll('#prompt-textarea,[data-composer-markdown][contenteditable="true"][role="textbox"]')].filter(visible);
@@ -65,7 +85,7 @@ export function chatgptHandoff(action, payload = {}) {
     // Bounded composer inspection supports an explicit New after an extension
     // reload. It does not read history or infer authority from page content.
     let existingDraft;
-    if(requestId&&draft.length<=220000){try{const context=JSON.parse(draft.slice(draft.lastIndexOf('\n\n')+2));if(context.capture&&typeof context.capture.content==='string')existingDraft={requestId,request:draft,url:here.href};}catch{}}
+    if(requestId&&draft.length<=220000){try{const context=JSON.parse(contextText(draft));if(context.capture&&typeof context.capture.content==='string')existingDraft={requestId,request:draft,url:here.href};}catch{}}
     return {url: here.href, adapter: 'chatgpt',existingDraft};
   }
   if (action === 'recover') {
@@ -75,9 +95,12 @@ export function chatgptHandoff(action, payload = {}) {
     const latest = users.at(-1), request = latest && messageText(latest);
     const requestId = request?.match(/^TASK_RELAY_REQUEST_[a-f0-9-]{36}(?=\s)/)?.[0];
     if (!requestId || request.length > 220000) throw Error('No recoverable Relay request was found in the latest message. Use manual import.');
-    const offset = request.lastIndexOf('\n\n');
     let context;
-    try { context = JSON.parse(request.slice(offset + 2)); } catch { throw Error('The Relay request is collapsed or incomplete. Expand Show more in ChatGPT, then recover again.'); }
+    try { context = JSON.parse(contextText(request)); } catch {
+      const expansion=expandRequest(latest);
+      if(expansion)return expansion;
+      throw Error('The Relay request is incomplete. Use Options → Paste AI reply with the original selected text.');
+    }
     const ticket = {requestId, request, url: here.href};
     const result = chatgptHandoff('response', ticket);
     if (result.handoffError) return result;
@@ -97,6 +120,8 @@ export function chatgptHandoff(action, payload = {}) {
   const tagged = all.filter(row => row.role === 'user' && normalize(messageText(row)).startsWith(payload.requestId + ' '));
   if (action === 'insert') {
     if (sent.length || tagged.length) throw Error('This request is already in the conversation. Use Get result from chat; it was not inserted again.');
+    const marker=payload.requestId.replace('TASK_RELAY_REQUEST_','TASK_RELAY_RESPONSE_');
+    if(all.some(row=>row.role==='assistant'&&text(row.el).split(/\r?\n/).some(line=>line.trim()===marker)))return {url:here.href,handoffError:'The matching Relay reply is already in this chat. Download it instead; nothing was inserted.',handoffCode:'reply_available'};
     if (streaming()) throw Error('ChatGPT is still responding. Wait before inserting the request.');
     const el = composer(), draft = value(el);
     if (normalize(draft) === normalize(payload.request)) return {url: here.href, inserted: true, reused: true};
@@ -124,10 +149,29 @@ export function chatgptHandoff(action, payload = {}) {
     return {url: here.href, inserted: true, reused: false};
   }
   if (action !== 'response') throw Error('Unsupported ChatGPT handoff action.');
-  if (!sent.length && tagged.length) throw Error('The matching request is collapsed or edited. Expand its Show more control in ChatGPT, then retry Get result. If edited, use manual import.');
-  if (!sent.length) return {url:here.href,handoffError:'Send the message in ChatGPT first.',handoffCode:value(composer()).trim()?'request_not_sent':'draft_missing'};
-  if (sent.length !== 1) throw Error('Several matching requests were found. Import the intended response manually.');
-  const following = all.slice(all.indexOf(sent[0]) + 1);
+  if (!sent.length && tagged.length) {
+    // Expand only the uniquely identified submitted request. This changes its
+    // display, never its text or the composer. A subsequent read still needs
+    // the exact retained request; expansion cannot authorize an edited request.
+    if (tagged.length === 1) {
+      const expansion=expandRequest(tagged[0]);
+      if(expansion)return expansion;
+    }
+    throw Error('Relay could not verify the submitted request. If you edited it, use Options → Paste AI reply.');
+  }
+  // Long pastes can become "Pasted text(...).txt" attachments. The file's
+  // contents are not in the document. Only an explicit result read in the
+  // retained destination may use the reply marker; never call this an exact
+  // request verification, and never use it to authorize another insertion.
+  const users = all.filter(row => row.role === 'user');
+  const attached = users.flatMap(row => [...row.el.querySelectorAll('button')].filter(visible).filter(el => /^Pasted text(?:\s*\([^\r\n]*\))?\.txt$/.test((el.getAttribute('aria-label') || text(el)).trim())));
+  const attachmentReply = !sent.length && !tagged.length && users.length === 1 && payload.allowAttachmentResponse === true && attached.length === 1;
+  if (!sent.length && !attachmentReply) {
+    if (attached.length) return {url:here.href,handoffError:'ChatGPT attached the pasted request. Copy its reply and use Paste AI reply; do not restore or resend.',handoffCode:'request_in_attachment'};
+    return {url:here.href,handoffError:'Send the message in ChatGPT first.',handoffCode:value(composer()).trim()?'request_not_sent':'draft_missing'};
+  }
+  if (sent.length > 1) throw Error('Several matching requests were found. Import the intended response manually.');
+  const following = all.slice(all.indexOf(attachmentReply ? users[0] : sent[0]) + 1);
   if (following.some(row => row.role === 'user')) throw Error('There is a later user message. Import the intended Relay response manually.');
   if (streaming()) throw Error('ChatGPT is still responding. Wait for it to finish, then get the result.');
   const answers = following.filter(row => row.role === 'assistant');
@@ -147,7 +191,7 @@ export function chatgptHandoff(action, payload = {}) {
     throw Error('The response did not identify this Relay request. Use manual import after checking it.');
   }
   if (new TextEncoder().encode(response).length > 240000) throw Error('The response is too large. Ask for a smaller result or import a bounded response file.');
-  return {url: here.href, response, requestId: payload.requestId, messageId: answers[0].el.getAttribute('data-message-id') || answers[0].el.getAttribute('data-chatgpt-search-message-ids') || null};
+  return {url: here.href, response, requestId: payload.requestId, requestVerification: attachmentReply ? 'attachment-response-marker' : 'exact-visible-request', messageId: answers[0].el.getAttribute('data-message-id') || answers[0].el.getAttribute('data-chatgpt-search-message-ids') || null};
   } catch (error) {
     return {url: location.href, handoffError: error.message || 'ChatGPT handoff failed. Check the chat before retrying.'};
   }

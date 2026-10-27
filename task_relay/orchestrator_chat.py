@@ -85,7 +85,10 @@ provider; never silently switch a different provider to Gemini. /video explicitl
 selects Gemini. Optional model must be the requested video model; otherwise omit it
 to freeze the configured video default. An image requested as input must be included.
 Use current_attachment_ids for a caption's saved upload group; in a follow-up resolve
-the same ready image from recent conversation. Ask when multiple images are ambiguous,
+the same ready image from conversation_attachments using its exact request_id and
+attachment_ids. These are saved caption bindings, not filename matches. Never select
+an unrelated catalog photo because it shares a filename. Missing IDs or conflicting
+bindings require clarification before planning. Ask when multiple images are ambiguous,
 a requested image is missing, or a requested multi-image video exceeds this one-frame
 capability. Do not silently drop images. This action starts one managed generation
 on explicit request, retains original text and source identity, and delivers on its
@@ -354,6 +357,31 @@ def conversation_context(state, job, snap):
         {p['cwd'] for p in snap.get('codex_projects',[])})
     reply=state.db.execute('SELECT plan_id FROM production_plan_replies WHERE request_id=?',(job['id'],)).fetchone()
     payload = {'snapshot':snap, 'history':history, 'user_message':job['prompt'], 'reply_plan_id':reply[0] if reply else None}
+    # Keep exact caption identities visible even when the global upload catalog
+    # is shortened. Historical bindings are context, never current authorization.
+    catalog = {f['id']: {k:f[k] for k in ('id','filename','path','status','sha256','bytes','mime_type') if k in f}
+               for f in snap.get('uploaded_files', [])}
+    bindings = []
+    for entry in history:
+        if 'attachment_ids' in entry:
+            bindings.append({'request_id':entry['id'],
+                'attachment_ids':entry['attachment_ids'],
+                'files':[catalog[i] for i in entry['attachment_ids'] if i in catalog],
+                'missing_ids':[i for i in entry['attachment_ids'] if i not in catalog]})
+    if attachment_ids is not None:
+        bindings.append({'request_id':job['id'], 'attachment_ids':attachment_ids,
+            'files':[catalog[i] for i in attachment_ids if i in catalog],
+            'missing_ids':[i for i in attachment_ids if i not in catalog]})
+    if bindings:
+        payload['conversation_attachments'] = bindings
+        from . import attachment_evidence
+        candidate_ids=list(dict.fromkeys(i for binding in bindings for i in binding['attachment_ids']))
+        payload['conversation_attachment_evidence'] = attachment_evidence.capture(state, candidate_ids, snap.get('uploaded_files', []))
+        payload['conversation_attachment_evidence']['authority'] = 'Historical caption bindings only; not a current source selection or work authorization.'
+    if attachment_ids is not None:
+        from . import attachment_evidence
+        payload['current_attachment_evidence'] = attachment_evidence.capture(state, attachment_ids, snap.get('uploaded_files', []))
+
     entry = state.db.execute('''SELECT d.project,i.manifest,p.research_mode FROM desktop_plan_requests d
         JOIN desktop_plan_inputs i ON i.request_id=d.request_id
         JOIN desktop_plan_preferences p ON p.request_id=d.request_id WHERE d.job_id=?''', (job['id'],)).fetchone()
@@ -372,11 +400,12 @@ def conversation_context(state, job, snap):
 
 
 def model_context(payload):
-    from task_relay import conversation_inputs
+    from task_relay import conversation_inputs, attachment_evidence
     snap = payload.get('snapshot', {})
     focused = next((p for p in snap.get('production_runs', []) if p['name'] == snap.get('focus')), None)
     system = SYSTEM + '\n' + production_planning.INSTRUCTIONS + '\n' + conversation_inputs.INSTRUCTIONS + '\n' + capabilities.INSTRUCTIONS + '\n' + routing_inputs.INSTRUCTIONS + '\n' + orchestrator_guides.INSTRUCTIONS + '\n' + ROADMAP_EVIDENCE + '\n' + PROGRESS_EVIDENCE + '\n' + IMAGE_ACTION + '\n' + CONTINUATION_ACTION
     from task_relay import browser_requests
+    system+='\n'+attachment_evidence.INSTRUCTIONS
     system+='\n'+task_creation.INSTRUCTIONS+'\n'+workflow_library.INSTRUCTIONS+'\n'+pipelines.INSTRUCTIONS+'\n'+procedures.INSTRUCTIONS+'\n'+opportunities.INSTRUCTIONS
     if browser_requests.is_request(payload.get('user_message','')):system+='\n'+browser_requests.instructions(payload['user_message'])
     if focused:
@@ -752,7 +781,7 @@ def response_json(text):
         raise ValueError('The orchestrator returned an invalid response. No action was taken.')
     value = json.loads(text, object_pairs_hook=unique)
     if isinstance(value, dict) and 'action_json' in value:
-        if 'action' in value or set(value) - {'answer','action_json','research_advice','next_options','claim_sources','request_contract','work_status'}:
+        if 'action' in value or set(value) - {'answer','action_json','research_advice','next_options','claim_sources','request_contract','work_status','answer_basis'}:
             raise ValueError('Invalid response-data envelope; no action was taken.')
         wire_action = value.pop('action_json')
         if wire_action is not None and (not isinstance(wire_action,str) or len(wire_action)>MAX_ACTION_DATA_CHARACTERS):
@@ -775,7 +804,7 @@ def action_response(text):
 def interpret(text, snap):
     from .orchestrator_advice import MAX_DIRECT_ANSWER_CHARACTERS, MAX_ACTION_ANSWER_CHARACTERS
     value = response_json(text)
-    if not isinstance(value, dict) or not {'answer', 'action'} <= set(value) or set(value)-{'answer','action','interpreted_request','research_advice','next_options','claim_sources','request_contract','work_status'} or not isinstance(value['answer'], str) or not value['answer'].strip():
+    if not isinstance(value, dict) or not {'answer', 'action'} <= set(value) or set(value)-{'answer','action','interpreted_request','research_advice','next_options','claim_sources','request_contract','work_status','answer_basis'} or not isinstance(value['answer'], str) or not value['answer'].strip():
         raise ValueError('The orchestrator returned an invalid response. No action was taken.')
     if 'research_advice' in value:
         from .orchestrator_advice import presentation_advice
@@ -788,6 +817,7 @@ def interpret(text, snap):
     if len(value['answer'])>(MAX_DIRECT_ANSWER_CHARACTERS if value['action'] is None else MAX_ACTION_ANSWER_CHARACTERS):
         raise ResponseLengthError('The provider reply exceeded the answer length limit.')
     from . import request_contract
+    value=request_contract.stage_response(value,snap.get('pipeline_step',{}).get('stage'))
     value=request_contract.route(value)
     action = value['action']
     if isinstance(action,dict) and action.get('kind')=='plan_production':
@@ -805,6 +835,10 @@ def interpret(text, snap):
         return value
     if isinstance(action,dict) and action.get('kind') in pipelines.ACTIONS:
         pipelines.validate(action,snap)
+        return value
+    if isinstance(action,dict) and action.get('kind')=='execute_work':
+        from .persistent_jobs import validate_action
+        validate_action(action,{**snap,'request_contract':value.get('request_contract')})
         return value
     if action is not None:
         if isinstance(action,dict) and action.get('kind')=='browser_research':
@@ -925,6 +959,7 @@ def generate(job, payload):
     research_mode = payload.get('entry_context', {}).get('research_mode', 'suggest')
     research_followup=payload.get('entry_context',{}).get('followup',{}).get('mode')=='research'
     payload = {**payload, 'option_tools':offered_tools}
+    pipeline_stage=payload.get('snapshot',{}).get('pipeline_step',{}).get('stage')
     system, payload = model_context(payload)
     system += '\n' + orchestrator_guides.INSTRUCTIONS
     if correcting_sources:
@@ -951,7 +986,7 @@ def generate(job, payload):
     receipt = gemini.DATA / 'orchestrator-reads' / (hashlib.sha256(str(job['id']).encode()).hexdigest() +
                                                  ('-source-correction' if correcting_sources else '-workflow-correction' if correcting_workflow else '') + '.json')
     web = (None if research_mode == 'none' else
-           orchestrator_web.Session(receipt,gemini.read_config()))
+           orchestrator_web.Session(receipt,gemini.read_config(),durable=True,rendered=True))
     if correcting_workflow:roots=[];web=None;context=None
     system += '\n' + orchestrator_web.INSTRUCTIONS
     # Scope direct-tool limits after all tool-specific instructions, so they do
@@ -961,7 +996,7 @@ def generate(job, payload):
     system += '\n' + orchestrator_advice.INSTRUCTIONS
     from . import request_contract
     system += '\n' + request_contract.INSTRUCTIONS
-    response_definition = orchestrator_advice.response_definition(payload.get('user_message'), offered_tools)
+    response_definition = orchestrator_advice.response_definition(payload.get('user_message'), offered_tools,research_mode=research_mode)
     frozen_intake=payload.get('request_contract')
     if frozen_intake is not None:
         frozen_intake=request_contract.validate(frozen_intake)
@@ -986,14 +1021,14 @@ def generate(job, payload):
             'systemInstruction': {'parts': [{'text': system}]},
             'contents': [{'role': 'user', 'parts': [{'text': json.dumps(payload, ensure_ascii=False)}]}],
             'generationConfig': {'responseMimeType': 'application/json', 'maxOutputTokens': orchestrator_files.MAX_RESPONSE_TOKENS}}
-        return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
+        return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources,pipeline_stage=pipeline_stage,research_mode=research_mode),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
     client = api.Client(name, config['api_key'], config.get('base_url'))
     messages = [{'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}]
     request = ({'model': job['model'], 'instructions': system, 'input': messages, 'store': False, 'max_output_tokens': orchestrator_files.MAX_RESPONSE_TOKENS}
                if name == 'openai' else {'model': job['model'], 'messages': [{'role': 'system', 'content': system}] + messages,
                                         'stream': False, 'max_tokens': orchestrator_files.MAX_RESPONSE_TOKENS})
     endpoint = 'responses' if name == 'openai' else 'chat/completions'
-    return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
+    return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources,pipeline_stage=pipeline_stage,research_mode=research_mode),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
 
 
 def clock_context(now=None):
@@ -1081,12 +1116,12 @@ class Worker:
                 return
             with state.db:
                 from task_relay.orchestrator_context import overview
-                saved_context = overview({'snapshot': snap})
+                saved_context = overview(payload)
                 from . import orchestrator_advice
                 claimed = state.db.execute("UPDATE orchestrator_chats SET status='sending',snapshot=? WHERE id=? AND status='queued'",
                                            (json.dumps({**saved_context.get('snapshot', {}),
                                                'option_tool_ids':[tool['id'] for tool in orchestrator_advice.option_tools(payload)],
-                                               **({k:saved_context[k] for k in ('context_overview','current_execution_availability') if k in saved_context})}), job['id'])).rowcount
+                                               **({k:saved_context[k] for k in ('context_overview','current_execution_availability','conversation_attachments','current_attachment_evidence','conversation_attachment_evidence') if k in saved_context})}), job['id'])).rowcount
             if not claimed:
                 return
             phase = 'provider'
@@ -1297,6 +1332,12 @@ class Worker:
                        if isinstance(exc, gemini.ProviderError) else str(exc) if isinstance(exc, ValueError) and action and action.get('kind') in ('revise_production','continue_production','create_production_folder','import_production_research','generate_image','generate_video','delegate_task','create_codex_task','replace_selection') else 'Could not interpret this request safely. No action was taken. Please rephrase or use /workflow.')
             if action and action.get('kind') in ('create_production_folder','import_production_research') and isinstance(exc, OSError):
                 message = 'The folder action could not finish: ' + str(exc) + '. No worker was launched.'
+            if isinstance(exc, gemini.ProviderError) and exc.transport_failure_kind:
+                reason = {'timeout':'The conversation provider request timed out.',
+                          'connection':'The connection to the conversation provider failed.',
+                          'invalid-response':'The conversation provider returned an unreadable response.'}[exc.transport_failure_kind]
+                message = reason + (' The provider request outcome remains unknown.' if exc.uncertain else '')
+                message += ' Your request is saved. No workflow action was dispatched and no automatic retry was made.'
             if isinstance(exc, capabilities.CapabilityError):
                 message = str(exc) + ' No new job was queued. Your request is saved.'
             elif isinstance(exc,ValueError) and phase!='interpretation' and action and action.get('kind')=='pipeline_control':

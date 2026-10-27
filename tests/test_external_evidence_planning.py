@@ -256,7 +256,9 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(second['options'])['step_capabilities'],['web.sources'])
         payload=json.loads(second['context'])
         task_schema=payload['response_contract']['schema']['properties']['plan']['anyOf'][0]['properties']['tasks']['items']
-        params=task_schema['properties']['execution']['properties']['parameters']
+        schema=task_schema['properties']['execution']
+        schema=next(s for s in schema['anyOf'] if s['properties']['capability']['enum']==['web.sources'])
+        params=schema['properties']['parameters']
         self.assertEqual(params['required'],['queries','domains'])
         self.assertEqual(payload['graph_operations'][0]['configured_model'],'fixture-text')
 

@@ -46,6 +46,28 @@ def workflows(kind='linked', offset=0, paths=PATHS):
                             request=row['request'], channel=row['channel'],
                             detail='Job view available' if view.is_file() else 'No job view exported yet',
                             job_view=str(view) if view.is_file() else None)
+                if _table(db,'relay_pipeline_steps'):
+                    steps=[]
+                    for stage in db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=? ORDER BY position',(row['id'],)):
+                        step=dict(id=stage['id'],status=stage['status'],target_kind=stage['target_kind'],target=stage['target'],error=stage['error'])
+                        run=stage['target'] if stage['target_kind']=='production_run' else None
+                        if stage['target_kind'] in ('production_plan','plan_production') and _table(db,'production_plans'):
+                            plan=db.execute('SELECT run FROM production_plans WHERE id=?',(stage['target'],)).fetchone()
+                            run=plan[0] if plan else None
+                        step['tasks']=[dict(t) for t in db.execute('SELECT id,status,attempts,latest FROM production_tasks WHERE run=? ORDER BY rowid',(run,))] if run and _table(db,'production_tasks') else []
+                        step['outputs']=json.loads(stage['sources'] or '[]')
+                        steps.append(step)
+                        # Existing shipped library clients already render id /
+                        # status rows. Keep task progress visible on those clients.
+                        for task in step['tasks']:steps.append(dict(id=stage['id']+'.'+task['id'],status=task['status'],attempts=task['attempts'],parent=stage['id'],kind='task'))
+                    item['steps']=steps
+                if all(_table(db,t) for t in ('production_plans','production_attempts','production_plan_calls','relay_pipeline_requests','orchestrator_chats','relay_pipeline_events')):
+                    from types import SimpleNamespace
+                    from .workflow_usage import report
+                    item['usage']=report(SimpleNamespace(db=db,media_dir=paths.data/'media'),row['id'])
+                    if item['usage']:
+                        count=item['usage']['totals']['total_tokens']
+                        item['detail']+=f" · {item['usage']['elapsed_seconds']/60:.1f} min · {count['reported']} reported tokens · {count['unknown_records']} unknown usage records; input includes cache, not a bill"
             elif kind == 'plans':
                 item = dict(id=row['id'], title=row['request'].split('\n')[0][:180],
                             status=row['status'], request=row['request'], channel=row['channel'],
@@ -94,7 +116,7 @@ def automation_tools():
         'sketchup.run_ruby': 'Create or edit a SketchUp model with reviewed Ruby',
     }
     fields = ('id', 'version', 'kind', 'available', 'availability_evidence', 'input_types',
-              'output_type', 'outputs', 'criteria', 'permissions', 'seconds', 'external_requests')
+              'output_type', 'outputs', 'criteria', 'permissions', 'seconds', 'external_requests','parameters','parameter_schema','companions','completion_companions','data_owner','saved_evidence','native_adapter','runtime_modules','scope_versions')
     from orchestrator.browser_contract import definitions as browser_definitions
     actions = [dict(id=d['name'], description=d['description'],
                     availability='Bounded browser executor; configuration and origin scope required',
@@ -144,6 +166,7 @@ def automation_tools():
         dict(id='codex', description='Existing Codex jobs', availability='Requires a connected Codex desktop job', route='Choose an existing job in Jobs. Permission requests appear under Needs your decision.'),
         dict(id='claude', description='Claude jobs and tool permissions', availability='Requires the optional configured Claude runtime', route='Choose Claude when creating a job; review tool permissions in Jobs.'),
     ])
-    return {'tools': [dict(title=names.get(entry['id'], entry['id']), **{k: entry[k] for k in fields if k in entry}) for entry in catalog()],
+    from orchestrator.operation_contracts import interface_catalog
+    return {'record_interfaces':interface_catalog(), 'tools': [dict(title=names.get(entry['id'], entry['id']), **{k: entry[k] for k in fields if k in entry}) for entry in catalog()],
             'actions': actions, 'executors': providers + executors(),
             'automatic_extraction': False, 'scheduling': False}

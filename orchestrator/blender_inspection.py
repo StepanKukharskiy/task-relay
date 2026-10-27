@@ -31,6 +31,8 @@ def execute(frozen,control,documents):
     output.mkdir()
     command=[app['executable'],'--background','--factory-startup','--disable-autoexec','--python-exit-code','1',
              '--python',str(Path(__file__).with_name('blender_inspect.py')),'--',str(source),str(output/'inspection.json')]
+    geometry=frozen['execution']['capability']=='blender.geometry'
+    if geometry:command.append(str(output/'geometry.json'))
     start=time.time()
     try:
         r=subprocess.run(command,cwd=workspace,stdin=subprocess.DEVNULL,capture_output=True,
@@ -52,6 +54,12 @@ def execute(frozen,control,documents):
             inventory=json.loads(path.read_text())
             passed=isinstance(inventory,dict) and inventory.get('auto_scripts_enabled') is False and isinstance(inventory.get('objects'),list)
             receipt['inventory_sha256']=file_hash(path)
+            if geometry:
+                g=safe_file(workspace,'delivery/geometry.json')
+                if g.stat().st_size>10000000:raise ValueError('Geometry exceeds limit')
+                value=json.loads(g.read_text())
+                if value.get('source_sha256')!=item['sha256'] or not isinstance(value.get('objects'),list):raise ValueError('Geometry source binding differs')
+                receipt['geometry_sha256']=file_hash(g)
         except (ValueError,OSError) as exc:
             passed=False
             receipt['validation_error']=str(exc)

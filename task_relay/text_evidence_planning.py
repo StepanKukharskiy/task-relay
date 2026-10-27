@@ -5,6 +5,7 @@ saved plans retain their original contracts. Native and Safari audits remain
 owned by their existing contracts.
 """
 import re
+from orchestrator.source_verification import TEXT_TYPES, text_input
 
 INSTRUCTIONS = '''Preserve the requested level of work. An ideas or feasibility
 question calls for a concise options/feasibility answer with useful concepts and
@@ -47,6 +48,14 @@ no new web research. Optional alternatives are choices for a separate draft,
 not extra assignments in the recommended graph. Explain tradeoffs without making
 all ideas sound unverified. Advice grants no execution authority: the user still
 reviews the exact plan, sites, actions and budgets before Start.'''
+
+STAGE_INSTRUCTIONS = '''Source-backed review is scoped to factual deliverables,
+not every preparation file. An intermediate image inventory may describe visible
+objects and label uncertain identities without independently verifying product
+facts. Any stage promising verified facts still needs independent text evidence.
+The final text author (including specifications consumed by a fixed renderer) and
+its reviewer must receive the exact independent sources and research assessment.
+Images are visual references, never quote-based independent text evidence.'''
 
 
 def advice(value, payload):
@@ -106,9 +115,20 @@ def criteria(task):
 
 
 def bind(plan, payload):
-    if payload.get('text_evidence_policy_version') != 1:
+    version = payload.get('text_evidence_policy_version')
+    if version not in (1, 2):
         return
     tasks = {t['id']: t for t in plan['tasks']}
+    def text_source(item):
+        return text_input(item) if version == 2 else item.get('media_type', 'text/plain') in TEXT_TYPES
+
+    # Registered renderers serialize authored content; browser and file workers
+    # can still transform preparation. Only the latter make a text stage intermediate.
+    consumed = {i['from_task'] for t in tasks.values() if not t.get('review_of')
+                and not t.get('execution') for i in t.get('inputs', []) if 'from_task' in i}
+    query_authors={i['from_task'] for t in tasks.values() if t.get('execution',{}).get('capability')=='web.sources.prepared'
+                   for i in t.get('inputs',[]) if i.get('from_task')}
+    deliverables = {d.get('task') for d in plan.get('deliverables', {}).values()}
     if payload.get('request_scope') == 'exploration':
         for t in tasks.values():
             if t.get('execution') or t.get('browser') or t.get('computer'):
@@ -122,9 +142,12 @@ def bind(plan, payload):
     supplied = {s['artifact'] for s in payload.get('sources', [])
                 if not s.get('request_context') and not s.get('operation_support')
                 and not s['path'].startswith(('request/', 'prior-outputs/'))
-                and s['path'].split('/')[-1] != 'conversation.json'}
+                and s['path'].split('/')[-1] != 'conversation.json'
+                and (version == 1 or text_source(s))}
+    from .source_batches import image_manifest_only
+    capabilities=payload.get('options',{}).get('step_capabilities',[])
     research = {t['id'] for t in tasks.values() if not t.get('review_of') and
-                (t.get('browser') or t.get('computer') or t.get('execution', {}).get('capability') == 'web.sources')}
+                (t.get('browser') and not image_manifest_only(t,capabilities) or t.get('computer') or t.get('execution', {}).get('capability') in ('web.sources','web.sources.prepared'))}
     mode = research_mode(payload)
     if mode == 'none' and research:
         raise ValueError('The saved research choice excludes new web research. Use supplied sources or return needs_input for the conflict.')
@@ -132,12 +155,21 @@ def bind(plan, payload):
         if not reviewer.get('review_of'):
             continue
         producer = tasks[reviewer['review_of']]
+        if producer.get('operation_contract',{}).get('id')=='sourcing.options':
+            # Its exact source spans and item-version judgments are verified by
+            # the record store and sourcing.review, rather than a second authored
+            # whole-catalog factual report. Explicit task criteria remain frozen.
+            if reviewer.get('operation_contract',{}).get('id')!='sourcing.review':
+                raise ValueError('Typed sourcing lacks its independent source-bound reviewer')
+            continue
         # Existing operation-specific verification owns native/binary research.
         if producer.get('execution') or producer.get('computer') or producer.get('browser'):
             continue
-        if any(o.get('media_type', 'text/plain') not in ('text/plain', 'text/markdown', 'application/json') for o in producer['outputs']):
+        text_outputs = {o['path'] for o in producer['outputs'] if text_source(o)}
+        if not text_outputs or (version == 1 and len(text_outputs) != len(producer['outputs'])):
             continue
-        if mode == 'sources' and not criteria(producer):
+        final_author = (producer['id'] not in consumed or producer['id'] in deliverables) and producer['id'] not in query_authors
+        if mode == 'sources' and (version == 1 or final_author) and not criteria(producer):
             producer['criteria'].append('Verify factual accuracy against independent sources.')
             reviewer['criteria'] = list(producer['criteria'])
         checks = criteria(producer)
@@ -148,7 +180,7 @@ def bind(plan, payload):
         for i in reviewer['inputs']:
             independent = i.get('artifact') in supplied or i.get('from_task') in research
             identity = (i.get('artifact'), i.get('from_task'), i.get('output'))
-            if independent and identity in author_sources and i.get('media_type', 'text/plain') in ('text/plain', 'text/markdown', 'application/json'):
+            if independent and identity in author_sources and text_source(i):
                 paths.append(i['path'])
         if not paths:
             raise ValueError('Text factual verification requires independent source inputs for both author and reviewer; draft sections and model-written source notes are not evidence. Add bounded research or supplied sources, or propose explicitly unverified ideas.')
@@ -158,7 +190,8 @@ def bind(plan, payload):
                 assessment = next((t['id'] for t in tasks.values() if t.get('review_of') == source), None)
                 if assessment is None or assessment not in upstream:
                     raise ValueError('A source-backed author must receive the independent research review alongside its source evidence.')
-        reviewer['source_verification'] = {'version': 1, 'criteria': checks, 'sources': paths,
-            'candidates': [i['path'] for i in reviewer['inputs'] if i.get('from_task') == producer['id']]}
+        reviewer['source_verification'] = {'version': version, 'criteria': checks, 'sources': paths,
+            'candidates': [i['path'] for i in reviewer['inputs'] if i.get('from_task') == producer['id']
+                           and (version == 1 or i.get('output') in text_outputs)]}
         if SOURCE_INSTRUCTION not in producer['instruction']:
             producer['instruction'] += '\n'+SOURCE_INSTRUCTION

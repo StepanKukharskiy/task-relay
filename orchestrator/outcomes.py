@@ -1,8 +1,20 @@
-"""Shared result policy: usable quality concerns need a user decision, not replay."""
-CATEGORIES = ('quality', 'execution', 'integrity', 'authorization', 'uncertainty')
+"""Shared result policy: distinguish advisory limitations from required user decisions."""
+CATEGORIES = ('advisory', 'quality', 'requirements', 'execution', 'integrity', 'authorization', 'uncertainty')
 GATE = 'Review the noted quality concerns and accept these exact outputs as-is'
 INSTRUCTIONS = '''Classify concrete findings in the findings array (use [] when none): each has category, code, message, evidence.
-Use quality for usable outputs with design, visual, dimension, completeness or source-correspondence concerns.
+Use advisory for disclosed limitations or optional refinements when the assigned criteria are met and no user decision is necessary.
+Advisories preserve evidence and continue downstream work; they never establish user acceptance.
+Use quality only when a genuine subjective choice requires the user to decide before the authorized work can proceed.
+Do not request aesthetic approval for honestly disclosed sourcing alternatives or buyer checks.
+Broken required deliverable links are integrity findings to repair, not optional aesthetic choices.
+Judge the assigned task and its frozen criteria, not every later stage of the overall request.
+For intermediate receipt reviews, record downstream product/coverage gaps in the report;
+do not add blocking findings unless they violate the reviewed task criteria. Passing a
+transport criterion does not approve downstream products or satisfy final coverage.
+Use requirements when required item coverage, option counts, substantive deliverables
+or product-specific evidence are missing. Generic sources are not a usable substitute
+for requested product matches. Missing mandatory work stops downstream tasks;
+accepting a file as-is does not establish its absent facts or satisfy later criteria.
 Show actual evidence and preview paths; never claim visual inspection without pixels.
 For usable outputs report delivered (producer) or accept/revise (reviewer), with quality findings.
 Quality concerns require the user's feedback, not automatic acceptance or repair. The scheduler holds dependent work.
@@ -32,8 +44,8 @@ def disposition(findings):
     validate(findings)
     kinds={f['category'] for f in findings}
     if 'uncertainty' in kinds:return 'reconcile'
-    if kinds-{'quality'}:return 'block'
-    return 'user_review' if kinds else 'continue'
+    if kinds-{'quality','advisory'}:return 'block'
+    return 'user_review' if 'quality' in kinds else 'continue'
 
 
 def quality(code,message,evidence):

@@ -1,0 +1,460 @@
+{
+  "inputs": {
+    "original_brief": {
+      "default": "Create an original wooden pavilion using real 3D cellular-automata aggregation. Make this a connected Relay workflow starting from this template: Perplexity research → Codex writes the reproducible CA/Blender script → Blender runs the simulation, builds the pavilion and renders a growth animation → Gemini visualizes the actual completed pavilion → a brief editable PowerPoint explains the process.\n\nUse one coherent equal-length timber system for supports and canopy, with emergent sculptural geometry and a walkable opening. Use deterministic seeded local neighbourhood rules; disclose imposed envelope and passage constraints. Show actual recorded growth generations as cells, then the same occupied graph as timber. The growth animation must be produced by the Blender workflow, not an independently staged browser animation. Keep the camera at pedestrian eye height (1.6 m), far enough outside to frame the whole pavilion. For Gemini, use the actual Blender view to make a realistic landscaped-park photograph with a few people, preserving the design and eye-height camera. No external reference image or named architect.\n\nThe growth animation can be used in a 9:16 reel alongside the workflow and final deliverables. Use a configured Codex connection for model nodes and a connected Perplexity browser. Preserve previous jobs. Keep existing limits. Ask before any paid Gemini call or exact native-script execution that requires approval. Do not execute during composition. Do not fake missing animation support or completed results; identify any unsupported connection.",
+      "label": "Pavilion brief",
+      "required": true,
+      "type": "string"
+    },
+    "runtime_contracts": {
+      "default": {
+        "animation": "Compute seeded CA during approved creation; bake ordinary object keyframes. No drivers/Geometry Nodes/handlers/simulation modifiers/external caches. Render1–120 contiguous frames; final even64–1024 dimensions,1–16samples; preview even64–512,1–4samples. tracks=[] renders saved timeline.",
+        "checks": "Exact complete created object inventory<=500 including camera/lights. Checked geometry first100; nonempty expected_dimensions in world-axis metres, not rotated local beam lengths.",
+        "create": "scene=null; empty METRIC scale_length=1.0. Execute build at top level or __main__; leave bpy.context.scene on completed frame120. Relay saves/reopens/checks/renders. No save/render/sidecars/output path guesses/callbacks.",
+        "preparation": "Separate model preparer with exactly one JSON output; registered fragments, not handwritten envelopes/hashes. Code binds fixed fields/source hashes. Connect exact consumer baseline once as identity evidence alongside readable inspection; binary identity does not require model binary-reading tools. Preparation is not approval. Preserve prior jobs/files/limits.",
+        "source": "Supplied registered blender.run_python v1 script_runtime/preparation and blender.animate v1 preparation; schemas and fragment writers are consumer-bound."
+      },
+      "label": "Registered Blender contracts",
+      "required": true,
+      "type": "object"
+    }
+  },
+  "kind": "workflow",
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "research",
+      "inputs": {
+        "query": {
+          "value": "Research reproducible seeded 3D cellular-automata aggregation for an original timber pavilion: synchronous local neighbourhood rules, ground-connected growth, deterministic ordering, logged birth generations, equal-length lattice-edge timber for supports/canopy, disclosed envelope/passage masks and structural limitations. Give technical URLs for CA methods, Blender Python keyframes and rendering real growth, and whole-pavilion 9:16 perspective framing at 1.6 m eye height. No external reference images or architect imitation."
+        }
+      },
+      "objective": "Connected ordinary Search; check account/session and normal controls at execution, not inferred sign-in. Preserve jobs/limits; compose only.",
+      "operation": "perplexity.search",
+      "schema_version": 3
+    },
+    {
+      "id": "ca_code",
+      "input_definitions": {
+        "original_brief": {
+          "label": "Original request",
+          "required": true,
+          "type": "string"
+        },
+        "research": {
+          "label": "Research",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "research_sources": {
+          "label": "Observed sources",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "runtime_contracts": {
+          "label": "Runtime",
+          "required": true,
+          "type": "object"
+        }
+      },
+      "inputs": {
+        "original_brief": {
+          "workflow": "original_brief"
+        },
+        "research": {
+          "output": "answer",
+          "task": "research"
+        },
+        "research_sources": {
+          "output": "sources",
+          "task": "research"
+        },
+        "runtime_contracts": {
+          "workflow": "runtime_contracts"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Prepare only: write the two declared files, a compact Blender Python script (aim under 10 KB) and short method notes (at most 500 words). Use the supplied original brief, research and registered runtime contract; preserve all functional requirements and existing limits. Do not run Blender or any paid service.\n\nImplement real deterministic seeded synchronous 3D cellular-automata aggregation with local neighbourhood births and ground-connected growth. Use one equal-length lattice-edge timber system for both supports and canopy, an emergent sculptural form and a walkable opening; disclose imposed envelope/passage masks and biases. Bake recorded growth as cells, then transform/reveal the SAME occupied graph as timber over frames 1–120 at 24fps. Keep final frame 120 complete with cells hidden. Use ordinary object keyframes only.\n\nCreate from an empty METRIC scene at scale_length 1.0, top-level or __main__. Keep total objects under 500; group meshes to stay compact. Camera PavilionEye at 1.6m above grade, outside, framing the entire pavilion with margin in 576x1024. Compute camera fitting and basic connectivity/equal-length/passage checks in code. Provide simple named constants/data sufficient for the separate checks node to derive exact object names and world-axis dimensions. Store compact actual birth/edge/frame data in scene properties during execution. Leave the completed scene active; Relay owns saving, rendering and collection. No file I/O, sidecars, callbacks, handlers, drivers, Geometry Nodes or external caches.\n\nNotes: only seed/rules, design choices, masks, timeline, check anchors, research limitations and untested status. Do NOT repeat the original brief, assignment IDs, hashes, grants, full inventory or code listing in prose; Relay already preserves them. Keep comments and diagnostics concise. Make no invented citations or claims of successful execution. Complete both declared files and finish promptly; avoid unnecessary repeated full-file readbacks.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "text/x-python",
+          "name": "script",
+          "purpose": "Exact reproducible CA/Blender script for later approval"
+        },
+        {
+          "media_type": "text/markdown",
+          "name": "method",
+          "purpose": "Method, constraints, full inventory, timeline and provenance"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "checks",
+      "input_definitions": {
+        "runtime_contracts": {
+          "label": "Checks context",
+          "required": true,
+          "type": "object"
+        },
+        "script": {
+          "label": "Exact script",
+          "media_type": "text/x-python",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "runtime_contracts": {
+          "workflow": "runtime_contracts"
+        },
+        "script": {
+          "output": "script",
+          "task": "ca_code"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Registered blender.run_python preparation fragments only; one JSON output. Exact source ca_code.script also on build. mode=create,units=Meters,objects=ALL created names<=500 incl camera/lights; checked geometry first100. Nonempty expected_dimensions=world-axis metre bounds at completed frame, not local beam lengths. changed_objects<=100(empty valid create). preview PavilionEye,[576,1024],samples4. Derive exact source without execution; stop on mismatch. Code seals fixed fields; no handwritten hashes/envelopes. Not approval.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "application/json",
+          "name": "checks",
+          "purpose": "Registered create checks"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "build",
+      "inputs": {
+        "checks_sha256": {
+          "output": "checks",
+          "task": "checks"
+        },
+        "permissions": {
+          "value": "unrestricted_host"
+        },
+        "scene_sha256": {
+          "value": null
+        },
+        "script_sha256": {
+          "output": "script",
+          "task": "ca_code"
+        }
+      },
+      "objective": "Later exact script/checks approval required. permissions is adapter mode, NOT consent. scene=null builds CA and bakes timeline; Relay saves/reopens/checks/renders completed view. Preserve jobs/files/limits; compose only.",
+      "operation": "blender.run_python",
+      "schema_version": 3
+    },
+    {
+      "id": "scene_facts",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "output": "candidate",
+              "task": "build"
+            }
+          ]
+        }
+      },
+      "objective": "Native inspection of exact build.candidate without edits; actual JSON/receipt for text-only preparation. Never infer missing camera/timeline diagnostics. No model binary access or extra tools/providers; preserve jobs/files/limits. Compose only.",
+      "operation": "blender.inspect",
+      "schema_version": 3
+    },
+    {
+      "id": "anim_plan",
+      "input_definitions": {
+        "build_checks": {
+          "label": "Actual create checks",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "execution": {
+          "label": "Actual build receipt",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "inspection": {
+          "label": "Native inspection",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "method": {
+          "label": "Timeline design",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "runtime_contracts": {
+          "label": "Animation context",
+          "required": true,
+          "type": "object"
+        },
+        "scene": {
+          "label": "Exact baseline identity only",
+          "media_type": "application/x-blender",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "build_checks": {
+          "output": "checks",
+          "task": "build"
+        },
+        "execution": {
+          "output": "execution",
+          "task": "build"
+        },
+        "inspection": {
+          "output": "inspection",
+          "task": "scene_facts"
+        },
+        "method": {
+          "output": "method",
+          "task": "ca_code"
+        },
+        "runtime_contracts": {
+          "workflow": "runtime_contracts"
+        },
+        "scene": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Registered blender.animate preparation fragments only; one JSON output. Exact build.candidate connected ONCE as baseline identity, also on growth.scene_sha256; code binds hash, never model binary reading. Interpret literal inspection/checks/build receipt and method, distinguishing planned/observed. mode=final,frame_start=1,frame_end=120,fps=24,camera=PavilionEye,resolution=[576,1024],samples=4,tracks=[]. Require successful build/no contradictory scene evidence; disclose missing fields, not false verification. No rerun/restaging/browser substitute/invented hashes/envelopes/execution/approval. Fixed1.6m full view. Preserve jobs/limits.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "application/json",
+          "name": "manifest",
+          "purpose": "Registered animation choices bound to exact baseline identity"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "growth",
+      "inputs": {
+        "manifest_sha256": {
+          "output": "manifest",
+          "task": "anim_plan"
+        },
+        "scene_sha256": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "objective": "Render exact saved build scene1–120 after approved build: recorded cells then same occupied timber graph/final hold. Bind scene hash from scene_sha256, tracks=[] preserves baked timeline/fixed1.6m full9:16 view. Retain MP4,frames,candidate,checkpoint,preview,receipts. Stop incompatible timeline; no browser substitute. Preserve jobs/limits; compose only.",
+      "operation": "blender.animate",
+      "schema_version": 3
+    },
+    {
+      "dependencies": [
+        "growth"
+      ],
+      "id": "park_photo",
+      "inputs": {
+        "aspect_ratio": {
+          "value": "9:16"
+        },
+        "files": {
+          "value": [
+            {
+              "output": "after",
+              "task": "build"
+            }
+          ]
+        },
+        "max_output_tokens": {
+          "value": 4096
+        },
+        "model": {
+          "value": "gemini-3.1-flash-image"
+        },
+        "prompt": {
+          "value": "Make a realistic landscaped-park photograph of THIS completed pavilion using the supplied actual Blender view as sole design/camera reference. Preserve silhouette, equal-length timber graph shared by supports/canopy, member layout/proportions, openings and ground contact. No redesign, extra posts or invented roof. Preserve outside perspective at1.6m eye height, camera position/orientation/focal character and whole-pavilion9:16 framing without clipping. Add natural paths/grass/trees and a few scaled people without hiding geometry or blocking the opening. Realistic timber,daylight/shadows. No external reference image,named architect,text or watermark. Visualize this computational design,not a new pavilion."
+        }
+      },
+      "objective": "After growth success and SEPARATE paid model/prompt approval; disclose cost/uncertainty before call. Configuration is not consent. Sole design/camera reference=completed build.after. Label AI visualization, not geometry proof/built photo. Preserve jobs/limits; compose only.",
+      "operation": "gemini.image",
+      "schema_version": 3
+    },
+    {
+      "dependencies": [
+        "park_photo"
+      ],
+      "id": "slides",
+      "input_definitions": {
+        "build_checks": {
+          "label": "Build checks",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "build_receipt": {
+          "label": "Build receipt",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "frames": {
+          "label": "Frame provenance",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "growth_receipt": {
+          "label": "Movie receipt",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "method": {
+          "label": "CA method",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "original_brief": {
+          "label": "Brief",
+          "required": true,
+          "type": "string"
+        },
+        "scene_facts": {
+          "label": "Scene evidence",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "sources": {
+          "label": "Sources",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "build_checks": {
+          "output": "checks",
+          "task": "build"
+        },
+        "build_receipt": {
+          "output": "execution",
+          "task": "build"
+        },
+        "frames": {
+          "output": "frames",
+          "task": "growth"
+        },
+        "growth_receipt": {
+          "output": "execution",
+          "task": "growth"
+        },
+        "method": {
+          "output": "method",
+          "task": "ca_code"
+        },
+        "original_brief": {
+          "workflow": "original_brief"
+        },
+        "scene_facts": {
+          "output": "inspection",
+          "task": "scene_facts"
+        },
+        "sources": {
+          "output": "sources",
+          "task": "research"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Six-slide editorial spec from literal text/JSON:1 pavilion;2 seed/local synchronous3D CA+masks;3 actual generations then same timber graph;4 equal-length system/opening/fixed1.6m view;5 CG/AI image labels;6 Relay chain/reproduction/sources/approvals/limits. Editable text/shapes/diagrams. Counts/lengths/clearances/success require evidence; unknowns unverified. Movie growth.animation in notes as separate deliverable, no assumed embedding/video access. Images connect directly to assembly; no text-worker pixel/drift/fidelity claims, disclose unreviewed visual fidelity. Concept not certification. Any later reel must use actual growth and captured workflow footage, never fabricated footage. Preserve jobs/limits.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "text/markdown",
+          "name": "slide_spec",
+          "purpose": "Six-slide editorial text/provenance and separate movie reference"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "dependencies": [
+        "slides"
+      ],
+      "id": "layout",
+      "inputs": {
+        "parameters": {
+          "value": {
+            "max_records": 6,
+            "renderer": "pptx.create",
+            "style": "clean_minimal_v1",
+            "title": "Cellular aggregation · Timber pavilion"
+          }
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Arrange predecessor slides.slide_spec into six registered document.layout records for pptx.create: native editable text/shapes/diagrams, source/reproduction notes, honest caveats and separate growth.animation movie reference. Supported text only; no invented results/flattened slides. Preserve jobs/limits.",
+      "operation": "document.layout",
+      "schema_version": 3
+    },
+    {
+      "id": "powerpoint",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "output": "result",
+              "task": "layout"
+            },
+            {
+              "output": "slide_spec",
+              "task": "slides"
+            },
+            {
+              "output": "after",
+              "task": "build"
+            },
+            {
+              "output": "result",
+              "task": "park_photo"
+            }
+          ]
+        }
+      },
+      "objective": "Six-slide editable PowerPoint from registered layout/exact assets: Blender still labelled CG and Gemini image labelled AI; native text/diagrams/provenance/reproduction/limits and separate growth movie reference, no assumed embedding/visual-proof claim. Preserve prior files/jobs/limits; compose only.",
+      "operation": "pptx.create",
+      "schema_version": 3
+    }
+  ]
+}

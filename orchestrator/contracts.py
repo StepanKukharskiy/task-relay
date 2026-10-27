@@ -37,6 +37,22 @@ def nonempty(value, name):
     return value
 
 
+def validate_limits(a):
+    """Use identical capacity bounds at grant admission and assignment validation."""
+    limits = a.setdefault('limits', {})
+    for key, default, upper in [('seconds', 600, 1800), ('tool_calls', 60, 200),
+                                ('output_bytes', 100000000, 500000000)]:
+        limits.setdefault(key, default)
+        if type(limits[key]) is not int or not 1 <= limits[key] <= upper:
+            raise ValueError('Invalid ' + key + ' limit')
+    if 'provider_requests' in limits:
+        from .executors import request_limit
+        request_limit(a)
+    if 'response_tokens' in limits:
+        from .executors import response_limit
+        response_limit(a)
+
+
 def assignment(value):
     a = copy.deepcopy(value)
     label(a['id'])
@@ -80,7 +96,7 @@ def assignment(value):
         nonempty(entry.get('purpose'), 'input purpose')
         nonempty(entry.get('authority'), 'input authority')
         if p in paths:
-            raise ValueError('Input/output paths must be unique')
+            raise ValueError('Input/output paths must be unique: '+p+' in assignment '+a['id'])
         paths.add(p)
         if ('artifact' in entry) == ('from_task' in entry):
             raise ValueError('Input needs exactly one artifact or upstream task')
@@ -102,8 +118,12 @@ def assignment(value):
             raise ValueError('Independent browser reviewers may only read/navigate')
         if a.setdefault('max_attempts',1)!=1:
             revision=a.get('revision',{})
-            if not (a['max_attempts']==2 and a.get('review_of') and policy.get('visual_inputs')
-                    and revision.get('kind')=='visual_review_recovery' and revision.get('previous_attempt')):
+            public_setup=(revision.get('kind')=='public_photo_setup_recovery' and revision.get('previous_attempt')
+                          and revision.get('source')=='existing_completion_recovery_grant'
+                          and policy['profile']=='public-photo-'+hashlib.sha256(revision['previous_attempt'].encode()).hexdigest()[:16]
+                          and 'session_source' not in policy and not a.get('review_of'))
+            if not (a['max_attempts']==2 and (public_setup or (a.get('review_of') and policy.get('visual_inputs')
+                    and revision.get('kind')=='visual_review_recovery' and revision.get('previous_attempt')))):
                 raise ValueError('Browser work permits one attempt; revisions require an explicit visual review recovery')
     elif 'browser' in a:raise ValueError('Browser authority requires the browser executor profile')
     if a.get('tools')==['files','computer']:
@@ -117,21 +137,16 @@ def assignment(value):
         raise ValueError('Specify 1–30 review criteria')
     for criterion in criteria:
         nonempty(criterion, 'criterion')
-    limits = a.setdefault('limits', {})
-    for key, default, upper in [('seconds', 600, 1800), ('tool_calls', 60, 200),
-                                ('output_bytes', 100000000, 500000000)]:
-        limits.setdefault(key, default)
-        if type(limits[key]) is not int or not 1 <= limits[key] <= upper:
-            raise ValueError('Invalid ' + key + ' limit')
-    if 'provider_requests' in limits:
-        from .executors import request_limit
-        request_limit(a)
-    if 'response_tokens' in limits:
-        from .executors import response_limit
-        response_limit(a)
+    validate_limits(a)
+    if 'generation_recovery' in a:
+        from .provider_recovery import validate
+        validate(a['generation_recovery'])
+        if a.get('execution') or a.get('tools') not in (['files'],['files','python']):raise ValueError('Generation recovery requires local declared-file tools')
     a.setdefault('max_attempts', 2)
-    if type(a['max_attempts']) is not int or not 1 <= a['max_attempts'] <= 3:
+    if type(a['max_attempts']) is not int or not 1 <= a['max_attempts'] <= (30 if a.get('job_owner') else 3):
         raise ValueError('Execution permits 1–3 attempts')
+    from .review_snapshot import validate as validate_snapshot
+    validate_snapshot(a)
     if a.get('review_of'):
         label(a['review_of'])
         if a['review_of'] not in deps or a.get('user_gate'):
@@ -146,6 +161,9 @@ def assignment(value):
             raise ValueError('A selection set requires a user gate and 2–6 distinct declared output paths')
     if a.get('resource'):
         label(a['resource'])
+    if 'work_tools' in a:
+        from .worker_tools import validate_assignment
+        validate_assignment(a)
     if 'worker' in a:
         from .worker_capabilities import validate
         validate(a)
@@ -160,6 +178,9 @@ def assignment(value):
         validate_assignment(a)
     if 'source_verification' in a:
         from .source_verification import validate_assignment
+        validate_assignment(a)
+    if 'final_quality' in a:
+        from .final_quality import validate_assignment
         validate_assignment(a)
     if 'design_review' in a:
         from .design_review import validate_assignment
@@ -205,10 +226,10 @@ def review_evidence_dependencies(specs):
 def validate_review_order(specs):
     """Include completion gates in cycle detection, beyond plain task edges."""
     evidence = review_evidence_dependencies(specs)
-    reviewers = {a['review_of']: a['id'] for a in specs if a.get('review_of')}
+    reviewers = {a['review_of']: a['id'] for a in specs if a.get('review_of') and not a.get('review_snapshot')}
     edges = {}
     for a in specs:
-        draft_deps = evidence.get(a['id'], set()) | ({a['review_of']} if a.get('review_of') else set())
+        draft_deps = evidence.get(a['id'], set()) | ({a['review_of']} if a.get('review_of') and not a.get('review_snapshot') else set())
         edges[('delivered', a['id'])] = [('delivered' if d in draft_deps else 'completed', d) for d in a['dependencies']]
         edges[('completed', a['id'])] = [('delivered', a['id'])]
         if a['id'] in reviewers:
@@ -227,48 +248,51 @@ def validate_review_order(specs):
         visit(node)
 
 
-def plan(value):
+def plan(value, *, bindable_ids=None):
     p = copy.deepcopy(value)
+    if 'review_followup_version' in p and (type(p['review_followup_version']) is not int or p['review_followup_version']!=1):raise ValueError('Unsupported review follow-up policy')
     label(p['id'])
     nonempty(p.get('brief'), 'brief')
     backend = p.get('backend', {})
     from .executors import validate, limits_for, API_TYPES, BROWSER_TYPES, CODE_TYPES
     validate(backend)
-    if not isinstance(p.get('tasks'), list) or not 1 <= len(p['tasks']) <= 30:
-        raise ValueError('Workflow permits 1–30 tasks')
+    grant=p.get('job_owner',{})
+    maximum=grant.get('max_tasks',0)+1 if grant.get('graph_capacity_version')==1 and type(grant.get('max_tasks')) is int and 1<=grant['max_tasks']<=127 else 30
+    if not isinstance(p.get('tasks'), list) or not 1 <= len(p['tasks']) <= maximum:
+        raise ValueError(f'Workflow permits 1–{maximum} tasks under its frozen capacity policy')
     p['tasks'] = [assignment(a) for a in p['tasks']]
+    if p.get('producer_binding_version',p.get('job_owner',{}).get('producer_binding_version'))==1:
+        from .producer_binding import compile as bind_producers
+        bind_producers(p,editable=bindable_ids,workers=p.get('job_owner',{}).get('workers'))
+        p['tasks']=[assignment(a) for a in p['tasks']]
     for a in p['tasks']:
         if a.get('execution'):continue
         from .worker_capabilities import backend_for
         chosen=backend_for(a,backend)
+        if a.get('operation_contract',{}).get('id')=='sourcing.inventory':
+            from .sourcing_inventory import validate_assignment as validate_inventory
+            validate_inventory({**a,'backend':chosen})
         profile=validate(chosen)
         if a['tools']!=profile:raise ValueError('Assignment tools do not match the selected execution provider.')
         if chosen['type'] in API_TYPES:
-            if any(a['limits'][k]>v for k,v in limits_for(chosen).items()):raise ValueError('API assignment exceeds its bounded executor limits.')
-            if chosen['type'] not in (*BROWSER_TYPES,*CODE_TYPES) and any(o.get('media_type','text/plain') not in ('text/plain','text/markdown','application/json') for o in a['outputs']):
+            if any(a['limits'][k]>v for k,v in limits_for(chosen,a).items()):raise ValueError('API assignment exceeds its bounded executor limits.')
+            from .worker_capabilities import TEXT_TYPES
+            if not a.get('work_tools') and chosen['type'] not in (*BROWSER_TYPES,*CODE_TYPES) and any(o.get('media_type','text/plain') not in TEXT_TYPES for o in a['outputs']):
                 raise ValueError('API file executor produces UTF-8 text only.')
     tasks = {a['id']: a for a in p['tasks']}
     if len(tasks) != len(p['tasks']):
         raise ValueError('Duplicate task ID')
-    visiting, visited, reviewers = set(), set(), set()
-    def visit(tid):
-        if tid not in tasks or tid in visiting:
-            raise ValueError('Missing dependency or dependency cycle')
-        if tid in visited:
-            return
-        visiting.add(tid)
-        for dep in tasks[tid]['dependencies']:
-            visit(dep)
-        visiting.remove(tid); visited.add(tid)
+    validate_dependencies({k:a['dependencies'] for k,a in tasks.items()})
+    reviewers=set()
     for a in tasks.values():
-        visit(a['id'])
         if a.get('review_of'):
             target = a['review_of']
-            if target in reviewers or tasks[target].get('review_of'):
+            if (target in reviewers and not a.get('review_snapshot')) or tasks[target].get('review_of'):
                 raise ValueError('One independent reviewer per producer; no nested review')
             if a['max_attempts'] < tasks[target]['max_attempts']:
                 raise ValueError('Reviewer budget must cover every permitted producer attempt')
-            expected_criteria=tasks[target]['criteria']
+            from .deliverable_outputs import review_criteria
+            expected_criteria=review_criteria(tasks[target])
             if a.get('source_fidelity',{}).get('phase')=='comparison':
                 from .source_fidelity import CRITERION
                 from .native_apps import SCRIPT_OPERATIONS
@@ -288,9 +312,30 @@ def plan(value):
                 expected_criteria=expected_criteria+[CRITERION]
             elif a.get('research_audit'):
                 raise ValueError('Research audit requires a bound research producer.')
+            contract=tasks[target].get('operation_contract')
+            from .operation_contracts import identity as record_family
+            family=record_family({k:contract[k] for k in ('id','version')}) if contract else {}
+            if family.get('record_role')=='options':
+                from .sourcing_contract import SEMANTIC_CRITERION
+                if a.get('operation_contract',{}).get('id')!=family['review_family']:
+                    raise ValueError('Typed sourcing requires its independent version-bound item reviewer')
+                expected_criteria=expected_criteria+[SEMANTIC_CRITERION]
+            if family.get('review_criterion') and family['review_criterion'] not in expected_criteria:
+                expected_criteria.append(family['review_criterion'])
+            if tasks[target].get('operation_contract',{}).get('id')=='sourcing.inventory':
+                from .sourcing_inventory import CRITERION
+                expected_criteria=expected_criteria+[CRITERION]
+                image_path=tasks[target]['operation_contract']['parameters']['image_path']
+                image=next(i for i in tasks[target]['inputs'] if i['path']==image_path)
+                from .worker_capabilities import abilities
+                if 'images.view' not in abilities(backend_for(a,backend)):raise ValueError('Inventory reviewer requires a pixel-capable worker')
+                if not any(i.get('visual_reference') and i.get('artifact')==image.get('artifact') and i.get('from_task')==image.get('from_task') and i.get('output')==image.get('output') for i in a['inputs']):raise ValueError('Inventory review needs the exact original visual input')
+            if a.get('final_quality'):
+                from .final_quality import criterion
+                expected_criteria += [criterion(v['outcome']['id']) for v in a['final_quality']['checks'].values()]
             if a['criteria'] != expected_criteria:
                 raise ValueError('Reviewer must check the producer criteria without weakening them')
-            reviewers.add(target)
+            if not a.get('review_snapshot'):reviewers.add(target)
             for out in tasks[target]['outputs']:
                 if not any(i.get('from_task') == target and i.get('output') == out['path'] for i in a['inputs']):
                     raise ValueError('Reviewer must receive every declared producer output')
@@ -301,12 +346,17 @@ def plan(value):
                 output=next(o for o in tasks[item['from_task']]['outputs'] if o['path']==item['output'])
                 if item['media_type']!=output.get('media_type'):
                     raise ValueError('Upstream output type does not match the declared input type')
+    for a in tasks.values():
+        if any(c.get('validation') for c in a.get('output_contracts',[])) and a['id'] not in reviewers:
+            raise ValueError('Semantic output validation requires an independent reviewer')
     validate_review_order(p['tasks'])
     from .corrections import validate as validate_corrections
     validate_corrections(p['tasks'])
     p.setdefault('concurrency', 2)
     if type(p['concurrency']) is not int or not 1 <= p['concurrency'] <= 4:
         raise ValueError('Concurrency must be 1–4')
+    from .job_owner import validate_plan
+    validate_plan(p)
     return p
 
 
@@ -369,4 +419,21 @@ def report(value, frozen):
     validate_accept(value, frozen)
     from .source_verification import validate_report
     validate_report(value, frozen)
+    from .final_quality import validate_report
+    validate_report(value, frozen)
+    from .review_followup import validate_report as validate_followup
+    validate_followup(value, frozen)
     return value
+
+
+def validate_dependencies(dependencies):
+    """Shared draft/runtime DAG validation; no execution or mutation."""
+    visiting, visited = set(), set()
+    def visit(tid):
+        if tid not in dependencies or tid in visiting:
+            raise ValueError('Missing dependency or dependency cycle')
+        if tid in visited:return
+        visiting.add(tid)
+        for dep in dependencies[tid]:visit(dep)
+        visiting.remove(tid);visited.add(tid)
+    for tid in dependencies:visit(tid)

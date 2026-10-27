@@ -68,7 +68,7 @@ class Tests(unittest.TestCase):
                       bl_rna=NS(properties=[NS(identifier='roughness',type='FLOAT',is_array=False)]))
         orphan=material('Unused default',0);used=material('Used',1);retained=material('Retained',0,True)
         materials=[orphan,used,retained]
-        bpy=NS(data=NS(objects=[],materials=materials,collections=[]),context=NS(scene=NS(camera=None,frame_current=1)))
+        bpy=NS(data=NS(objects=[],materials=materials,collections=[]),context=NS(scene=NS(camera=None,frame_current=1,unit_settings=NS(scale_length=1)),view_layer=NS(update=lambda:None),evaluated_depsgraph_get=lambda:None))
         checks=dict(changed_objects=[],preserve_other_objects=True,preserve_cameras=True,
                     preserve_materials=True,expected_dimensions={})
         with patch.dict('sys.modules',{'bpy':bpy}):

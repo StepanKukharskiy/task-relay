@@ -222,6 +222,22 @@ class ReviewTests(unittest.TestCase):
         (self.ws / '.relay/result.json').write_text(json.dumps(value))
         self.rt.tick('demo', dispatch=False)
 
+    def test_typed_report_paths_are_scoped_and_legacy_form_remains_frozen(self):
+        from task_relay.planning_contract import validate
+        current=report_builder.freeze(self.frozen,version=2)
+        slot=current['schema']['properties']['checks']['properties']['c1']['anyOf'][0]['properties']['evidence']
+        validate(self.evidence(),slot)
+        check=current['schema']['properties']['checks']['properties']['c1']
+        with self.assertRaises(ValueError):validate(dict(passed=True,evidence=json.dumps(self.evidence())),check)
+        validate(dict(passed=False,evidence='Missing evidence; no factual pass'),check)
+        wrong=self.evidence();wrong['claims'][0]['candidate_path']='candidate.txt#/targets/0'
+        with self.assertRaises(ValueError):validate(wrong,slot)
+        wrong=self.evidence();wrong['claims'][0]['supports'][0]['path']='source.txt#section'
+        with self.assertRaises(ValueError):validate(wrong,slot)
+        legacy=report_builder.freeze(self.frozen,version=1)
+        frozen=copy.deepcopy(self.frozen);frozen['report_contract']=legacy
+        self.assertEqual(report_builder.freeze(frozen),legacy)
+
     def test_circular_section_reference_is_blocked_by_supervisor(self):
         value = self.report()
         value['checks'][0]['evidence'] = 'Section 4 provides technically accurate instructions.'
@@ -230,6 +246,39 @@ class ReviewTests(unittest.TestCase):
         self.assertNotEqual(self.rt.task('demo', 'produce')['status'], 'awaiting_user')
         self.assertEqual(self.rt.db.execute('SELECT count(*) FROM production_decisions').fetchone()[0], 0)
         self.assertFalse(self.rt.db.execute("SELECT 1 FROM production_events WHERE kind='model_review_accepted'").fetchone())
+
+    def test_artifact_refs_bind_exact_versions_without_model_paths_or_hashes(self):
+        frozen=self.frozen
+        self.assertEqual(frozen['report_contract']['version'],3)
+        bindings=frozen['report_contract']['artifact_slots']
+        candidate=next(ref for ref,b in bindings.items() if b['path']=='candidate.txt')
+        source=next(ref for ref,b in bindings.items() if b['path']=='source.txt')
+        evidence={'claims':[dict(candidate_ref=candidate,claim=CLAIM,verdict='supported',reason='Independent exact source passage.',
+                                supports=[dict(source_ref=source,quote=CLAIM)])]}
+        raw=dict(summary='Exact source support; physical testing unverified.',decision='accept',instruction='',findings=[],
+                 checks={'c1':dict(passed=True,evidence=evidence)})
+        original=copy.deepcopy(raw)
+        result=contracts.report(raw,frozen)
+        resolved=json.loads(result['checks'][0]['evidence'])
+        self.assertEqual(resolved['claims'][0]['candidate_path'],'candidate.txt')
+        self.assertEqual(resolved['claims'][0]['supports'][0],dict(path='source.txt',sha256=bindings[source]['sha256'],quote=CLAIM))
+        self.assertEqual(raw,original)
+        for wrong in ('i999',candidate,'source.txt'):
+            bad=copy.deepcopy(raw);bad['checks']['c1']['evidence']['claims'][0]['supports'][0]['source_ref']=wrong
+            with self.subTest(reference=wrong),self.assertRaises(ValueError):contracts.report(bad,frozen)
+        bad=copy.deepcopy(frozen);bad['report_contract']['artifact_slots'][source]['artifact']='changed-artifact'
+        with self.assertRaisesRegex(ValueError,'differs'):contracts.report(raw,bad)
+        (self.ws/'source.txt').chmod(0o600)
+        (self.ws/'source.txt').write_text('Changed source after freezing.')
+        with self.assertRaisesRegex(ValueError,'frozen hash'):contracts.report(raw,frozen)
+
+    def test_path_report_versions_remain_frozen_after_artifact_ref_upgrade(self):
+        for version in (1,2):
+            frozen=copy.deepcopy(self.frozen);frozen['report_contract']=report_builder.freeze(frozen,version=version)
+            self.assertEqual(report_builder.freeze(frozen),frozen['report_contract'])
+            raw=dict(summary='Legacy exact source review.',decision='accept',instruction='',findings=[],
+                     checks={'c1':dict(passed=True,evidence=self.evidence())})
+            self.assertEqual(contracts.report(raw,frozen)['decision'],'accept')
 
     def test_exact_source_support_allows_review_but_never_user_acceptance(self):
         value = self.report()
@@ -273,9 +322,10 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(self.rt.db.execute('SELECT count(*) FROM production_decisions').fetchone()[0], 0)
 
     def test_typed_report_is_bound_to_same_source_contract(self):
+        frozen=copy.deepcopy(self.frozen);frozen['report_contract']=report_builder.freeze(frozen,version=2)
         typed = {'summary': 'Source support audited.', 'decision': 'accept', 'instruction': '', 'findings': [],
                  'checks': {'c1': {'passed': True, 'evidence': self.evidence()}}}
-        value = contracts.report(typed, self.frozen)
+        value = contracts.report(typed, frozen)
         self.assertEqual(json.loads(value['checks'][0]['evidence']), self.evidence())
         changed = copy.deepcopy(self.frozen)
         changed['source_verification']['sources'] = ['candidate.txt']
@@ -292,16 +342,16 @@ class WorkerTests(unittest.TestCase):
         from orchestrator.gemini_worker import execute
         self.frozen['review_of'] = 'produce'
         self.frozen['outputs'] = [{'path': 'review.md', 'purpose': 'Independent review'}]
-        self.input('candidate.txt', CLAIM, from_task='produce')
-        self.input('source.txt', SOURCE)
+        self.input('candidate.txt', CLAIM, from_task='produce',artifact='c'*32)
+        self.input('source.txt', SOURCE,artifact='d'*32)
         self.frozen['source_verification'] = {'version': 1, 'criteria': [1],
             'sources': ['source.txt'], 'candidates': ['candidate.txt']}
         self.frozen['report_contract'] = report_builder.freeze(self.frozen)
         report = {'summary': 'Documentation support only; physical testing unverified.', 'decision': 'accept',
             'instruction': '', 'findings': [], 'checks': {'c1': {'passed': True, 'evidence': {
-                'claims': [{'candidate_path': 'candidate.txt', 'claim': CLAIM, 'verdict': 'supported',
+                'claims': [{'candidate_ref': 'i1', 'claim': CLAIM, 'verdict': 'supported',
                     'reason': 'The manufacturer notes state this requirement.', 'supports': [
-                        {'path': 'source.txt', 'sha256': hashlib.sha256(SOURCE.encode()).hexdigest(), 'quote': CLAIM}]}]}}}}
+                        {'source_ref': 'i2', 'quote': CLAIM}]}]}}}}
         calls = []
         class Client:
             def request(_, path, payload, **kwargs):
@@ -314,7 +364,7 @@ class WorkerTests(unittest.TestCase):
         result = execute(self.frozen, self.control, Client(), lambda: (api_fixture.CONFIG, api_fixture.BACKEND))
         self.assertEqual(result['decision'], 'accept')
         self.assertEqual(len(calls), 2)
-        self.assertIn('structured independent source evidence', json.loads((self.control / 'tool-01-00.json').read_text())['result']['error'])
+        self.assertIn('expected object', json.loads((self.control / 'tool-01-00.json').read_text())['result']['error'])
         self.assertEqual((self.ws / 'candidate.txt').read_text(), CLAIM)
         self.assertIn('Documentation support only', (self.ws / 'review.md').read_text())
 

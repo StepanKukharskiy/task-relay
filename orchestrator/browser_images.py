@@ -15,7 +15,9 @@ Export an observed original image for each subject using its image ref, never a
 Google/Bing thumbnail or screenshot. Missing subjects retain explicit gaps.
 images.fetch downloads at most two distinct candidates per subject, public HTTPS
 only, without cookies/credentials. Returns the same application/zip photo bundle
-as images.collect. Review image identity, suitability and source rights independently.
+as images.collect. Observed static WebP/AVIF photos retain original bytes and a bounded PNG representation;
+original bytes and hashes remain declared in the ZIP. Animated WebP stays a gap.
+Review image identity, suitability and source rights independently.
 Unknown author/licence stays unknown; source discovery is not permission to reuse.
 The downstream PPTX receives the exact reviewed ZIP and its image paths/credits.
 '''
@@ -50,7 +52,7 @@ def observed_image(image,page_url):
 def validate_manifest(value):
     if not isinstance(value,dict) or set(value)!={'schema','job','subjects','candidates'} or value.get('schema')!=SCHEMA or not isinstance(value.get('job'),str) or not 1<=len(value['job'])<=200:
         raise ValueError('Expected an observed browser image-source manifest')
-    subjects=value.get('subjects');sources.validate_subjects(subjects)
+    subjects=value.get('subjects');sources.validate_subjects(subjects,literal_query=False)
     candidates=value.get('candidates')
     if not isinstance(candidates,list) or len(candidates)>2*len(subjects):raise ValueError('Image candidate limit exceeded')
     counts={s['id']:0 for s in subjects};seen=set()
@@ -67,13 +69,37 @@ def validate_manifest(value):
     return value
 
 
-def fetch_bundle(value,*,fetch=None,seconds=600,max_bytes=sources.MAX_BUNDLE_BYTES,record=None):
+def validator_source():
+    """Freeze the production checker for local preparation; no executor/network."""
+    import inspect
+    from task_relay.orchestrator_web import public_url,public_ip
+    checker=inspect.getsource(validate_manifest).replace('sources.validate_subjects(subjects,literal_query=False)','validate_subjects(subjects,literal_query=False)')
+    reference=inspect.getsource(public_reference).replace('    from task_relay.orchestrator_web import public_url\n','')
+    return ('import json, re, html, ipaddress, sys\nfrom urllib.parse import urlsplit, urlunsplit\n'
+            'SCHEMA = '+repr(SCHEMA)+'\nMAX_SUBJECTS = '+repr(sources.MAX_SUBJECTS)+'\n\n'+
+            inspect.getsource(public_ip)+'\n'+inspect.getsource(public_url)+'\n'+reference+'\n'+
+            inspect.getsource(sources.normalized)+'\n'+inspect.getsource(sources.validate_subjects)+'\n'+checker+'\n'+
+            'if __name__ == "__main__":\n'
+            '    with open(sys.argv[1], encoding="utf-8") as f: validate_manifest(json.load(f))\n'
+            '    print("RELAY_OBSERVED_IMAGE_MANIFEST_VALID")\n')
+
+
+def fetch_bundle(value,*,fetch=None,seconds=600,max_bytes=sources.MAX_BUNDLE_BYTES,record=None,source_text=None):
     validate_manifest(value)
+    canonical_digest=hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()
+    if source_text is not None:
+        if not isinstance(source_text,str) or json.loads(source_text)!=value:
+            raise ValueError('Image source text differs from the parsed manifest.')
+        source_digest=hashlib.sha256(source_text.encode('utf-8')).hexdigest()
+        hash_basis='exact-input-utf8-bytes'
+    else:
+        source_digest=canonical_digest;hash_basis='json.dumps(parsed-input,sort_keys=True)-utf8'
     deadline=time.monotonic()+seconds;files={};entries=[];total=0
     def journal(event):
         if record:record(event)
-    for subject in value['subjects']:
-        entry={**subject,'status':'missing','download_failures':[]};entries.append(entry)
+    def collect_one(subject):
+        nonlocal total
+        entry={**subject,'status':'missing','download_failures':[]}
         budget={'remaining':8}
         for item in (i for i in value['candidates'] if i['subject']==subject['id']):
             journal(dict(kind='image',status='requested',subject=subject['id'],url=item['download_url']))
@@ -82,25 +108,39 @@ def fetch_bundle(value,*,fetch=None,seconds=600,max_bytes=sources.MAX_BUNDLE_BYT
                 # the exact observed image/source hosts, including redirect hops.
                 hosts={urlsplit(item[k]).hostname for k in ('download_url','source_url')}
                 raw,mime,url=(fetch(item['download_url'],sources.MAX_IMAGE_BYTES,deadline) if fetch else
-                              sources.download(item['download_url'],sources.MAX_IMAGE_BYTES,deadline,budget,hosts))
+                              sources.download(item['download_url'],sources.MAX_IMAGE_BYTES,deadline,budget,hosts,media_types=('image/jpeg','image/png','image/webp','image/avif')))
                 dimensions=sources.image_check(raw,mime)
-                if total+len(raw)>min(max_bytes,sources.MAX_BUNDLE_BYTES)-1_000_000:raise ValueError('Image bundle byte limit exceeded')
+                original_mime=mime
+                original_format={'image/webp':'webp','image/avif':'avif'}.get(mime)
+                original_raw=raw if original_format else None
+                if original_raw is not None:
+                    from .image_representation import png_preview
+                    raw,transformation=png_preview(raw,mime,sources.MAX_IMAGE_BYTES);mime='image/png'
+                    dimensions=sources.image_check(raw,mime)
+                if total+len(raw)+(len(original_raw) if original_raw is not None else 0)>min(max_bytes,sources.MAX_BUNDLE_BYTES)-1_000_000:raise ValueError('Image bundle byte limit exceeded')
                 path='images/'+subject['id']+('.jpg' if mime=='image/jpeg' else '.png')
                 files[path]=raw;total+=len(raw)
                 entry.update(item,status='found',path=path,media_type=mime,bytes=len(raw),dimensions=dimensions,
                              sha256=hashlib.sha256(raw).hexdigest(),download_url=url,retrieved_at=time.time(),
                              author='Unknown — check source',license='Unknown — check source',license_url='',
                              match_evidence='Selected from an observed browser page; visual identity and reuse rights require review.')
+                if original_raw is not None:
+                    original_path='originals/'+subject['id']+'.'+original_format;files[original_path]=original_raw;total+=len(original_raw)
+                    entry['source_original']={'path':original_path,'media_type':original_mime,'bytes':len(original_raw),'sha256':hashlib.sha256(original_raw).hexdigest(),'transformation':transformation}
                 journal(dict(kind='image',status='saved',subject=subject['id'],sha256=entry['sha256'],bytes=len(raw)))
                 break
             except (ValueError,OSError) as exc:
                 failure=dict(url=item['download_url'],reason=str(exc)[:500]);entry['download_failures'].append(failure)
                 journal(dict(kind='image',status='failed',subject=subject['id'],**failure))
         if entry['status']=='missing':entry['reason']='; '.join(f['reason'] for f in entry['download_failures']) or 'No original image was selected in the browser for this subject.'
+        return entry
+    from .collection_core import collect as collect_subjects
+    entries,_=collect_subjects(value['subjects'],[dict(id='observed-pages',version=1,collect=collect_one)],commit=lambda state:journal(dict(kind='collection-checkpoint',status='requested' if state['pending'] else 'checkpointed',state=state)))
     found=sum(e['status']=='found' for e in entries)
     manifest=dict(version=1,kind='task-relay-sourced-images',provider='browser-sources',created_at=time.time(),
                   subjects=entries,complete=found==len(entries),coverage=dict(found=found,missing=len(entries)-found,total=len(entries)),
-                  source_manifest_sha256=hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest(),
+                  source_manifest_sha256=source_digest,source_manifest_hash_basis=hash_basis,
+                  source_manifest_canonical_sha256=canonical_digest,
                   review='Observed sources are not visual identification or licence verification; independent review required.')
     buf=io.BytesIO()
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_STORED) as archive:

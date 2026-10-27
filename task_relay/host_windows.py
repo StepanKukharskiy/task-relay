@@ -258,6 +258,12 @@ def identity(pid):
         size=DWORD(32768);name=C.create_unicode_buffer(size.value)
         checked(lib.QueryFullProcessImageNameW(handle,0,name,C.byref(size)))
         return {'pid':pid,'created':(times[0].high<<32)|times[0].low,'executable':name.value.casefold()}
+    except OSError:
+        # The process can exit between the liveness probe and identity reads.
+        # Only the same signaled process handle proves exit; access denial on a
+        # live/unknown process must still propagate as uncertainty.
+        if lib.WaitForSingleObject(handle,0)==0:return None
+        raise
     finally:lib.CloseHandle(handle)
 
 

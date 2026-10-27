@@ -92,18 +92,31 @@ class ImageSourcesTests(unittest.TestCase):
                         warnings.simplefilter('ignore');out.writestr('manifest.json','{}')
             with self.subTest(variant=variant),self.assertRaises(ValueError):sources.unpack(buf.getvalue())
 
-    def test_source_bundle_creates_editable_deck_with_exact_image_and_credit_notes(self):
-        raw,_=bundle();value=dict(version=1,title='Sourced photos',slides=[dict(elements=[
+    def test_source_bundle_preserves_authored_notes_and_exact_image(self):
+        raw,_=bundle();value=dict(version=1,title='Sourced photos',slides=[dict(notes='n'*10000,elements=[
             dict(type='text',text='Example oak',x=1,y=.5,w=8,h=1),
             dict(type='image',path='selected.zip/images/oak.jpg',x=1,y=2,w=6,h=4)])])
         result,evidence=pptx_document.create(value,bundles={'selected.zip':raw})
         from pptx import Presentation
         deck=Presentation(io.BytesIO(result))
         self.assertEqual(deck.slides[0].shapes[1].image.blob,photo())
-        self.assertIn('Example Author',deck.slides[0].notes_slide.notes_text_frame.text)
-        self.assertIn('CC BY-SA 4.0',deck.slides[0].notes_slide.notes_text_frame.text)
-        self.assertNotIn('notes',value['slides'][0])
+        self.assertEqual('n'*10000,deck.slides[0].notes_slide.notes_text_frame.text)
+        self.assertEqual(value['slides'][0]['notes'],'n'*10000)
+        self.assertEqual(sources.unpack(raw)[1]['images/oak.jpg']['author'],'Example Author')
         self.assertEqual(evidence['native_objects']['image'],1)
+
+    def test_bundle_without_credit_fields_retains_verified_image(self):
+        raw,_=bundle()
+        source=zipfile.ZipFile(io.BytesIO(raw))
+        manifest=json.loads(source.read('manifest.json'))
+        for entry in manifest['subjects']:
+            for field in ('author','license','title','source_url'):
+                entry.pop(field,None)
+        out=io.BytesIO()
+        with zipfile.ZipFile(out,'w') as target:
+            for name in source.namelist():
+                target.writestr(name,json.dumps(manifest).encode() if name=='manifest.json' else source.read(name))
+        self.assertEqual(sources.unpack(out.getvalue())[0]['images/oak.jpg'],photo())
 
     def test_host_restriction_precedes_any_network_access(self):
         with patch('task_relay.orchestrator_web.public_addresses') as dns:

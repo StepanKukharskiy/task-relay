@@ -68,7 +68,10 @@ class Tests(unittest.TestCase):
         self.bridge.flush(False);self.click(row['token'])
 
     def test_new_plan_corrects_draft_once_without_another_start(self):
-        row=self.ready();self.assertIn('2 attempt(s)',planning.preview(row))
+        self.queue();response=self.response()
+        for task in response['plan']['tasks']:task['max_attempts']=2
+        planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
+        row=self.row();self.assertEqual(row['status'],'ready',row['error']);self.assertIn('2 attempt(s)',planning.preview(row))
         self.start(row)
         worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
         first=self.rt.task('production-1','produce')['latest']
@@ -216,12 +219,17 @@ class Tests(unittest.TestCase):
     def test_graph_sources_tools_budgets_and_review_are_checked(self):
         row=self.queue(action=self.action(task_seconds=600))
         cases=[]
-        bad=self.response();bad['plan']['tasks'][0]['limits']['seconds']=601;cases.append(bad)
+        oversized=self.response();oversized['plan']['tasks'][0]['limits']['seconds']=601
+        _,bounded=planning.validate_result(json.dumps(oversized),row)
+        self.assertEqual(bounded['tasks'][0]['limits']['seconds'],600)
+        bad=self.response();bad['plan']['tasks'][0]['limits']['seconds']=0;cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['tools']=['web'];cases.append(bad)
         bad=self.response();bad['plan']['tasks'][1]['inputs']=[];cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['dependencies']=['review'];cases.append(bad)
         bad=self.response();bad['plan']['tasks'][0]['inputs']=[dict(artifact='unknown',path='x',purpose='x',authority='x')];cases.append(bad)
-        bad=self.response();bad['plan']['tasks'][0]['max_attempts']=3;cases.append(bad)
+        oversized=self.response();oversized['plan']['tasks'][0]['max_attempts']=3
+        _,bounded=planning.validate_result(json.dumps(oversized),row)
+        self.assertEqual([t['max_attempts'] for t in bounded['tasks']],[2,2])
         for value in cases:
             with self.subTest(value=value),self.assertRaises((ValueError,KeyError)):
                 planning.validate_result(json.dumps(value),row)

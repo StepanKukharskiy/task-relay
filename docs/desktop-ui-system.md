@@ -6,6 +6,21 @@ the inventory for its task workspace and menu-bar entry. The implemented styles 
 elements before adding a new control. This does not define `.relay` job data or
 require another client to use the same visual design.
 
+## Canvas navigation
+
+Jobs opens the shared collapsible sidebar on both the canvas and app pages.
+Its job list scrolls independently; Telegram and Settings stay at the bottom.
+Telegram opens the existing messenger/service controls. Settings owns app-wide
+preferences and saved connections; history diagnostics are secondary settings.
+The canvas + Step is the only node-library entry. Provider/model/input setup
+remains in the selected node inspector. Non-canvas pages reserve a normal header
+for Jobs and the page label; no floating app dropdown covers status messages.
+Navigation alone never starts a service or executes a node.
+
+The canvas has a subtle dot grid anchored to the node camera. Spacing is 24px at
+100% zoom; pan and zoom move the grid with the graph. At low zoom, fewer dots are
+drawn to prevent clutter. This is decorative only: no snapping or new hit targets.
+
 New task uses automatic recommendations without a research dropdown. Ordinary
 questions and outcomes use the shared conversational orchestrator, and messenger
 conversations project the same committed answer here. Continue messenger choices
@@ -249,3 +264,145 @@ available in a disclosure and exact documents still gate Start. Review rows use
 saved identities to distinguish repeated titles. A workflow-owned run can be
 cancelled as this stage and later removed from the list; that action does not
 approve continuation, transfer ownership or remove the owning workflow records.
+
+## Canvas panel spacing
+
+Chat (workflow authoring and result discussion), Inspector, History, Jobs and the
+node library share the panel tokens in companion.css: 20 px inset (16 px on
+narrow windows), 12 px control gaps, 20 px corners, the same border and shadow.
+Panel headings use 17 px semibold type and a 32 px close target in the header
+row, so long headings wrap without colliding with the close button. Form fields
+use 13 px text and 10 px inset; supporting text uses 12 px.
+
+Put chat controls and messages inside `.job-chat-messages`; workflow authoring
+also uses `.workflow-chat-body` for consistent vertical gaps. Keep the header
+outside the scrolling body. Do not attach textareas or actions directly to the
+panel shell. Empty status/proposal containers can hide; empty text inputs cannot.
+Inputs/Results, canvas-view and conversation tabs share the same segmented
+control styles and visible selected state. These styles change no runtime data
+or execution controls.
+
+### Workflow Chat model choice
+
+Workflow Chat uses the same text-provider/model and saved-connection snapshot as
+node setup. New requests require an explicit provider and model; suggested IDs
+are selectable and custom IDs disable autocorrection. Chat choice controls the
+proposal node and supplies the default for new AI nodes with no explicit model.
+Existing and explicitly proposed node choices remain intact; fixed-provider tools
+keep their own setup.
+
+Send prepares an ordinary model-node draft and uses existing Run preview/start.
+Paid proposals require an inline confirmation; cancelling never starts the node.
+The exact model and request are retained, and an uncertain start is checked using
+the same submission identity. Applying a validated proposal remains separate from
+running the authored workflow. Historical Codex requests retain their saved choice.
+
+### Conversation and proposal correction
+
+Workflow Chat displays a conversation, with a fixed composer and compact model
+selector. User text appears immediately; progress/errors belong to the assistant
+reply. Completed messages and model choice follow a saved canvas. Pending requests
+restore their exact submission; status recovery does not create a replacement run.
+
+The registered workflow.proposal content contract uses the existing operation_submit
+loop. Replies may answer or clarify without a graph. Proposed graphs follow an
+operation-aware authoring schema: only model nodes declare custom input/output
+interfaces. Registered nodes inherit ports. Invalid graphs return tool feedback
+before the worker finishes, within its existing limits. Code validates bindings
+and exports the reply. A valid reply updates the unchanged canvas directly, without
+an approval step. A changed base is preserved with an explanation instead. Running
+the graph remains a separate action. Historical failed proposal bytes stay unchanged.
+
+### Keep execution on the authored canvas
+
+Run updates the mounted editor through the existing status/advance route. Toolbar
+labels, chat visibility, selected inspector and camera stay in place. Exact saved
+outputs use the shared Results renderer in the inspector; a status refresh never
+replaces the entire page with History. Canonical saved canvases reopen in the same
+editor; older records without an authored graph retain their read-only projection.
+
+### Progressive Chat composition
+
+Chat publishes complete validated graphs from the existing attempt-bound typed
+record store while its worker is active. The worker submits an initial graph,
+then amends that record as more nodes and resolved connections become ready.
+Every revision uses the same registered graph validation and original limits.
+Status reads do not export, collect or execute proposed nodes. Token fragments
+and unresolved wires are never projected onto the canvas.
+
+The editor retains the exact submitted request separately from its last applied
+preview. Reload observes that request without resubmitting it. New revisions
+replace only the last applied preview; concurrent user edits prevent overwrite.
+Chat shows Building workflow until completion. A stopped request leaves its last
+preview visible as a draft; this is not completed execution or acceptance.
+
+### Saved conversation continuation
+
+The saved-job Chat panel keeps a pinned message composer for Telegram and desktop
+conversations, including failed or uncertain outcomes. It displays the shared
+Settings conversation provider/model. Send creates a new, explicitly requested
+turn through the existing desktop admission and conversation worker; previous turns
+remain unchanged. A lost admission response offers Check status with the same
+identity, never an automatic resend. Pending work disables another send. Turns
+remain in the original Jobs entry, with original context plus a bounded recent
+history. A conversation without authored nodes does not invent a workflow graph.
+
+## Portable workflow files
+
+The canvas Export action saves a `.relay.zip` containing `workflow.json` in the
+existing workflow schema and a bounded file manifest. “Include input files” is
+optional. Prompts, named bindings and model choices travel with the graph; saved
+connections, API keys, run history and previous outputs do not. Users should review
+prompt text and any included input data before sharing.
+
+Jobs → Import workflow opens the package as a new ordinary draft. Included input
+bytes are checksum-verified and registered under new local artifact IDs. If files
+were omitted, the file picker requests the exact originals before creating the
+draft. Ask when run fields remain unbound. Import never starts a workflow or
+reuses the sender’s execution authority. Unsupported operations, invalid ports,
+cycles, modified files or unexpected archive entries stop import. Existing jobs
+are not overwritten. A historical run is exportable only when it retained an
+actual authored workflow; the UI does not fabricate a graph from its history.
+
+Status polling does not rebuild a canvas solely because its observation timestamp
+changed. Inspector reading position is retained when an actual data update does
+require rebuilding it. Embedded previews remain mounted for unchanged results.
+
+### Full-width reading and automatic names
+
+Chat and the selected-node inspector share an expand/restore control in their
+header. Expanded panels span the window below the canvas toolbar, reserving the
+bottom status area. Expansion is view state and survives refreshes, without
+navigating away, changing tabs or running work. Unnamed canvases receive a short
+name from the first Chat request or, at Save, the first node prompt/objective.
+This is deterministic, uses no extra provider call, and never overrides a supplied
+name. Prior jobs are not bulk-renamed.
+
+### Canvas connection indicators and return navigation
+
+The titlebar shows Telegram and Messages logos with accessible status dots and
+tooltips. Only paired, enabled, healthy services with current policy acknowledgment
+show connected. Connected logos and dots use the shared action-blue color; all
+other states are grey, with the specific status in the tooltip and accessible label.
+The existing status refresh updates the badges
+in place. Clicking opens Connections, never starts a service or sends a message.
+Settings and Connections provide Back to canvas and retain the mounted editor,
+selected result, panel state and local inputs while those pages are open.
+
+Node results show a selectable folder path next to Show in Finder. The existing
+artifact lookup has a read-only location mode: it checks exact original bytes and
+existing folder mappings without exporting or repairing copies. A missing export
+is labeled “not exported yet”; the explicit Finder action can publish its existing
+exact display copy and then refresh the path. User edits are never overwritten by
+reading a location.
+
+### Shared Chat model and compact composer
+
+Canvas Chat inherits the saved Conversation model used by Telegram and Messages.
+The chip icon opens that exact Settings section; its adjacent compact model label
+opens a per-chat override using existing connections. An explicit override is saved
+with that chat and can be reset with Use shared model. Historical responses never
+select a new model implicitly, and pending requests keep their frozen choice.
+Shared settings are re-read before a new preview; unavailable choices do not fall
+back to another provider. Paid confirmation remains in place. The composer uses
+a two-row prompt and small Send button, leaving more space for conversation.

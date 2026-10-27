@@ -68,6 +68,17 @@ def pair(gate=None, max_attempts=2):
 
 
 class FailureDetailTests(unittest.TestCase):
+    def test_historical_unknown_preserves_state_and_exposes_only_saved_reason(self):
+        from orchestrator.runtime import failure_detail
+        attempt={'state':'uncertain','error':'API submission outcome is unknown',
+            'receipt':json.dumps({'operation':{'outcome':'uncertain','reason':'Gemini request failed (connection-or-response)'}})}
+        before=json.dumps(attempt)
+        detail=failure_detail(None,attempt)
+        self.assertIn('Gemini request failed (connection-or-response)',detail)
+        self.assertIn('Outcome remains unknown',detail)
+        self.assertNotIn('timed out',detail)
+        self.assertEqual(json.dumps(attempt),before)
+
     def test_registered_failure_receipt_exposes_exact_reason(self):
         from orchestrator.runtime import failure_detail
         reason='Image must name an exact declared PNG/JPEG input: images/rendering.jpg'
@@ -183,8 +194,11 @@ class Tests(unittest.TestCase):
         self.rt.create(value);self.rt.tick('demo');self.finish();review=self.latest('review')
         receipt={'status':'finished','exit_code':1,'external_outcome':'unknown','pending_requests':['api-01']}
         self.factory.sessions[review]['status']=receipt;self.rt.tick('demo')
-        with self.assertRaisesRegex(ValueError,'uncertain replay'):self.rt.retry_review('demo','review','Retry')
+        self.assertEqual(self.rt.task('demo','review')['status'],'uncertain')
+        with self.assertRaisesRegex(ValueError,'stopped local review'):self.rt.retry_review('demo','review','Retry')
         self.assertEqual(len(self.factory.calls),2)
+        self.factory.sessions[review]['status']=dict(status='finished',exit_code=1,external_outcome='no_pending_response',pending_requests=[])
+        self.rt.tick('demo')
         with self.rt.transaction():self.rt.db.execute("UPDATE production_tasks SET attempts=2 WHERE run='demo' AND id='review'")
         with self.assertRaisesRegex(ValueError,'budget exhausted'):self.rt.retry_review('demo','review','Retry')
 
@@ -410,7 +424,11 @@ class Tests(unittest.TestCase):
         for name in STAGES:
             p=build(name,name,[],{'type':'codex-cli','model':'fixed-model','reasoning':'high'})
             self.rt.create(p); self.rt.tick(name)
-            self.factory.finish(self.rt.task(name,'produce')['latest']); self.rt.tick(name)
+            aid=self.rt.task(name,'produce')['latest'];self.factory.finish(aid)
+            # Small valid data fixture: this test exercises user-gate orchestration.
+            for output in self.factory.sessions[aid]['frozen']['outputs']:
+                if output['path'].endswith('.json'):(self.factory.sessions[aid]['workspace']/output['path']).write_text('{}')
+            self.rt.tick(name)
             self.factory.finish(self.rt.task(name,'review')['latest'], decision='accept')
             self.assertEqual(self.rt.tick(name)['status'], 'awaiting_user')
 

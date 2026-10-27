@@ -99,7 +99,7 @@ class BindingTests(unittest.TestCase):
         for task in ('produce','review'):
             attempt=self.rt.task('production-1',task)['latest'];self.factory.finish(attempt)
             frozen=self.factory.sessions[attempt]['frozen']
-            self.assertEqual(frozen['report_contract']['version'],1)
+            self.assertEqual(frozen['report_contract']['version'],2)
             result=dict(summary='Controlled file check',decision='accept' if task=='review' else 'delivered',instruction='',findings=[],
                 checks={'c'+str(i):dict(passed=True,evidence='Verified small fixture output.') for i in range(1,len(frozen['criteria'])+1)})
             path=Path(frozen['workspace'])/'.relay/result.json';path.write_text(json.dumps(result))
@@ -144,6 +144,23 @@ class WorkflowTests(unittest.TestCase):
             dict(id='brief',instruction='Prepare the brief from the selected findings.',route='production',gate='selection',capabilities=[],
                  outputs={'brief':dict(description='Brief',format='markdown')},
                  uses=[dict(stage='research',output='facts',consumer='context')])])
+
+    def test_ungated_pptx_delivery_derives_completion_without_bypassing_choices(self):
+        from orchestrator.execution import REGISTRY
+        snap={'capabilities':{'graph_operations':[dict(copy.deepcopy(REGISTRY['pptx.create']),id='pptx.create',available=True)]}}
+        value=self.action()
+        for stage in value['stage_details']:stage['gate']='none'
+        value['stage_details'][-1]['outputs']['brief']['format']='pptx'
+        value['stage_details'][-1]['capabilities']=['pptx.create']
+        compiled,receipt=workflow_builder.build(value,snap)
+        pipelines.validate(compiled,snap)
+        self.assertEqual(compiled['completion'],dict(version=1,stage='brief',output='brief'))
+        self.assertEqual(receipt['derived_completion'],compiled['completion'])
+        self.assertTrue(compiled['planning_only'])
+        self.assertNotIn('completion',value)
+        value['stage_details'][0]['gate']='choice'
+        compiled,_=workflow_builder.build(value,snap)
+        self.assertNotIn('completion',compiled)
 
     def test_stage_media_and_edges_are_derived_without_changing_gates(self):
         value=self.action();original=copy.deepcopy(value)

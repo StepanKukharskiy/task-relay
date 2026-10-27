@@ -57,7 +57,7 @@ const role=(name,content)=>{const el=new El('DIV',content);el.attrs['data-messag
  const result=tab('response',payload);assert.equal(result.messageId,'matching-result');assert(result.response.includes('```json'));assert(!result.response.includes('Copy code'));assert.deepEqual(portable.importResponse(result.response),JSON.parse(json));
  rows.push(role('user','An unrelated follow-up'));assert.throws(()=>tab('response',payload),/later user message/);rows.pop();
  rows.unshift(role('user',payload.request));assert.throws(()=>tab('response',payload),/Several matching/);rows.shift();
- rows[0]=role('user',payload.request+' altered');assert.throws(()=>tab('response',payload),/collapsed or edited/);assert.throws(()=>tab('insert',payload),/already in the conversation/);rows[0]=role('user',payload.request);
+ rows[0]=role('user',payload.request+' altered');assert.throws(()=>tab('response',payload),/could not verify/);assert.throws(()=>tab('insert',payload),/already in the conversation/);rows[0]=role('user',payload.request);
  body.children['p']=[new El('P','A different response marker')];assert.throws(()=>tab('response',payload),/did not identify/);body.children['p']=[p];
  body.children['pre code,code[class*="CodeContent-"]']=[code,new El('CODE',json)];assert.throws(()=>tab('response',payload),/Several response blocks/);body.children['pre code,code[class*="CodeContent-"]']=[code];
  rows.push(role('assistant','Another response'));assert.throws(()=>tab('response',payload),/Several response sections/);rows.pop();
@@ -73,7 +73,35 @@ const role=(name,content)=>{const el=new El('DIV',content);el.attrs['data-messag
  const modernAnswer=new El('DIV','ChatGPT said:\n'+marker+'\njson\nCopy\n'+json),assistantHeading=new El('H4','ChatGPT said:');assistantHeading.attrs['data-conversation-role']='assistant';assistantHeading.parentElement=modernAnswer;modernAnswer.heading=assistantHeading;
  modernAnswer.attrs['data-chatgpt-search-message-ids']='modern-result';modernAnswer.children.p=[new El('P',marker)];modernAnswer.children['pre code,code[class*="CodeContent-"]']=[new El('CODE',json)];rows=[user,modernAnswer];
  assert.equal(tab('response',payload).messageId,'modern-result');assert.deepEqual(portable.importResponse(tab('response',payload).response),JSON.parse(json));
- user.children.p=[new El('P',payload.request.slice(0,60)+'…')];assert.throws(()=>tab('insert',payload),/already in the conversation/);assert.throws(()=>tab('response',payload),/collapsed or edited/);
+ // A long paste becomes an attachment: preserve the destination ticket and
+ // match its unique reply marker without pretending to read the file itself.
+ const attachedUser=new El('DIV','You said:\nPasted text(20261010-120000).txt Document'),attachedHeading=new El('H4','You said:');
+ attachedHeading.parentElement=attachedUser;attachedUser.heading=attachedHeading;
+ attachedUser.children.button=[new El('BUTTON','Pasted text(20261010-120000).txt')];rows=[attachedUser,modernAnswer];composer.innerText=composer.textContent='';
+ assert.equal(injected('response',payload).handoffCode,'request_in_attachment','An attached request is never mislabeled as a cleared draft');
+ const attachedResult=tab('response',{...payload,allowAttachmentResponse:true});assert.equal(attachedResult.requestVerification,'attachment-response-marker');assert.equal(attachedResult.messageId,'modern-result');assert.equal(edits,1,'Reading an attached-request reply never restores or sends');
+ assert.throws(()=>tab('insert',payload),/reply is already/);assert.equal(edits,1,'Explicit restoration cannot duplicate a request with a completed matching reply');
+ attachedUser.children.button[0].innerText=attachedUser.children.button[0].textContent='';attachedUser.children.button[0].attrs['aria-label']='Pasted text(20261010-120000).txt';
+ assert.equal(tab('response',{...payload,allowAttachmentResponse:true}).requestVerification,'attachment-response-marker','Actual ChatGPT attachment controls carry their filename only in aria-label');
+ assert.equal(injected('insert',payload).handoffCode,'reply_available');assert.equal(edits,1);
+ modernAnswer.children.p=[new El('P','TASK_RELAY_RESPONSE_11111111-2222-3333-4444-555555555555')];assert.throws(()=>tab('response',{...payload,allowAttachmentResponse:true}),/did not identify/);modernAnswer.children.p=[new El('P',marker)];
+ stream=new El();assert.throws(()=>tab('response',{...payload,allowAttachmentResponse:true}),/still responding/);stream=null;
+ attachedUser.children.button.push(new El('BUTTON','Pasted text(20261010-120001).txt'));assert.equal(injected('response',{...payload,allowAttachmentResponse:true}).handoffCode,'request_in_attachment');attachedUser.children.button.pop();
+ const laterUser=new El('DIV','Unrelated follow-up'),laterHeading=new El('H4','You said:');laterHeading.parentElement=laterUser;laterUser.heading=laterHeading;
+ rows.push(laterUser);assert.equal(injected('response',{...payload,allowAttachmentResponse:true}).handoffCode,'request_in_attachment','Ambiguous user turns stay manual and never request restoration');rows.pop();
+ href='https://chatgpt.com/c/another';assert.throws(()=>tab('response',{...payload,allowAttachmentResponse:true}),/conversation changed/);href=payload.url;
+ rows=[user,modernAnswer];assert.equal(tab('response',payload).requestVerification,'exact-visible-request');
+ user.children.p=[new El('P',payload.request.slice(0,60)+'…')];assert.throws(()=>tab('insert',payload),/already in the conversation/);assert.throws(()=>tab('response',payload),/could not verify/);
+ const expand=new El('BUTTON','Show more');let expansions=0;
+ expand.click=()=>{expansions++;user.children.p=[new El('P',payload.request)];};user.children.button=[expand];
+ assert.equal(injected('response',payload).handoffCode,'request_expanded');assert.equal(expansions,1);assert.equal(edits,1);
+ assert.equal(tab('response',{...payload,expansionAttempted:true}).requestVerification,'exact-visible-request','Expanded text must match the retained request before export');
+ user.children.p=[new El('P',payload.request.slice(0,60)+'…')];expand.click=()=>{expansions++;};
+ assert.equal(injected('response',payload).handoffCode,'request_expanded');assert.equal(injected('response',{...payload,expansionAttempted:true}).handoffCode,'request_expanding');assert.equal(expansions,2,'Delayed expansion is not clicked twice');
+ expand.click=()=>{user.children.p=[new El('P',payload.request+' edited')];user.children.button=[];};
+ assert.equal(injected('response',payload).handoffCode,'request_expanded');assert.throws(()=>tab('response',{...payload,expansionAttempted:true}),/could not verify/,'Expanding an edited request never bypasses exact verification');
+ user.children.p=[new El('P',payload.request.slice(0,60)+'…')];user.children.button=[expand];rows.unshift(user);
+ assert.throws(()=>tab('response',payload),/could not verify/,'Duplicate tagged requests cannot authorize an expansion');rows.shift();user.children.button=[];
  const recoveredContext={capture:{content:'Exact evidence.',url:'https://example.test/evidence'},existing_work:null,selected_skill:null};
  const recoveryRequest=id+'\nReply with '+marker+'\n\n'+JSON.stringify(recoveredContext);
  const header=new El('P',id+'\nReply with '+marker),inline=new El('P',JSON.stringify(recoveredContext));
@@ -86,6 +114,20 @@ const role=(name,content)=>{const el=new El('DIV',content);el.attrs['data-messag
  assert.equal(tab('response',{...payload,request:recoveryRequest}).messageId,'modern-result','Display-contents message wrappers and inline link layout must preserve request identity');
  const restored=tab('recover');assert.equal(restored.requestId,id);assert.equal(restored.recoveredContext.capture.url,recoveredContext.capture.url);assert.equal(edits,1,'Recovery never inserts or sends');
  user.children.p=[new El('P','A later unrelated message')];assert.throws(()=>tab('recover'),/No recoverable/);user.children.p=[header,inline];
- inline.childNodes=[];inline.textContent='{incomplete';assert.throws(()=>tab('recover'),/collapsed or incomplete/);
- console.log(JSON.stringify({result:'passed',scope:'Serialized ChatGPT adapter: legacy and current Work markup, preserved drafts/attachments, editor recovery, collapsed-request deduplication, exact request/reply matching, rendered code extraction, incomplete/ambiguous/streaming replies and conversation boundaries',live_chrome:false,live_ai:false}));
+ inline.childNodes=[];inline.textContent='{incomplete';assert.throws(()=>tab('recover'),/request is incomplete/);
+ const recoveryExpand=new El('BUTTON','Show more');user.children.button=[recoveryExpand];
+ recoveryExpand.click=()=>{inline.textContent=JSON.stringify(recoveredContext);user.children.button=[];};
+ assert.equal(injected('recover').handoffCode,'request_expanded');assert.equal(tab('recover',{expansionAttempted:true}).recoveredRequest,recoveryRequest,'Explicit recovery expands only the latest marked request and validates its full context');assert.equal(edits,1);
+ // Version-2 literal transport protects captured Markdown from the host's
+ // renderer while checking the entire code body, not only a request marker.
+ const literalContext={capture:{content:'Exact ```mermaid example with **bold** and <tags>.',url:'https://example.test/source'},existing_work:null,selected_skill:null};
+ const literalBody='Keep source-linked work.\n\n'+JSON.stringify(literalContext),literalHeader=id+'\nReply with '+marker+' on its own line.\n\nTASK_RELAY_BODY_V2';
+ const literalRequest=literalHeader+'\n~~~~text\n'+literalBody+'\n~~~~';
+ user.children.p=[new El('P',literalHeader)];const literalCode=new El('CODE',literalBody+'\n');user.children['pre code,code[class*="CodeContent-"]']=[literalCode];user.children.button=[];rows=[user,modernAnswer];
+ assert.equal(tab('response',{...payload,request:literalRequest}).messageId,'modern-result');assert.equal(tab('recover').recoveredContext.capture.content,literalContext.capture.content);
+ literalCode.textContent=literalBody+' edited\n';assert.throws(()=>tab('response',{...payload,request:literalRequest}),/could not verify/,'An edited literal body is rejected even when its request marker is unchanged');
+ const jsonV3=JSON.stringify(literalContext).replaceAll('`','\\u0060'),bodyV3='Keep source-linked work.\n\n'+jsonV3,headerV3=literalHeader.replace('BODY_V2','BODY_V3'),requestV3=headerV3+'\n```text\n'+bodyV3+'\n```';
+ user.children.p=[new El('P',headerV3)];literalCode.textContent=bodyV3+'\n';assert.equal(tab('response',{...payload,request:requestV3}).messageId,'modern-result');assert.equal(tab('recover').recoveredContext.capture.content,literalContext.capture.content);
+ literalCode.textContent=bodyV3.replace('source-linked','edited')+'\n';assert.throws(()=>tab('response',{...payload,request:requestV3}),/could not verify/);
+ console.log(JSON.stringify({result:'passed',scope:'Serialized ChatGPT adapter: legacy and current Work markup, preserved drafts/attachments, editor recovery, collapsed-request deduplication, exact request/reply matching, pasted-file response markers with explicit verification limits, incomplete/ambiguous/streaming replies and conversation boundaries',live_chrome:false,live_ai:false}));
 })().catch(error=>{console.error(error);process.exitCode=1;});

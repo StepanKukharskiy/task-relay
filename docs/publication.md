@@ -23,6 +23,10 @@ never printed. CI checks committed source with `python3 scripts/check_publicatio
 These rules are a guard against common mistakes, not proof that arbitrary content
 is free of private information. Keep examples synthetic and review new files.
 
+Release preparation also requires the [shared lifecycle gate](shared-lifecycle-qualification.md).
+The release workflow cannot create a draft release unless its complete offline
+correction/review/restart/partial-delivery matrix passes for the current source.
+
 A local repository archive preserves development history separately from the public
 baseline. Do not push archive refs, merge old development history into the public
 branch or publish local backups. Continue new work from the public baseline.

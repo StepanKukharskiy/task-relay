@@ -22,9 +22,37 @@ def properties(value):
         except (AttributeError,TypeError,ValueError):continue
     return result
 
+def world_dimensions(obj,graph,meters_per_unit):
+    """Tight world-axis extents of evaluated geometry, expressed in meters.
+
+    Object.dimensions retains the object's local axes. Transforming its bounding
+    box also overestimates rotated non-box geometry, so measure actual evaluated
+    vertices, including modifiers and parent transforms, instead.
+    """
+    if obj.type not in ('MESH','CURVE','SURFACE','FONT','META'):return None
+    evaluated=obj.evaluated_get(graph)
+    mesh=evaluated.to_mesh()
+    try:
+        if mesh is None or not mesh.vertices:return None
+        if len(mesh.vertices)>1000000:raise ValueError('Evaluated mesh exceeds one million vertices')
+        low=[math.inf]*3;high=[-math.inf]*3
+        for vertex in mesh.vertices:
+            point=evaluated.matrix_world @ vertex.co
+            for axis in range(3):
+                value=float(point[axis])*meters_per_unit
+                if not math.isfinite(value):raise ValueError('Nonfinite world geometry: '+obj.name)
+                low[axis]=min(low[axis],value);high[axis]=max(high[axis],value)
+        return [high[i]-low[i] for i in range(3)]
+    finally:evaluated.to_mesh_clear()
+
 def snapshot():
     import bpy
     if len(bpy.data.objects)>5000:raise ValueError('Scene exceeds the 5000-object limit')
+    bpy.context.view_layer.update()
+    graph=bpy.context.evaluated_depsgraph_get()
+    scene=bpy.context.scene
+    meters=float(scene.unit_settings.scale_length)
+    if not math.isfinite(meters) or meters<=0:raise ValueError('Invalid scene unit scale')
     objects={}
     for o in bpy.data.objects:
         data={'type':o.type,'matrix_world':[list(r) for r in o.matrix_world],
@@ -54,9 +82,13 @@ def snapshot():
                 'inputs':[(s.identifier,properties(s).get('default_value')) for s in n.inputs]} for n in m.node_tree.nodes]
             data['links']=sorted((l.from_node.name,l.from_socket.identifier,l.to_node.name,l.to_socket.identifier) for l in m.node_tree.links)
         materials[m.name]=data
-    scene=bpy.context.scene
+    dimensions={}
+    for obj in bpy.data.objects:
+        value=world_dimensions(obj,graph,meters)
+        if value is not None:dimensions[obj.name]=value
     return {'objects':objects,'materials':materials,'camera':scene.camera.name if scene.camera else None,
-            'dimensions':{o.name:list(o.dimensions) for o in bpy.data.objects},
+            'dimensions':dimensions,
+            'dimension_measurement':{'version':2,'basis':'evaluated_geometry_world_axes','units':'Meters','meters_per_scene_unit':meters},
             'collections':{c.name:sorted(o.name for o in c.objects) for c in bpy.data.collections},
             'frame':scene.frame_current}
 
@@ -86,5 +118,5 @@ def dimension_warnings(after,checks):
         actual=after['dimensions'].get(name)
         if actual is None or len(actual)!=3 or any(not math.isfinite(a) or a<0 for a in actual):continue
         if any(abs(a-b)>max(1e-4,abs(b)*1e-4) for a,b in zip(actual,expected)):
-            warnings.append(f'{name}: measured dimensions {actual}; expected {expected} (Blender scene units).')
+            warnings.append(f'{name}: measured dimensions {actual}; expected {expected} (world axes, meters).')
     return warnings

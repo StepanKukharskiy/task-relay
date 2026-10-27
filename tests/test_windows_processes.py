@@ -76,6 +76,19 @@ class Contracts(unittest.TestCase):
         with patch.object(windows,'identity',side_effect=OSError('query denied')):
             with self.assertRaises(OSError):windows.matches(123,expected)
 
+    def test_identity_query_race_requires_confirmed_process_exit(self):
+        for final_state in (0,windows.WAIT_TIMEOUT,0xffffffff):
+            with self.subTest(final_state=final_state):
+                lib=Mock();lib.OpenProcess.return_value=101
+                lib.WaitForSingleObject.side_effect=[windows.WAIT_TIMEOUT,final_state]
+                lib.GetProcessTimes.return_value=1
+                lib.QueryFullProcessImageNameW.side_effect=PermissionError('query denied')
+                with patch.object(windows,'kernel',return_value=lib):
+                    if final_state==0:self.assertIsNone(windows.identity(123))
+                    else:
+                        with self.assertRaisesRegex(PermissionError,'query denied'):windows.identity(123)
+                lib.CloseHandle.assert_called_once_with(101)
+
     def test_changed_frozen_native_support_prevents_dispatch(self):
         from orchestrator.workers import atomic, prepare_supervisor, supervisor_support
         from task_relay import host

@@ -13,8 +13,10 @@ MAX_OUTPUT_TOKENS = 4096
 MAX_RESPONSE_TOKENS = 16384
 BROWSER_TYPES = ('gemini-browser', 'openai-browser', 'qwen-browser')
 PROVIDERS = ('gemini','openai','qwen','deepseek','openrouter')
-FILE_TYPES = tuple(p+'-agent' for p in PROVIDERS)
-CODE_TYPES = tuple(p+'-code' for p in PROVIDERS)
+FILE_TYPES = (*tuple(p+'-agent' for p in PROVIDERS), 'codex-agent')
+VISION_FILE_TYPES = ('gemini-agent','openai-agent','qwen-agent','codex-agent')
+VISION_TYPES = (*VISION_FILE_TYPES,'gemini-code','openai-code','qwen-code','codex-code')
+CODE_TYPES = (*tuple(p+'-code' for p in PROVIDERS),'codex-code')
 COMPUTER_TYPES = tuple(p+'-computer' for p in PROVIDERS)
 API_TYPES = (*FILE_TYPES, *BROWSER_TYPES, *CODE_TYPES, *COMPUTER_TYPES)
 
@@ -28,7 +30,7 @@ def code_budgets(task, backend, response_budgets=True):
 
 
 def request_limit(assignment):
-    value=assignment.get('limits',{}).get('provider_requests',MAX_ROUNDS)
+    value=assignment.get('limits',{}).get('provider_requests',assignment.get('evidence_context',{}).get('provider_requests',MAX_ROUNDS))
     if type(value) is not int or not 1<=value<=MAX_EXPLICIT_ROUNDS:
         raise ValueError('Invalid provider request limit')
     return value
@@ -67,29 +69,96 @@ def verification_backend(provider, model):
     return {'type':provider+('-browser' if provider in ('openai','qwen') else '-agent'),'model':model}
 
 
-def limits_for(backend):
-    return {**GEMINI_LIMITS,**({'output_bytes':100000000} if backend['type'] in CODE_TYPES else {'output_bytes':10000000} if backend['type'] in BROWSER_TYPES else {})}
+def limits_for(backend,assignment=None):
+    result={**GEMINI_LIMITS,**({'output_bytes':100000000} if backend['type'] in CODE_TYPES else {'output_bytes':10000000} if backend['type'] in BROWSER_TYPES else {})}
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('work_tools'):
+        result['output_bytes']=100000000
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('operation_contract'):
+        from .operation_contracts import identity
+        contract=assignment['operation_contract']
+        exports=identity({k:contract[k] for k in ('id','version')}).get('deterministic_exports',{})
+        for parameter,ceiling in exports.items():
+            if contract['parameters'].get(parameter):result['output_bytes']=max(result['output_bytes'],ceiling)
+    return result
 
 
-def validate_input_sizes(items,backend):
+def asset_policy(assignment):
+    """Registered local binary representation; grants neither code nor network."""
+    from .operation_contracts import identity
+    if assignment.get('work_tools'):
+        from .execution import REGISTRY
+        from .worker_capabilities import TEXT_TYPES
+        return dict(mode='assets',input_bytes=100000000,media_types=sorted({m for step in assignment['work_tools']['steps'].values() for m in REGISTRY[step['operation']]['input_types'] if m not in TEXT_TYPES}))
+    contract=assignment.get('operation_contract') or assignment.get('records',{}).get('family')
+    if not contract:return {}
+    policy=identity({k:contract[k] for k in ('id','version')}).get('file_context',{})
+    return policy if policy.get('mode')=='assets' else {}
+
+
+def asset_input(assignment,item):
+    return item.get('media_type') in asset_policy(assignment).get('media_types',[])
+
+
+def inspection_input(assignment,item):
+    """A validated worker reading route, distinct from a native asset port."""
+    if not assignment.get('artifact_roles'):return False
+    from .artifact_roles import validate
+    validate(assignment)
+    route=assignment['artifact_roles']['inputs'].get(item.get('path'),{}).get('inspection',{})
+    return route.get('tool') in ('image_view','artifact_inspect')
+
+
+def text_input_limit(backend,assignment=None):
+    """Local indexed artifacts are separate from bounded model request text."""
+    if assignment and assignment.get('job_owner')=={'version':1}:return 100000000
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('evidence_context',{}).get('version')==1:
+        from .evidence_context import LOCAL_BYTES
+        return LOCAL_BYTES
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('work_tools'):
+        return 100000000
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('artifact_roles'):
+        from .artifact_roles import validate
+        validate(assignment)
+        # Exact local inspection files are not serialized into model requests.
+        # The shared reader and dispatch preparation retain their own bounds.
+        return 100000000
+    if backend['type'] in FILE_TYPES and assignment and assignment.get('operation_contract'):
+        from .operation_contracts import identity
+        contract=assignment['operation_contract']
+        policy=identity({k:contract[k] for k in ('id','version')}).get('file_context',{})
+        if policy.get('mode') in ('indexed','assets'):return policy['input_bytes']
+    return MAX_INPUT_BYTES
+
+
+def validate_input_sizes(items,backend,assignment=None):
     if backend['type'] in CODE_TYPES:
         if sum(i['bytes'] for i in items)>100000000:raise ValueError('Code input pack exceeds 100 MB.')
         return
     from .browser_contract import png_input,MAX_PNG_BYTES
-    images=[i for i in items if backend['type'] in BROWSER_TYPES and png_input(i)]
+    images=[i for i in items if (backend['type'] in BROWSER_TYPES or backend['type'] in VISION_FILE_TYPES and i.get('visual_reference')) and png_input(i)
+            and not (assignment and backend['type'] in FILE_TYPES and inspection_input(assignment,i))]
     if sum(i['bytes'] for i in images)>MAX_PNG_BYTES:raise ValueError('Browser PNG input pack exceeds 10 MB.')
-    if sum(i['bytes'] for i in items if i not in images)>MAX_INPUT_BYTES:raise ValueError('API text input pack exceeds 512 KB.')
+    ceiling=text_input_limit(backend,assignment)
+    if sum(i['bytes'] for i in items if i not in images)>ceiling:
+        raise ValueError('Indexed local input pack exceeds its registered '+str(ceiling)+' byte limit.' if ceiling!=MAX_INPUT_BYTES else 'API text input pack exceeds 512 KB.')
 
 
 def validate(backend):
     if not isinstance(backend, dict):raise ValueError('Specify an execution backend.')
+    if backend.get('type') == 'codex-agent':
+        from .codex_transport import POLICY
+        if set(backend)!={'type','model','reasoning','budget_semantics'} or backend['budget_semantics']!=POLICY:
+            raise ValueError('Codex tool execution requires explicit CLI exchange accounting; API request/token ceilings are not interchangeable')
+        validate({k:v for k,v in {**backend,'type':'codex-cli'}.items() if k!='budget_semantics'})
+        return ['files']
     if backend.get('type') in COMPUTER_TYPES:
         validate({'type':backend['type'].replace('-computer','-agent'),'model':backend.get('model')})
         if set(backend)!={'type','model'}:raise ValueError('Computer workers require an exact model only.')
         return ['files','computer']
     if backend.get('type') in CODE_TYPES:
-        if set(backend)!={'type','model','runtime'} or not isinstance(backend['runtime'],str) or not re.fullmatch('[a-f0-9]{64}',backend['runtime']):raise ValueError('Code workers require an exact model and verified native runtime identity.')
-        validate({'type':backend['type'].replace('-code','-agent'),'model':backend['model']})
+        expected={'type','model','runtime'}|({'reasoning','budget_semantics'} if backend['type']=='codex-code' else set())
+        if set(backend)!=expected or not isinstance(backend['runtime'],str) or not re.fullmatch('[a-f0-9]{64}',backend['runtime']):raise ValueError('Code workers require an exact model and verified native runtime identity.')
+        validate({**{k:v for k,v in backend.items() if k!='runtime'},'type':backend['type'].replace('-code','-agent')})
         return ['files','python']
     if backend.get('type') == 'codex-cli':
         if not isinstance(backend.get('model'),str) or not backend['model'].strip():raise ValueError('Specify a fixed model.')
@@ -126,6 +195,9 @@ def configured(provider='gemini'):
 
 
 def fingerprint(config,backend):
+    if provider_for(backend)=='codex':
+        from .codex_transport import fingerprint as cli_fingerprint
+        return cli_fingerprint(config,backend)
     if provider_for(backend)!='gemini':
         from task_relay.api_providers import endpoint
         provider=provider_for(backend)
@@ -133,35 +205,40 @@ def fingerprint(config,backend):
     return hashlib.sha256((config['api_key']+'\0'+backend['model']).encode()).hexdigest()
 
 
-def receipt_path(provider='gemini'):
+def receipt_path(provider='gemini', model=None):
     from task_relay import gemini
-    return gemini.DATA/(provider+'-executor-verification.json')
+    suffix='-'+hashlib.sha256(model.encode()).hexdigest()[:20] if model is not None else ''
+    return gemini.DATA/(provider+'-executor-verification'+suffix+'.json')
 
 
-def probe(provider='gemini'):
+def probe(provider='gemini', model=None):
     """GET model metadata only; no content generation and no credential output."""
     from task_relay import gemini
     from .workers import atomic
     # A failed refresh must not leave an older success advertising availability.
     if provider not in PROVIDERS:raise ValueError('Unsupported worker provider')
-    atomic(receipt_path(provider),{'verified_at':0})
+    if model is not None:validate({'type':provider+'-agent','model':model})
+    target=receipt_path(provider,model)
+    atomic(target,{'verified_at':0})
     if provider!='gemini':
         from task_relay import api_providers as api
         config,backend=configured(provider) if provider in ('openai','qwen') else configured_worker(provider)
+        if model is not None:backend={**backend,'model':model}
         names=api.catalog(provider,config['api_key'],config.get('base_url'))
         if backend['model'] not in names:raise ValueError('Selected model is absent from the provider catalog.')
         receipt={'backend':backend,'fingerprint':fingerprint(config,backend),'verified_at':time.time(),
                  'method':'models.list','limitation':'Model listing verified only; tool calling and quota are checked during execution.'}
-        atomic(receipt_path(provider),receipt)
+        atomic(target,receipt)
         return {k:v for k,v in receipt.items() if k!='fingerprint'}
     config,backend=configured()
+    if model is not None:backend={**backend,'model':model}
     value=gemini.Client(config['api_key']).request('models/'+backend['model'],timeout=20,max_response_bytes=100000)
     if value.get('name')!='models/'+backend['model'] or 'generateContent' not in value.get('supportedGenerationMethods',[]):
         raise ValueError('The configured model did not confirm generateContent eligibility.')
     receipt={'backend':backend,'fingerprint':fingerprint(config,backend),'verified_at':time.time(),
              'method':'models.get','generation_methods':value['supportedGenerationMethods'],
              'limitation':'Connection/model metadata verified; generation quota is checked by execution.'}
-    atomic(receipt_path(),receipt)
+    atomic(target,receipt)
     return {k:v for k,v in receipt.items() if k!='fingerprint'}
 
 
@@ -175,8 +252,27 @@ def verification_current(receipt,config,backend):
             and type(checked) in (int,float) and 0<checked<=time.time())
 
 
+def selected_configuration(backend):
+    """Exact saved model over the shared connection; never substitute a default."""
+    provider=provider_for(backend)
+    kind='code' if backend['type'] in CODE_TYPES else 'computer' if backend['type'] in COMPUTER_TYPES else 'browser' if backend['type'] in BROWSER_TYPES else 'agent'
+    config,current=configured_worker(provider,kind)
+    if backend['type'] in FILE_TYPES:
+        checked=verification_backend(provider,backend['model'])
+        for path in (receipt_path(provider,backend['model']),receipt_path(provider)):
+            try:receipt=json.loads(path.read_text())
+            except (OSError,ValueError):continue
+            if verification_current(receipt,config,checked):return config,dict(backend)
+        raise ValueError('Connection verification is missing or stale. Verify this exact '+provider+' model connection in the node inspector.')
+    return config,current
+
+
 def available(backend):
     validate(backend)
+    if backend['type']=='codex-agent':
+        from .codex_transport import configuration
+        configuration(backend)
+        return
     if backend['type']=='codex-cli':
         from task_relay.app_access import require
         require('codex')
@@ -188,14 +284,9 @@ def available(backend):
     if backend['type'] in CODE_TYPES:
         from task_relay.code_runtime import available as runtime_available
         runtime_available(backend['runtime'])
-        return available({'type':backend['type'].replace('-code','-agent'),'model':backend['model']})
-    if backend['type'] in FILE_TYPES and backend['type']!='gemini-agent':
-        provider=provider_for(backend);config,current=configured_worker(provider)
-        if backend!=current:raise ValueError('Selected worker model changed; no fallback.')
-        try:r=json.loads(receipt_path(provider).read_text())
-        except (OSError,ValueError):raise ValueError('Verify the '+provider+' worker connection before use.') from None
-        if not verification_current(r,config,verification_backend(provider,backend['model'])):
-            raise ValueError(provider+' worker verification is stale; refresh its connection check.')
+        return available({**{k:v for k,v in backend.items() if k!='runtime'},'type':backend['type'].replace('-code','-agent')})
+    if backend['type'] in FILE_TYPES:
+        selected_configuration(backend)
         return
     if backend['type']=='gemini-browser':
         from task_relay.host import HOST
@@ -238,6 +329,25 @@ def catalog(state=None):
         result.append({'id':'codex-cli','backend':codex,'tools':['files','shell'],'available':executable is not None,
                        'grant_boundary':'Native workspace-write sandbox only; exact read/edit grants unavailable for shell execution',
                        'limits':{'seconds':1800,'tool_calls':60,'output_bytes':100000000}})
+        from .codex_transport import POLICY
+        tool_backend={**codex,'type':'codex-agent','budget_semantics':POLICY}
+        # Gated file execution uses its qualified runtime, not the separately
+        # discovered general-purpose shell CLI. Share dispatch's exact check.
+        gated=dict(id='codex-agent',backend=tool_backend,tools=['files'],available=False,
+            limits=limits_for(tool_backend),permissions='Codex CLI with registered Relay tools only; no native shell or Gemini fallback.',
+            request_bounds=dict(decision_exchanges=MAX_ROUNDS,provider_requests=None,response_token_cap=None))
+        try:
+            available(tool_backend)
+            gated['available']=True
+        except (OSError,ValueError,RuntimeError) as exc:gated['blocker']=str(exc)
+        result.append(gated)
+        code_item=dict(id='codex-code',backend=None,tools=['files','python'],available=False,limits=limits_for({'type':'codex-code'}))
+        try:
+            from task_relay.code_runtime import available as cli_runtime
+            runtime=cli_runtime();code_item.update(backend={**tool_backend,'type':'codex-code','runtime':runtime['id']},
+                available=executable is not None,runtime_tools=runtime['tools'],request_bounds=dict(decision_exchanges=MAX_ROUNDS,provider_requests=None,response_token_cap=None))
+        except (OSError,ValueError,RuntimeError) as exc:code_item['blocker']=str(exc)
+        result.append(code_item)
     entry={'id':'gemini-agent','backend':None,'tools':['files'],'limits':GEMINI_LIMITS.copy(),'available':False,
            'permissions':'Read declared UTF-8 inputs; write declared text outputs only. No shell, web, apps or other file access.',
            'request_bounds':{'rounds':MAX_ROUNDS,'max_output_tokens_per_round':MAX_OUTPUT_TOKENS,'input_bytes':MAX_INPUT_BYTES}}
@@ -299,9 +409,15 @@ def synchronous_unavailable(backend, request, outcome):
     """
     if backend.get('type') not in (*FILE_TYPES,*CODE_TYPES):return False
     if outcome.get('outcome') not in ('uncertain','rejected'):return False
-    if outcome.get('http_status')!=503 and outcome.get('status')!='Gemini request failed (503)':return False
     provider=request.get('provider');payload=request.get('payload',{});endpoint=request.get('endpoint','')
     if provider!=provider_for(backend) or not isinstance(payload,dict):return False
+    if provider=='codex':
+        proof=outcome.get('provider_error',{})
+        if not (proof.get('failure_kind')=='service_unavailable' and proof.get('scope')=='next_generation_only'
+                and proof.get('terminal') is True and proof.get('model')==backend['model']
+                and proof.get('detail',{}).get('codexErrorInfo')=='serverOverloaded'
+                and proof.get('journals') and outcome.get('outcome')=='rejected'):return False
+    elif outcome.get('http_status')!=503 and outcome.get('status')!='Gemini request failed (503)':return False
     tools=payload.get('tools',[])
     if not isinstance(tools,list) or not tools:return False
     if provider=='gemini':

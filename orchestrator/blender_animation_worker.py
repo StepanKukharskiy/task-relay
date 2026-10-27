@@ -1,7 +1,14 @@
 """Fixed Blender-side transform animation, independent reopen checks and frame render."""
 import json
+import hashlib
+import os
 from pathlib import Path
+import struct
 import sys
+import time
+import zlib
+import base64
+sys.dont_write_bytecode=True
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from blender_edit_worker import open_scene,self_contained,render
 from blender_snapshot import snapshot,digest
@@ -31,6 +38,91 @@ def expected(keys,frame):
             t=(frame-a['frame'])/(b['frame']-a['frame'])
             return [x+(y-x)*t for x,y in zip(a['value'],b['value'])]
     return keys[-1]['value']
+
+
+def save_progress(root,state):
+    """Small durable intent/receipt; archive packaging belongs to the host."""
+    temp=root/'frames.tmp'
+    with temp.open('w') as stream:
+        json.dump(state,stream);stream.flush();os.fsync(stream.fileno())
+    temp.replace(root/'frames.json')
+
+
+def compact_png(path,resolution):
+    """Lossless samples/colour; move nonvisual text chunks into the frame receipt."""
+    data=path.read_bytes()
+    if len(data)<33 or data[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError('Invalid frame PNG')
+    chunks=[];compressed=[];offset=8
+    while offset<len(data):
+        if offset+12>len(data):raise ValueError('Truncated PNG chunk')
+        size=struct.unpack('>I',data[offset:offset+4])[0];end=offset+12+size
+        if end>len(data):raise ValueError('Truncated PNG chunk')
+        kind=data[offset+4:offset+8];body=data[offset+8:end-4]
+        if zlib.crc32(kind+body)!=struct.unpack('>I',data[end-4:end])[0]:raise ValueError('PNG checksum mismatch')
+        chunks.append((kind,data[offset:end]));offset=end
+        if kind==b'IDAT':compressed.append(body)
+    if chunks[0][0]!=b'IHDR' or chunks[-1][0]!=b'IEND':raise ValueError('Invalid PNG structure')
+    width,height,depth,color,compression,filtering,interlace=struct.unpack('>IIBBBBB',data[16:29])
+    if [width,height]!=resolution or (depth,color,compression,filtering,interlace)!=(8,2,0,0,0):
+        raise ValueError('Expected noninterlaced RGB8 frame')
+    expected=height*(1+width*3);decoder=zlib.decompressobj()
+    samples=decoder.decompress(b''.join(compressed),expected+1)
+    if len(samples)!=expected or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+        raise ValueError('Invalid PNG sample payload')
+    packed=zlib.compress(samples,6);kind=b'IDAT'
+    replacement=struct.pack('>I',len(packed))+kind+packed+struct.pack('>I',zlib.crc32(kind+packed))
+    result=bytearray(data[:8]);written=False;metadata=[]
+    for kind,raw in chunks:
+        if kind==b'IDAT':
+            if not written:result.extend(replacement);written=True
+        elif kind in (b'tEXt',b'zTXt',b'iTXt'):metadata.append(base64.b64encode(raw).decode('ascii'))
+        else:result.extend(raw)
+    # Never trade more bytes for recompression. No resizing, quantization or sample changes.
+    if len(result)<len(data):
+        temp=path.with_suffix('.compact.tmp')
+        with temp.open('xb') as stream:
+            stream.write(result);stream.flush();os.fsync(stream.fileno())
+        temp.replace(path)
+        return metadata
+    return []
+
+
+def render_frames(root,m,render_frame,clock=None):
+    clock=clock or time.monotonic
+    batch=json.loads((root/'batch.json').read_text())
+    raw=(root/'frames.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=batch['state_sha256']:
+        raise ValueError('Frame ledger changed before render')
+    state=json.loads(raw)
+    if set(state['frames'])!={str(f) for f in range(m['frame_start'],m['frame_end']+1)}:
+        raise ValueError('Frame scope differs')
+    retained=sum((root/p).stat().st_size for p in ('candidate.blend','checks.json','frames.json'))
+    seen=set()
+    for f,row in state['frames'].items():
+        if row['path']!=f'frames/{int(f):06d}.png':raise ValueError('Frame path differs')
+        if row['state'] not in ('completed','pending'):raise ValueError('Unresolved frame intent')
+        if row['state']=='completed' and (state.get('version')!=2 or row['sha256'] not in seen):
+            retained+=(root/row['path']).stat().st_size;seen.add(row['sha256'])
+    for f in range(m['frame_start'],m['frame_end']+1):
+        row=state['frames'][str(f)]
+        if row['state']=='completed':continue
+        if clock()>=batch['deadline']:raise ValueError('Time budget exhausted between frames')
+        path=root/row['path']
+        if path.exists() or path.is_symlink():raise ValueError('Frame output exists; no replay')
+        row.update(state='in_progress',attempt=batch['assignment']);save_progress(root,state)
+        metadata=render_frame(f,path)
+        if path.is_symlink() or not path.is_file():raise ValueError('Frame output is not a regular file')
+        data=path.read_bytes()
+        if len(data)<24 or data[:8]!=b'\x89PNG\r\n\x1a\n' or struct.unpack('>II',data[16:24])!=tuple(m['resolution']):
+            raise ValueError('Frame PNG dimensions/signature mismatch')
+        digest=hashlib.sha256(data).hexdigest()
+        if state.get('version')!=2 or digest not in seen:retained+=len(data)
+        if retained>batch['retained_bytes']:raise ValueError('Checkpoint retained-byte budget exceeded')
+        seen.add(digest)
+        row.update(state='completed',sha256=digest)
+        if metadata:row['png_text']=metadata
+        save_progress(root,state)
+        print('RELAY_ANIMATION_FRAME '+str(f),flush=True)
 
 
 def main():
@@ -80,13 +172,16 @@ def main():
         evidence.update(passed=True,verified_frames=m['frame_end']-m['frame_start']+1,
             scope='Independent reopen; frame range/FPS; declared transform interpolation at every requested frame; scoped scene snapshot preservation. No general animation semantic or visual acceptance.')
         (root/'checks.json').write_text(json.dumps(evidence))
-    elif mode=='frame':
-        f=int(frame)
-        if not m['frame_start']<=f<=m['frame_end']:raise ValueError('Frame outside approved range')
-        scene.frame_set(f);scene.render.film_transparent=False
+    elif mode=='frames':
+        scene.render.film_transparent=False
         scene.render.use_file_extension=True;scene.render.image_settings.color_mode='RGB';scene.render.image_settings.color_depth='8'
         scene.cycles.seed=0;scene.cycles.use_animated_seed=False
-        render(root/f'frames/{f:06d}.png',m)
+        scene.render.use_persistent_data=True
+        def render_frame(f,path):
+            scene.frame_set(f)
+            render(path,m)
+            return compact_png(path,m['resolution'])
+        render_frames(root,m,render_frame)
     else:raise ValueError('Unknown animation operation')
     print('RELAY_ANIMATION_OK',flush=True)
 

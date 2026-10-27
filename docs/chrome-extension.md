@@ -4,14 +4,112 @@ Task Relay turns useful things you do on the web into evidence, reusable know-ho
 and work you can continue later — without watching your browsing or requiring a
 cloud account.
 
-**New → select text → Turn into Skill → Send → Download SKILL.md.**
+**New → select text → Turn into Skill → Send → Download Skill.**
 No account. No Relay cloud. No Desktop required. Your current AI chat can structure
 what you keep; you review the result and own the exported files.
 
 **Relay doesn't watch your browsing. You choose exactly what to keep.** Capture
-happens only when you click Turn into Skill, Turn into Relay job or Capture text only on an authorized page.
-Source 0.1.10 is a development build; public V1 acceptance and Store publication
-remain separate. It uses the existing Task Relay logo and Desktop control style.
+happens only when you click Turn into Skill, Save work or Capture text only on an authorized page.
+Development candidate 0.1.24 keeps map and phase selection in place.
+Store publication is separate. It uses the existing Task Relay logo and Desktop
+control style.
+
+### Maps and longer text (development candidate 0.1.24)
+
+Choose **Save work**, send the prepared request in ChatGPT, then **Review work →
+Map**. The map separates attempts, findings, requirements, proposals and next
+actions. Maps now open in **Overview**: up to six compact phases, each expandable
+into readable node cards. Blue single-cubic Bézier wires connect facing card
+sides, following Svelte Flow's edge construction rather than perimeter loops.
+Opposing relations use separate ports; qualifications sit beneath their related
+step, leaving clear gaps for progression. Whole step/branch columns wrap at
+narrow widths. Connections and labels come only from recorded edges.
+A separate blue expansion wire links the selected phase to its outlined detail
+group. It follows selection and disappears on collapse; it denotes view ownership
+and does not add a relationship to the saved map.
+Selecting a node, expanding/collapsing a phase or following a cross-phase link
+does not request automatic scrolling. Evidence updates in place; scroll manually
+to inspect details below the current view.
+The open map reserves its workspace height when switching to a shorter phase,
+so Chrome does not pull the page upward as content shrinks. This can leave space
+below a shorter phase; opening a fresh map resets that view-local reservation.
+**Full graph** and SVG export retain the original pannable node-canvas layout.
+Automatic phases group nearby chronological steps, keep attached
+findings/rejected branches with their anchor, and separate a trailing proposed
+approach. Phase titles use existing node labels; they are view groupings, not
+new semantic conclusions. Every node remains present exactly once. Cross-phase
+connections remain available in node evidence and **Connections with other
+phases**, which can jump to another phase. Expanding or switching views never
+saves or changes the map, evidence, IDs or portable format.
+
+Click a node to inspect its exact source passage and connections; edit
+its label during review. Progression runs left to right following explicit
+chronology, using source order to break ties, with
+findings and rejected branches below their related step. White node cards use
+Task Relay's blue accents, small type/status labels and a dot grid, without
+connection circles or decorative icons. Connections use labeled Bézier curves.
+For a chronology correction, select a node, expand its connection evidence and
+choose **Reverse chronology**. This is an explicit review action: code preserves
+the original edge/evidence and creates a new edge identity. Work exports include
+the review receipt. **Summary**
+remains the default review view. A map is an interpretation of supplied material,
+not independent verification, engineering approval or permission to execute.
+
+The initial screen also accepts an explicitly selected UTF-8 `.md` or `.txt`
+file. Web capture and text-file import allow up to 300,000 characters, without
+truncation. This does not expose unloaded chat history, hidden content or forms.
+The old 60,000-character value is now a single-request threshold, not a capture
+limit. Larger or heavily escaped sources use bounded parts, then one synthesis.
+Each request stays below 180,000 characters; the user sends every message and
+explicitly reads each reply before preparing the next. Numbered source passages
+let the model select evidence while code preserves literal text and offsets.
+
+**Download progress** preserves the source and accepted replies for recovery.
+Open it through **Options → Open files**; pending requests are read-only recovery
+tickets and are never resent automatically. Session state alone is temporary.
+Malformed or oversized responses retain progress rather than advancing it.
+After reviewing map changes, download Work to retain those edits and their
+receipts; extraction-progress files retain the original model results.
+
+Work downloads embed the source, validated map, source checksum and evidence
+spans in the portable `.relay.md`. Reopen that file or a map JSON through
+**Options → Open files** to view it again. **Open full map** opens a larger
+extension page. Drag the canvas to pan, zoom or **Fit map** for an overview;
+selecting a node highlights its immediate connections. Map view also exports
+SVG and JSON only through explicit download actions; opening it never downloads
+an SVG automatically.
+Continuation supplies bounded quoted map context instead of the full embedded
+source. Multi-part maps disclose that cross-part relationships may be missing;
+code does not invent causal links between parts. The optional Desktop library
+does not yet persist these maps or longer file captures; use portable exports.
+
+Qualification records distinguish synthetic DOM/contract checks from actual
+signed-in Chrome observations in private `private qualification records`.
+The real recap also passed a selected-text test in installed Chrome: select
+visible text on a local HTTP test page → Save work → automatically prepared
+ChatGPT draft → explicit Send → Review work → Map. Automatic verification read
+the completed reply without manual import. The 14,042-character selection
+produced 20 nodes and 21 connections. Downloaded map JSON matched the embedded
+map in the downloaded Work, retaining the exact selection. Earlier attempts
+failed safely on host-added Markdown/quote escaping; the final reversible JSON
+string encoding protects literal content without relaxing request verification.
+Live audit and controlled UI checks are retained privately under
+`private qualification records`. This is one live selected-text case;
+longer inputs have controlled coverage. No full desktop-runtime qualification
+or Store submission is implied.
+
+Download automatically expands a collapsed, uniquely matching Relay request
+before verifying its exact text and completed reply. Explicit session recovery
+can expand the latest marked request before validating its embedded source. Both
+use one display click and bounded rereads; edited requests, ambiguous replies and
+tab changes remain blocked. Neither operation edits the composer or sends.
+
+Single-file Skills download as `<skill-name>.md`, using the validated frontmatter
+name, including any reviewed name edit. Open files accepts both named downloads
+and existing `SKILL.md` files without changing their contents or base hashes.
+Packages with resources still download as `<skill-name>.skill.zip`, containing
+the standard `<skill-name>/SKILL.md` and its resources. When installing a single
+file in an Agent Skills directory, use `<skill-name>/SKILL.md`.
 
 ## Try the extension
 
@@ -26,24 +124,73 @@ python3 scripts/build_chrome_extension.py --out outputs/chrome-extension
 3. Click **New** if starting another task, then select the useful excerpt.
 4. Click **Turn into Skill**. Relay prepares the Skill request and inserts an
    unsent message in ChatGPT.
-5. Click **Send** in ChatGPT. When it finishes, click **Download SKILL.md** in
+5. Click **Send** in ChatGPT. When it finishes, click **Download Skill** in
    Relay. The matching response is validated and a single Skill downloads on
    that click. The result remains available for **Edit** and another download.
    Skills needing resources download as a complete `.skill.zip`.
 
-**Turn into Relay job** is the full-width outlined button below **Turn into Skill**
+## From another webpage
+
+Select useful article, documentation or conversation text on an ordinary webpage,
+click the Task Relay toolbar icon, then **Turn into Skill** (or **Save work**).
+Relay asks once for optional access to **chatgpt.com**. After approval, it opens
+ChatGPT, waits briefly for the message box and places the source-linked request
+there automatically. Review the draft and press **Send**, then click
+**Download Skill** in the already open panel. No second toolbar click or
+clipboard paste is needed. No Relay account, Desktop or separate provider setup.
+
+If access is declined, manual copying remains available and Relay remembers that
+choice. **Options → Enable ChatGPT autofill** explicitly requests access later;
+**Turn off ChatGPT autofill** removes it without deleting the current preview.
+Source webpages still use `activeTab` after your toolbar click, with no all-site
+permission. Opening the panel or changing tabs never captures content.
+
+The original webpage URL remains the source. Its unique request marker and
+response validator bind the reply. Exact requests and insertion intent are
+retained before opening/editing the destination. Existing unrelated drafts and
+attachments remain intact. Slow loading, sign-in, tab changes or lost replies
+keep the ticket without repeating an uncertain edit or tab creation. The bounded
+readiness wait runs only during that explicit handoff; it registers no navigation
+observer and never presses Send.
+
+The normal panel shows the next step and download. **Return to ChatGPT**,
+**Place request / Restore message** and **Paste AI reply** are in Options for
+recovery or manual use. Return only activates a confirmed destination; it cannot
+create another tab after uncertain creation. Manual reply import is for unsupported
+AI sites or a response the adapter cannot read, not a required conversion step.
+
+ChatGPT may turn a long paste into a `Pasted text(...).txt` attachment. Relay can
+retrieve the completed reply in its retained destination using the exact unique
+response marker and a single unambiguous user/assistant exchange. It does not read
+the attached file or claim its text was verified. That limitation is shown with
+the result and retained in source coverage. Changed markers, multiple files/turns,
+streaming replies or other tabs do not enable attachment matching. An attached
+request is never called a cleared draft and never triggers restoration or Send.
+Manual reply import remains available when that bounded match cannot be made.
+Attachment filenames may appear only in accessibility labels; those labels are
+included in the bounded attachment check. **Download Skill** always reads or
+exports a result and never inserts a message. Missing request text is not proof
+that a draft was cleared. **Restore message** remains a separate Options action;
+if its unique reply is already present, Relay retrieves that reply without an edit.
+
+**Save work** is the full-width outlined button below **Turn into Skill**
 on the New screen. When viewing a result, click **New** to show both conversion
-choices again; the result remains retained in the session. This is the secondary action. It produces an instance-specific
-portable `.relay.md` job brief with objective, current findings, proposed decisions,
+choices again; the result remains retained in the session. This is the secondary action. It proposes the state of this particular work for explicit download as a
+portable `.relay.md` file with objective, current findings, proposed decisions,
 evidence, questions and next actions. It does not create or execute a Desktop job.
-Skill and job requests ask for their respective output independently. A response
+Relay work is the task state; a snapshot is a saved version of that same work.
+It is not a third output category. Skills extract reusable methods, with subject-specific names, domains and dates
+as inputs. A work snapshot keeps the named subject and current findings.
+For example: a company-agnostic venture-backing Skill versus the Company A research
+state. Do not turn a funding check into a revenue check without supporting
+material. Skill and snapshot requests ask for their respective output independently. A response
 with the wrong category is rejected without replacing an existing review.
 
 Chrome supplies Task Relay's panel title and logo; the panel does not repeat them.
 The main screen has no dropdowns, setup, source preview or JSON fields. **⋯** holds
 source details, evidence export, copy/import, **Open files**, optional Desktop
-controls and recovery. Other AI sites receive a copied request; paste/send it
-there, then use **Paste AI reply**. **Capture text only** retains the general
+controls and recovery. **⋯ → Prepare request** keeps the manual route for another
+AI service; paste/send it there, then use **Paste AI reply**. **Capture text only** retains the general
 page/evidence route. Basic Skill/job capture requires a selection, never falling
 back to the full page when no text is selected. Supported ChatGPT URLs are the
 root page and ordinary `/c/…` conversations.
@@ -84,7 +231,8 @@ message only, requires a Relay request marker and its single matching completed
 reply, and validates the embedded source and proposals before opening review.
 It preserves an existing preview and never reinserts or sends the request.
 For requests using a saved Work or Skill base, open the original files and use
-manual import. Incomplete/collapsed requests must be expanded first.
+manual import. Collapsed requests are expanded automatically when their Show more
+control is recognized. Incomplete requests still need manual import with the original source.
 
 Capturing and reviewing never creates a saved Work, Skill or Source. Preview text
 and drafts are retained in Chrome's session storage, not browsing-history storage;
@@ -141,20 +289,25 @@ chat when the Skill needs them.
 
 ## Extraction and permissions
 
-Explicit **Turn into Skill**, **Turn into Relay job** or **Capture text only** injects an extractor into the active tab's main document.
+Explicit **Turn into Skill**, **Save work** or **Capture text only** injects an extractor into the active tab's main document.
 Preparing ChatGPT analysis checks its composer; Insert edits that composer, and
 Download reads the matching loaded message, each only on the relevant click.
 There are no browsing history reads, content-script registrations, all-site host
 permissions, navigation observers or background capture. Required permissions are
-`activeTab`, `scripting`, `sidePanel` and `storage`. `nativeMessaging` is optional
+`activeTab`, `scripting`, `sidePanel` and `storage`. The sole optional web origin
+is `https://chatgpt.com/*`, requested on the first explicit conversion or Enable
+autofill click. It permits the destination draft/read without another toolbar
+grant; it is checked before a bounded readiness wait and removable in Options.
+`nativeMessaging` is optional
 and requested only when the user clicks **Connect Relay Desktop**. Portable
 startup does not probe a native host, even when permission was previously granted.
 A successful explicit connection is remembered; its permission is checked before
 reconnecting. Every native call is also gated in the service worker. **Disconnect
 Desktop** removes the optional permission. Denial, unavailable bridges and access
 revocation preserve portable mode, captured text and user-edited review.
-Click the toolbar on each new tab to grant
-access. Restricted Chrome pages cannot be captured.
+Click the toolbar on source webpages to grant temporary capture access. With
+ChatGPT autofill approved, the destination needs no repeated toolbar click.
+Restricted Chrome pages cannot be captured.
 The toolbar uses an explicit action listener to open the panel synchronously;
 opening the panel never reads the page. Declarative panel opening is disabled
 because the installed Chrome test opened the UI without granting `activeTab`.
@@ -163,7 +316,12 @@ icon beside Chrome's address bar. Opening a panel through Chrome's side-panel
 selector does not substitute for this tab authorization. Unsupported internal
 pages have a separate error.
 
-Selection mode keeps exact selected text. Page mode extracts loaded visible text,
+Selection mode keeps exact selected text when no filtering is needed. When the
+range crosses hidden labels, screen-reader text or interface controls, it keeps
+only the selected visible text, including partial-node boundaries and paragraph
+breaks, and records that filtering in source coverage. It never removes hidden
+strings by value or expands an empty selection to the entire page. Visible form
+or editable-field selections remain blocked. Page mode extracts loaded visible text,
 excluding hidden elements, form controls, editable fields and navigation. Images,
 downloads, PDF internals, iframes and unloaded conversation history are outside
 V1's capture. Thin ChatGPT, Claude, Gemini and Perplexity adapters identify available
@@ -319,3 +477,10 @@ retaining the exact pending request. Retrying the original response produced a
 completed `.relay.md` download; the downloaded file passed the portable importer
 and retained its source URL and capture time. No new message or model run occurred.
 The registered manifest was not reloaded for this panel update.
+
+The 0.1.11 panel update uses Save work and Download work. Reopening the installed
+panel retained the existing reviewed response and all visible editor values.
+Controlled checks cover prompt separation and retained make_job session identity.
+No new message, model run or download was performed during this update. The revised
+Skill instructions still need a new live user-sent request; the registered manifest
+was not fully reloaded.

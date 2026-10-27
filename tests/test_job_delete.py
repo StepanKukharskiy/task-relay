@@ -349,4 +349,38 @@ class JobDeleteTests(unittest.TestCase):
         with self.assertRaises(JobDeleteError): delete(PID, review['digest'], self.paths)
 
 
+class ReconciledHistoryTests(unittest.TestCase):
+    setUp=JobDeleteTests.setUp
+    pipeline=JobDeleteTests.pipeline
+    production=JobDeleteTests.production
+    def test_terminal_history_discards_queued_work_but_never_uncertain_attempt(self):
+        self.pipeline(target='plan-1');self.production()
+        with self.state.db:
+            self.state.db.execute("UPDATE production_tasks SET status='awaiting_review'")
+            self.state.db.execute("INSERT INTO production_tasks(run,id,assignment,status,attempts) VALUES ('run-1','review','review-assignment','queued',0)")
+        review=preview(PID,self.paths);self.assertEqual(review['blockers'],[])
+        with self.state.db:self.state.db.execute("UPDATE production_attempts SET state='uncertain'")
+        self.assertTrue(preview(PID,self.paths)['blockers'])
+        with self.assertRaises(JobDeleteError):delete(PID,review['digest'],self.paths)
+
+    def test_stopped_attempt_with_unknown_effect_remains_held(self):
+        self.pipeline(target='plan-1');self.production()
+        with self.state.db:self.state.db.execute("UPDATE production_attempts SET state='blocked',receipt=?",(json.dumps({'pending_requests':['unknown']}),))
+        review=preview(PID,self.paths)
+        self.assertIn('A worker receipt has an unresolved external outcome or cleanup failure.',review['blockers'])
+        with self.assertRaises(JobDeleteError):delete(PID,review['digest'],self.paths)
+
+    def test_desktop_file_index_is_not_outbound_delivery(self):
+        self.pipeline()
+        event='pipeline:'+PID+':finished'
+        with self.state.db:
+            self.state.db.execute('INSERT INTO outbox(id,text) VALUES (?,?)',(event,'done'))
+            self.state.db.execute('INSERT INTO relay_event_channels VALUES (?,?)',(event,'desktop'))
+            self.state.db.execute("INSERT INTO media_outbox(id,event_id,path,filename,kind,status) VALUES ('file',?,'/kept/file.pptx','file.pptx','original','pending')",(event,))
+        review=preview(PID,self.paths);self.assertEqual(review['blockers'],[])
+        with self.state.db:self.state.db.execute("UPDATE relay_event_channels SET channel='telegram' WHERE event_id=?",(event,))
+        self.assertTrue(preview(PID,self.paths)['blockers'])
+        with self.assertRaises(JobDeleteError):delete(PID,review['digest'],self.paths)
+
+
 if __name__ == '__main__': unittest.main()

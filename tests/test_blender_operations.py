@@ -14,7 +14,7 @@ from tests.test_orchestrator import FakeFactory, plan
 
 
 def scene_data():
-    return dict(version=1,objects=[dict(shape='cube',position=[0,0,1],size=[1,1,2],rotation=[0,0,0.3],color=[0.2,0.4,0.8])],
+    return dict(version=1,spatial=dict(units='Meters',basis='nominal',note='Synthetic authored geometry; not a measured object'),objects=[dict(shape='cube',position=[0,0,1],size=[1,1,2],rotation=[0,0,0.3],color=[0.2,0.4,0.8])],
                 camera=dict(position=[6,-8,5],target=[0,0,1],scale=5),resolution=[64,64],samples=1)
 
 

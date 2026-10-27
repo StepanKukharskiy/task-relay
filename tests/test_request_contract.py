@@ -15,6 +15,24 @@ REQUEST='Please create drafts in md for all 5 articles with examples and code sn
 CONTRACT=work([outcome('articles',5,checks=['nonempty','utf8','fenced_code'])])
 
 
+class CompiledReviewTests(unittest.TestCase):
+    def test_registered_checks_beyond_fragment_limit_remain_bound_and_reviewed(self):
+        value=work([outcome('result',format='.txt',validation=['Additional explicit user check'])])
+        producer=dict(id='author',criteria=['Registered check '+str(i) for i in range(9)],outputs=[dict(path='result.txt')])
+        reviewer=dict(id='review',review_of='author',criteria=producer['criteria'].copy())
+        plan=dict(tasks=[producer,reviewer])
+        contracts.bind(plan,{'result':dict(task='author',output='result.txt')},value)
+        self.assertEqual(producer['criteria'],reviewer['criteria'])
+        self.assertEqual(len(producer['criteria']),10)
+        self.assertIn('Additional explicit user check',producer['criteria'])
+
+    def test_runtime_criterion_bound_still_requires_a_separate_review(self):
+        value=work([outcome('result',format='.txt',validation=['Additional explicit user check'])])
+        plan=dict(tasks=[dict(id='author',criteria=['Registered check '+str(i) for i in range(30)],outputs=[dict(path='result.txt')])])
+        with self.assertRaisesRegex(ValueError,'separately bounded'):
+            contracts.bind(plan,{'result':dict(task='author',output='result.txt')},value)
+
+
 class Tests(unittest.TestCase):
     def setUp(self):
         fixture.Tests.setUp(self)
@@ -182,6 +200,35 @@ class ContractTests(unittest.TestCase):
         action['stage_details'][0]['outputs'].pop('reports-10')
         with self.assertRaisesRegex(ValueError,'workflow stages'):
             contracts.route({'action':action,'request_contract':contract})
+
+    def test_workflow_keeps_frozen_descriptions_without_requiring_model_echo(self):
+        contract=work([outcome('deck',format='.pptx')])
+        action=dict(kind='plan_pipeline',stage_details=[dict(id='deliver',outputs={'deck':dict(format='pptx',description='Model paraphrase')})])
+        raw=copy.deepcopy(action)
+        bound=contracts.route(dict(action=action,request_contract=contract))['action']
+        self.assertEqual(bound['stage_details'][0]['outputs']['deck']['description'],contract['outcomes'][0]['description'])
+        self.assertEqual(action,raw)
+        self.assertEqual(contracts.route(dict(action=bound,request_contract=contract))['action'],bound)
+        for mutation in ('missing','duplicate','format'):
+            invalid=copy.deepcopy(action)
+            if mutation=='missing':invalid['stage_details'][0]['outputs']={}
+            elif mutation=='duplicate':invalid['stage_details'].append(copy.deepcopy(invalid['stage_details'][0]))
+            else:invalid['stage_details'][0]['outputs']['deck']['format']='pdf'
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):contracts.route(dict(action=invalid,request_contract=contract))
+
+    def test_unique_file_port_binding_updates_edges_and_exact_completion_reference(self):
+        contract=intake_contract=work([outcome('requested_report',format='.pdf')])
+        action=dict(kind='plan_pipeline',completion=dict(version=1,stage='produce'),stage_details=[
+            dict(id='produce',outputs={'model_alias':dict(format='pdf',description='A report')}),
+            dict(id='reuse',outputs={},uses=[dict(stage='produce',output='model_alias',consumer='context')])])
+        raw=copy.deepcopy(action);bound,changes=contracts.bind_workflow_outputs(action,contract)
+        self.assertEqual(bound['completion']['output'],'requested_report')
+        self.assertEqual(bound['stage_details'][1]['uses'][0]['output'],'requested_report')
+        self.assertEqual(bound['stage_details'][0]['outputs']['requested_report']['description'],intake_contract['outcomes'][0]['description'])
+        self.assertEqual(changes[0]['basis'],'unique-declared-format');self.assertEqual(action,raw)
+        ambiguous=copy.deepcopy(action);ambiguous['stage_details'][0]['outputs']['second']=dict(format='pdf',description='Another report')
+        with self.assertRaisesRegex(ValueError,'ambiguous'):contracts.bind_workflow_outputs(ambiguous,contract)
+        with self.assertRaisesRegex(ValueError,'ambiguous'):contracts.bind_workflow_outputs(action,work([outcome('one',format='.pdf'),outcome('two',format='.pdf')]))
 
     def test_stage_scope_preserves_requested_format_checks_and_only_its_outputs(self):
         contract=work([outcome('reports',10,format='.json',checks=['nonempty','json'])])

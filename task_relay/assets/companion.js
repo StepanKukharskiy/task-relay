@@ -24,6 +24,7 @@ let modelDefaultsKey = null;
 let modelDefaultsDirty = false;
 let rhinoPreferenceDirty = false;
 function renderModelDefaults(settings) {
+  window.RelayNodeEditor?.updateChatDefaults?.(settings);
   const container = $('model-defaults-list');
   text('model-defaults-detail', settings?.error || settings?.limitation || 'Reading model settings…');
   if (!settings || settings.error) {
@@ -106,7 +107,13 @@ function renderModelDefaults(settings) {
 }
 function message(text, error = false) {
   $('feedback').hidden = !text;
-  $('feedback').textContent = text;
+  $('feedback').replaceChildren();
+  if(text){
+    const prose=document.createElement('span');prose.textContent=text;
+    const dismiss=document.createElement('button');dismiss.type='button';dismiss.className='quiet';dismiss.textContent='Dismiss';
+    dismiss.setAttribute('aria-label','Dismiss notification');dismiss.onclick=()=>message('');
+    $('feedback').append(prose,dismiss);
+  }
   $('feedback').classList.toggle('error', error);
 }
 function text(id, value) { $(id).textContent = value ?? ''; }
@@ -176,6 +183,7 @@ async function nextSetup() {
 }
 function render(info) {
   snapshot = info;
+  window.RelayWorkflow?.updateConnectionStatus(info);
   const {setup, service = {}, messages = {}, decisions = {}} = info;
   const channels = info.channels || {};
   const policy = channels.policy;
@@ -294,6 +302,7 @@ async function refresh() {
   catch (error) {
     readFailed = true;
     snapshot = null;
+    window.RelayWorkflow?.updateConnectionStatus(null);
     renderModelDefaults({error: 'Model settings are unavailable. Refresh before saving.'});
     $('home').hidden = false;
     $('review-revisions').hidden = true;
@@ -371,8 +380,14 @@ async function loadSavedWork(append = false) {
       }
       if (item.steps?.length) {
         const stages = document.createElement('p'); stages.className = 'hint';
-        stages.textContent = item.steps.map(step => `${step.id}: ${step.status}`).join(' · ');
+        stages.textContent = item.steps.map(step => `${step.id}: ${step.status}${step.tasks?.length ? ' ('+step.tasks.map(task=>`${task.id}: ${task.status}, attempt ${task.attempts}`).join('; ')+')' : ''}${step.error ? ' — '+step.error : ''}`).join(' · ');
         card.append(stages);
+      }
+      if (item.usage) {
+        const accounting=document.createElement('p');accounting.className='hint';
+        const total=item.usage.totals?.total_tokens;
+        accounting.textContent=`Workflow elapsed ${(item.usage.elapsed_seconds/60).toFixed(1)} min · ${total?.reported?.toLocaleString() ?? 'Unknown'} reported tokens · ${total?.unknown_records ?? 0} unknown usage records. Reported input includes cache; this is not a bill.`;
+        card.append(accounting);
       }
       if (kind === 'tasks' && item.delete_note) {
         const note = document.createElement('p'); note.className = 'hint'; note.textContent = item.delete_note;
@@ -888,6 +903,12 @@ document.addEventListener('click', async event => {
 });
 window.addEventListener('unhandledrejection', event => message(String(event.reason), true));
 if (native) {
+  native.event.listen('companion-edit-history', ({payload}) => {
+    if (!['undo','redo'].includes(payload)) return;
+    const active=document.activeElement;
+    if (active?.matches('input,textarea') || active?.isContentEditable) document.execCommand(payload);
+    else window.RelayNodeEditor?.history?.(payload);
+  });
   native.event.listen('companion-navigate', async ({payload}) => {
     if (payload === 'channels') return openSettings('channels-settings');
     if (payload === 'pause-messaging') {

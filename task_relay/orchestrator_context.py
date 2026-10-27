@@ -93,6 +93,8 @@ def execution_availability(payload):
 def overview(payload):
     original = payload
     original_bytes = len(encoded(original).encode())
+    from . import attachment_evidence
+    payload=attachment_evidence.overview_scope(payload)
     availability=execution_availability(payload)
     if availability is not None:payload={**payload,'current_execution_availability':availability}
     mentions = task_mentions(payload)
@@ -120,7 +122,7 @@ def overview(payload):
     for text_limit, list_limit in ((1800, 40), (800, 25), (300, 12), (100, 5), (0, 1)):
         omitted = []
         def visit(value, at='', key=''):
-            if at in ('/user_message', '/mentioned_codex_tasks', '/recent_conversation', '/current_execution_availability'):
+            if at in ('/user_message', '/mentioned_codex_tasks', '/recent_conversation', '/current_execution_availability', '/conversation_attachments', '/current_attachment_evidence', '/conversation_attachment_evidence', '/request_contract'):
                 return value  # Never shorten the current user's instruction.
             if isinstance(value, str) and key not in identities and len(value) > text_limit:
                 omitted.append({'pointer': at, 'characters': len(value), 'kind': 'text_excerpt'})
@@ -142,6 +144,10 @@ def overview(payload):
     # A very wide dictionary can exceed the list/prose policy. Retain the exact
     # user instruction and an index rather than raising the former global error.
     return {'user_message': payload.get('user_message', ''),
+            **({'request_contract':payload['request_contract']} if 'request_contract' in payload else {}),
+            **({'conversation_attachment_evidence':payload['conversation_attachment_evidence']} if 'conversation_attachment_evidence' in payload else {}),
+            **({'current_attachment_evidence':payload['current_attachment_evidence']} if 'current_attachment_evidence' in payload else {}),
+            **({'conversation_attachments':payload['conversation_attachments']} if 'conversation_attachments' in payload else {}),
             **({'current_execution_availability':availability} if availability is not None else {}),
             **({'recent_conversation': recent} if recent else {}),
             **({'mentioned_codex_tasks': mentions} if mentions['match_count'] else {}),

@@ -56,6 +56,50 @@ class Tests(unittest.TestCase):
         files.sync(self.state,p['id'])
         self.assertEqual((root/'README.md').read_text(),'My own index')
 
+    def test_document_title_names_new_copies_and_preserves_published_basename(self):
+        p=self.create(planning_only=True)
+        source=self.root/'result.html';source.write_text('<title>Green stool alternatives</title><p>All candidates</p>')
+        aid=self.rt.register(source,'Gallery',run='new-run',path='delivery/result.html')
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target_kind='production_run',target='new-run' WHERE pipeline=? AND id='outline'",(p['id'],))
+        root=files.sync(self.state,p['id']);named=self.exported(root,aid)
+        self.assertEqual(named.name,'Green-stool-alternatives.html')
+        named.write_text('User changes')
+        with patch.object(files,'display_name',return_value='Renamed.html'):
+            files.sync(self.state,p['id'])
+        self.assertEqual(self.exported(root,aid).name,'Green-stool-alternatives-registered.html')
+        self.assertEqual(self.exported(root,aid).read_bytes(),Path(self.rt.artifact(aid)['blob']).read_bytes())
+        self.assertEqual(named.read_text(),'User changes')
+        for content in ('<title>../../bad &amp; title</title>','not a zip'):
+            source.write_text(content)
+            a=dict(path='result.html' if content.startswith('<') else 'result.pptx',blob=str(source),sha256=hashlib.sha256(source.read_bytes()).hexdigest())
+            name=files.display_name(a)
+            self.assertNotIn('/',name);self.assertNotIn('..',name)
+
+    def test_desktop_links_reveal_pipeline_versions_and_stage_inputs(self):
+        from task_relay import desktop_workspace
+        from task_relay.relay_paths import Paths
+        p,old,new=self.setup_versions()
+        source_path=self.root/'brief.txt';source_path.write_text('Exact input brief')
+        source=self.rt.register(source_path,'Input brief',path='inputs/brief.txt')
+        with transaction(self.state.db):
+            self.state.db.execute('UPDATE relay_pipeline_steps SET sources=? WHERE pipeline=? AND id=?',
+                                  (json.dumps([{'artifact':source}]),p['id'],'outline'))
+        paths=Paths(self.root/'app',self.root,self.root/'workspaces',self.root/'generated')
+        before=list(self.state.db.iterdump())
+        revealed=[]
+        for aid,text in ((old,'Earlier draft'),(new,'Reviewed candidate'),(source,'Exact input brief')):
+            result=desktop_workspace.artifact_path(aid,paths)
+            named=Path(result['path']);revealed.append(named)
+            self.assertEqual(Path(result['folder']),files.folder_path(self.state,p['id']))
+            self.assertEqual(named.read_text(),text)
+            with patch.object(files,'_snapshot',side_effect=AssertionError('Location must not rebuild history')):
+                self.assertEqual(desktop_workspace.artifact_path(aid,paths,location_only=True)['path'],str(named))
+            self.assertEqual(named.suffix,'.txt')
+            self.assertNotEqual(named,Path(self.rt.artifact(aid)['blob']))
+        self.assertEqual(len(set(revealed)),3)
+        self.assertEqual(list(self.state.db.iterdump()),before)
+
     def test_job_state_export_and_stage_context_are_read_only_and_exact(self):
         p,old,new=self.setup_versions()
         with transaction(self.state.db):
@@ -73,6 +117,32 @@ class Tests(unittest.TestCase):
         context=files.context_for_stage(self.state,p['id'],'outline')
         self.assertEqual([a['id'] for a in context['artifacts']],[new])
         self.assertEqual(context['stage']['sources'],[{'artifact':new}])
+        self.assertEqual(list(self.state.db.iterdump()),before)
+
+    def test_attempt_input_refs_resolve_to_exact_workflow_copies_after_user_edit(self):
+        from tests.test_orchestrator import pair
+        p=self.create(planning_only=True)
+        artifact=self.artifact('source-fixture','Exact independent input')
+        plan=pair();plan['tasks'][0]['inputs']=[dict(artifact=artifact,path='inputs/source.txt',purpose='Frozen source',authority='Source context')]
+        self.rt.create(plan);self.rt.tick('demo')
+        attempt=self.rt.task('demo','produce')['latest']
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target_kind='production_run',target='demo' WHERE pipeline=? AND id='outline'",(p['id'],))
+        before=list(self.state.db.iterdump())
+        root=files.sync(self.state,p['id'])
+        manifest=json.loads((root/'manifest.json').read_text())
+        binding=next(b for b in manifest['input_bindings'] if b['attempt']==attempt)
+        self.assertEqual(binding['artifact'],artifact)
+        self.assertEqual(binding['workspace_path'],'inputs/source.txt')
+        self.assertEqual(binding['input_ref'],'i1')
+        self.assertTrue(binding['available'])
+        exported=root/binding['workflow_path'];self.assertEqual(exported.read_text(),'Exact independent input')
+        exported.write_text('Human edited display copy')
+        files.sync(self.state,p['id'])
+        updated=json.loads((root/'manifest.json').read_text())['input_bindings'][0]
+        self.assertNotEqual(updated['workflow_path'],binding['workflow_path'])
+        self.assertEqual((root/updated['workflow_path']).read_text(),'Exact independent input')
+        self.assertEqual(exported.read_text(),'Human edited display copy')
         self.assertEqual(list(self.state.db.iterdump()),before)
 
     def test_job_process_projects_exact_work_and_recovery_without_desktop(self):

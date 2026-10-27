@@ -66,3 +66,13 @@ class Tests(unittest.TestCase):
         raw='{"answer":"Plan","action":{"kind":"plan_production","kind":"run"}}'
         with self.assertRaisesRegex(ValueError,'Duplicate'):chat.interpret(raw,{})
         self.assertFalse(chat.action_response(raw))
+
+    def test_saved_stage_owns_descriptions_but_missing_or_extra_ids_still_fail(self):
+        action={**self.action(), 'deliverables':{'items':'Model paraphrase'}}
+        stage={'route':'production','deliverables':{'items':'Frozen inventory JSON'}}
+        normalized=planning.normalize_action(action,{'pipeline_step':{'stage':stage}})
+        self.assertEqual(normalized['deliverables'],stage['deliverables'])
+        self.assertEqual(action['deliverables'],{'items':'Model paraphrase'})
+        for declared in ({}, {'items':'Paraphrase','extra':'More work'}):
+            changed={**action,'deliverables':declared}
+            self.assertEqual(planning.normalize_action(changed,{'pipeline_step':{'stage':stage}})['deliverables'],declared)

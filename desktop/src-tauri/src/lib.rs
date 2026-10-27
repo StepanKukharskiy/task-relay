@@ -9,7 +9,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
 const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-download", "app-update-install", "app-update-recover",
-    "status", "project", "provider", "telegram", "update-check",
+    "status", "project", "provider", "telegram", "update-check", "node-compose", "node-compose-preview", "node-compose-result", "node-validate", "node-catalog", "node-templates", "node-template", "node-drafts", "node-draft", "node-draft-save", "node-setup", "node-files", "node-file-import", "node-codex-runtime", "node-connect", "node-model-verify", "node-run-preview", "node-run-start", "node-run-advance", "node-result-draft", "node-result-chat", "node-prompt-save", "node-canvas", "node-canvas-save", "workflow-export", "workflow-import-preview", "workflow-import",
     "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider", "image-model-refresh", "rhino-preference",
     "code-runtime-configure", "worker-verify", "app-access-update",
     "channel-update", "channel-status",
@@ -18,7 +18,7 @@ const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-
     "service-status", "service-start", "service-stop", "service-connect", "service-disconnect",
     "tasks", "task-detail", "task-create", "task-send", "task-send-file", "task-stop", "task-approval-decide",
     "plans", "plan-create", "plan-detail", "plan-prepare", "plan-decide", "workspace-chat", "workspace-chat-source", "conversation-followup",
-    "workspace-jobs", "workspace-detail", "workspace-decide", "workspace-artifact", "workspace-request", "workspace-plan", "workspace-source-changes", "workspace-compare", "workspace-source",
+    "workspace-jobs", "workspace-job-visibility", "workspace-job-delete-preview", "workspace-detail", "workspace-decide", "workspace-artifact", "workspace-artifact-link", "workspace-open-artifact", "workspace-request", "workspace-plan", "workspace-source-changes", "workspace-compare", "workspace-source",
     "workflows", "pipeline-delete-preview", "pipeline-delete", "pipeline-delete-recover", "pipeline-delete-pending",
     "job-delete-preview", "job-delete", "job-delete-recover", "job-delete-pending", "job-delete-register",
     "task-delete-preview", "task-delete", "task-delete-recover", "task-delete-pending",
@@ -56,12 +56,19 @@ fn bridge_command(app: &tauri::AppHandle) -> Result<Command, String> {
     Ok(command)
 }
 
+fn request_limit(path: &str) -> usize {
+    // Shared with the Python bridge; graph transport is not an execution grant.
+    let limits: Value = serde_json::from_str(include_str!("../../../task_relay/assets/desktop-request-limits.json"))
+        .expect("valid bundled desktop request limits");
+    limits["actions"][path].as_u64().unwrap_or_else(|| limits["default"].as_u64().unwrap()) as usize
+}
+
 fn execute(app: tauri::AppHandle, path: String, value: Value) -> Result<Value, String> {
     if !ACTIONS.contains(&path.as_str()) {
         return Err("Unknown setup action.".into());
     }
     let body = serde_json::to_vec(&value).map_err(|_| "Invalid setup request.")?;
-    if body.len() > 16384 {
+    if body.len() > request_limit(&path) {
         return Err("Request is too large.".into());
     }
     run_bridge(bridge_command(&app)?, &path, &body)
@@ -90,7 +97,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
     // Do not kill them at the ordinary read deadline while they are restoring a service.
     let seconds = if matches!(path, "app-update-download" | "app-update-install" | "app-update-recover") { 240 }
         else if path == "app-update-check" { 120 }
-        else if matches!(path, "code-runtime-configure" | "worker-verify" | "computer-setup-status" | "computer-request-permissions") { 45 }
+        else if matches!(path, "code-runtime-configure" | "worker-verify" | "node-model-verify" | "node-run-start" | "node-compose" | "node-compose-preview" | "node-run-advance" | "computer-setup-status" | "computer-request-permissions") { 45 }
         else if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 }
         else { 15 };
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -104,7 +111,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
             let _ = reader.join();
             return Err(if path.starts_with("app-update-") {
                 "The update operation did not confirm completion. Open App updates to inspect its receipt before trying again; installation will not be replayed automatically."
-            } else if matches!(path, "code-runtime-configure" | "worker-verify") {
+            } else if matches!(path, "code-runtime-configure" | "worker-verify" | "node-model-verify" | "node-run-start" | "node-compose" | "node-compose-preview" | "node-run-advance") {
                 "The tool or connection check did not finish. Refresh Settings to inspect its status before checking again."
             } else if seconds > 15 {
                 "The service action did not confirm completion. Inspect the handoff receipt and service status before another action; it will not be replayed."
@@ -133,6 +140,15 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_request_bound_matches_bundled_python_policy() {
+        assert_eq!(request_limit("node-compose"), 500_000);
+        assert_eq!(request_limit("node-compose-preview"), 500_000);
+        assert_eq!(request_limit("node-canvas-save"), 500_000);
+        assert_eq!(request_limit("provider"), 16_384);
+        assert_eq!(request_limit("node-run-start"), 16_384);
+    }
 
     #[test]
     fn large_valid_bridge_reply_drains_without_stalling() {
@@ -201,7 +217,7 @@ fn show_companion(app: &tauri::AppHandle, destination: &str) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
-        let _ = window.emit("companion-navigate", destination);
+        if !destination.is_empty() { let _ = window.emit("companion-navigate", destination); }
     }
 }
 
@@ -223,6 +239,16 @@ async fn workspace_open_source(app: tauri::AppHandle, run: String, source: Strin
         .await.map_err(|_| "Could not verify the saved source receipt.")??;
     let url = result["url"].as_str().ok_or("Recorded source unavailable.")?;
     app.opener().open_url(url, None::<&str>).map_err(|_| "Could not open the recorded source.".into())
+}
+
+#[tauri::command]
+async fn workspace_open_artifact_link(app: tauri::AppHandle, artifact: String, sha256: String, url: String) -> Result<(), String> {
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move ||
+        execute(handle, "workspace-artifact-link".into(), serde_json::json!({"artifact": artifact, "sha256": sha256, "url": url})))
+        .await.map_err(|_| "Could not verify the saved output link.")??;
+    let url = result["url"].as_str().ok_or("Saved output link unavailable.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|_| "Could not open the saved link in your browser.".into())
 }
 
 #[tauri::command]
@@ -262,7 +288,25 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            // A normal desktop app belongs in the Dock as well as the tray.
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+            #[cfg(target_os = "macos")]
+            {
+                // Native Undo otherwise consumes Cmd+Z before the canvas sees it.
+                // Keep the standard menu and route only these two editing commands.
+                let menu = Menu::default(app.handle())?;
+                for item in menu.items()? {
+                    if let tauri::menu::MenuItemKind::Submenu(edit) = item {
+                        if edit.text()? == "Edit" {
+                            edit.remove_at(0)?;
+                            edit.remove_at(0)?;
+                            edit.insert(&MenuItem::with_id(app, "canvas-undo", "Undo", true, Some("Cmd+Z"))?, 0)?;
+                            edit.insert(&MenuItem::with_id(app, "canvas-redo", "Redo", true, Some("Cmd+Shift+Z"))?, 1)?;
+                        }
+                    }
+                }
+                app.set_menu(menu)?;
+            }
             let status = MenuItem::with_id(app, "home", "Open Relay…", true, None::<&str>)?;
             let new_task = MenuItem::with_id(app, "new-task", "New task…", true, None::<&str>)?;
             let chat = MenuItem::with_id(app, "conversation", "Open Telegram", true, None::<&str>)?;
@@ -280,7 +324,11 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| {
-                    if event.id.as_ref() == "quit" { app.exit(0); }
+                    if matches!(event.id.as_ref(), "canvas-undo" | "canvas-redo") {
+                        let action = if event.id.as_ref() == "canvas-undo" { "undo" } else { "redo" };
+                        let _ = app.emit("companion-edit-history", action);
+                    }
+                    else if event.id.as_ref() == "quit" { app.exit(0); }
                     else { show_companion(app, event.id.as_ref()); }
                 })
                 .build(app)?;
@@ -292,13 +340,13 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![relay_request, companion_open, companion_reveal_revision, companion_data_location, workspace_reveal_artifact, workspace_open_source, workspace_open_chat_source])
+        .invoke_handler(tauri::generate_handler![relay_request, companion_open, companion_reveal_revision, companion_data_location, workspace_reveal_artifact, workspace_open_source, workspace_open_chat_source, workspace_open_artifact_link])
         .build(tauri::generate_context!())
         .expect("Task Relay desktop window failed to start")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
-                show_companion(app, "home");
+                show_companion(app, "");
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);

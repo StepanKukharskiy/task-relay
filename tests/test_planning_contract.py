@@ -41,6 +41,79 @@ class Tests(unittest.TestCase):
             self.assertEqual(task['tools'],['files'])
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
 
+    def test_disabled_design_scope_does_not_advertise_intent_and_empty_historical_annotation_is_harmless(self):
+        from task_relay import design_intent
+        self.assertNotIn('design_intent',planning_contract.contract({})['schema']['properties'])
+        self.assertIn('design_intent',planning_contract.contract({'design_intent':True})['schema']['properties'])
+        value={'design_intent':{}};before=copy.deepcopy(value)
+        self.assertIsNone(design_intent.compile_proposal(value,{},1))
+        self.assertEqual(value,before)
+        with self.assertRaisesRegex(ValueError,'not enabled'):
+            design_intent.compile_proposal({'design_intent':{'phase':'prototype'}},{},1)
+        with self.assertRaisesRegex(ValueError,'requires phase'):
+            design_intent.compile_proposal(value,{'design_intent_policy':1},1)
+
+    def test_empty_historical_intent_compiles_and_survives_saved_result_revalidation(self):
+        row=dict(self.locked());payload=json.loads(row['context'])
+        payload['response_contract']['schema']['properties']['design_intent']={'type':'object'}
+        row['context']=json.dumps(payload)
+        value=self.draft();value['design_intent']={};before=copy.deepcopy(value)
+        result,plan=planning.validate_result(json.dumps(value),row)
+        self.assertEqual(value,before);self.assertNotIn('design_intent',result)
+        self.assertTrue(any(r['path']=='$.design_intent' for r in plan['origin']['planner_field_bindings']))
+        planning.validate_result(json.dumps(result),row,compiled=True)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)
+
+    def test_empty_handoff_is_bound_from_exact_output_type_without_editing_raw_reply(self):
+        row=self.locked();payload=json.loads(row['context']);payload['connector_companions_version']=1
+        value=self.draft()
+        for task in value['plan']['tasks']:
+            for output in task['outputs']:output.update(media_type='text/plain',handoff={})
+        original=copy.deepcopy(value)
+        proposal,receipt=planning_contract.prepare(value,payload,json.loads(row['options']))
+        self.assertEqual(value,original)
+        self.assertTrue(all(output['handoff']=={'media_type':'text/plain'} for task in proposal['plan']['tasks'] for output in task['outputs']))
+        self.assertTrue(receipt)
+        for marker in ('conflict','unknown_field','missing_type'):
+            bad=copy.deepcopy(value);output=bad['plan']['tasks'][0]['outputs'][0]
+            if marker=='conflict':output['handoff']={'media_type':'application/json'}
+            elif marker=='unknown_field':output['handoff']={'unrecognized':'text/plain'}
+            else:output.pop('media_type')
+            if marker=='conflict':
+                proposal,_=planning_contract.prepare(bad,payload,json.loads(row['options']))
+                with self.assertRaisesRegex(ValueError,'handoff type differs'):contracts.assignment(proposal['plan']['tasks'][0])
+            else:
+                with self.assertRaises(ValueError):planning_contract.prepare(bad,payload,json.loads(row['options']))
+
+    def test_new_work_baseline_annotation_cannot_drop_or_reinterpret_input_selection(self):
+        row=self.locked();payload=json.loads(row['context']);payload['connector_companions_version']=1
+        source=payload['sources'][0]['artifact'];value=self.draft()
+        value['plan']['tasks'][0].setdefault('inputs',[]).append(dict(artifact=source,path='reference.txt',purpose='Selected source',authority='Fixture evidence'))
+        value['input_basis']={'mode':'new','artifacts':[source]}
+        original=copy.deepcopy(value)
+        proposal,receipt=planning_contract.prepare(value,payload,json.loads(row['options']))
+        self.assertEqual(value,original);self.assertEqual(proposal['input_basis'],{'mode':'new','artifacts':[]})
+        self.assertEqual(proposal['plan'],original['plan']);self.assertTrue(receipt)
+        for mode,ids in (('new',['unselected']),('modify_existing',[])):
+            bad=copy.deepcopy(value);bad['input_basis']={'mode':mode,'artifacts':ids}
+            with self.assertRaises(ValueError):planning_contract.prepare(bad,payload,json.loads(row['options']))
+        modified=copy.deepcopy(value);modified['input_basis']['mode']='modify_existing'
+        self.assertEqual(planning_contract.prepare(modified,payload,json.loads(row['options']))[0]['input_basis'],modified['input_basis'])
+
+    def test_attempt_binding_narrows_to_frozen_cap_without_rewriting_proposal(self):
+        row=self.locked();options=json.loads(row['options']);payload=json.loads(row['context'])
+        options['max_attempts']=1;value=self.draft();original=copy.deepcopy(value)
+        for task in value['plan']['tasks']:task['max_attempts']=2
+        original=copy.deepcopy(value)
+        proposal,bindings=planning_contract.prepare(value,payload,options)
+        self.assertEqual(value,original)
+        self.assertTrue(all(t['max_attempts']==1 for t in proposal['plan']['tasks']))
+        self.assertEqual(len([b for b in bindings if b['source']=='options.max_attempts']),2)
+        legacy={**payload,'planner_budget_binding_version':1}
+        self.assertTrue(all(t['max_attempts']==2 for t in planning_contract.prepare(value,legacy,options)[0]['plan']['tasks']))
+        value['plan']['tasks'][0]['max_attempts']=0
+        self.assertEqual(planning_contract.prepare(value,payload,options)[0]['plan']['tasks'][0]['max_attempts'],0)
+
     def test_exact_misplaced_executor_is_recorded_without_second_provider_call(self):
         self.locked();value=self.draft()
         for task in value['plan']['tasks']:
@@ -55,7 +128,8 @@ class Tests(unittest.TestCase):
         call=self.state.db.execute('SELECT response FROM production_plan_calls').fetchone()[0]
         self.assertEqual(call,raw)
         plan=json.loads(row['plan'])
-        self.assertEqual(len(plan['origin']['planner_field_bindings']),2)
+        executor_bindings=[b for b in plan['origin']['planner_field_bindings'] if b.get('path','').endswith('.executor')]
+        self.assertEqual(len(executor_bindings),2)
         self.assertNotIn('executor',plan['tasks'][0])
         self.assertEqual(plan['tasks'][0]['worker']['backend'],BACKEND)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)

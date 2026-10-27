@@ -7,16 +7,31 @@ import subprocess
 import time
 from .runtime import safe_file,file_hash
 from .workers import atomic
+
+# The same registered adapter owns execution and its preparer's runtime contract.
+SCRIPT_CONTEXT = {
+    'version': 1,
+    'entry': 'Relay executes the supplied Python source with exec(compile(code, script_path, "exec"), {"__name__": "__main__", "__file__": script_path, "bpy": bpy}). Run the build at top level or under the __main__ guard; a function definition alone does not execute.',
+    'create': 'scene_sha256=null selects creation. Relay starts an empty factory scene with METRIC units and scale_length=1.0. Create every declared object, camera and light. Do not require an existing saved file or a save callback.',
+    'animation': 'During approved creation, compute procedural generations in Python and bake them into ordinary object keyframes. Leave the scene on the completed frame for still checks. A separate blender.animate node renders the saved timeline with empty tracks; it accepts 1–120 frames, up to 1024 pixels per dimension in final mode. No drivers, Geometry Nodes, simulation/cache modifiers or handlers are executed by that renderer.',
+    'edit': 'An exact selected .blend is opened for edits. Preserve the scope required by the registered checks.',
+    'outputs': 'Leave the built scene in bpy.context.scene. Relay updates the view layer, saves candidate.blend, independently reopens it, validates checks and renders after.png. The script must not save, render, create sidecars, guess output paths or require an adapter callback. Scene custom properties may retain diagnostics.',
+    'preview': 'The checks document selects an existing created camera by exact object name, resolution with each dimension 64–1024 and samples 1–16. Relay renders CPU Cycles and overrides script resolution/samples. Declare every created object name in create checks (maximum 500).',
+    'checks': 'Create checks require exact equality between every created scene object name and objects; a sample is incompatible. expected_dimensions must be nonempty and can name only geometry within the first 100 entries of objects; order the geometry being checked first. Values are world-axis dimensions in meters, not rotated local beam dimensions. Camera and lights must also appear in objects. Schema sealing is structural validation, not proof of execution or complete correspondence with the script.',
+    'authority': 'This is preparation context only. It neither executes host code nor approves it. Later execution requires exact script/checks authorization; preserve earlier files and runs.'
+}
 from . import host_code
 
 CHECKS_DESCRIPTION={
     'changed_objects':'1–100 existing object names allowed to change; object additions/removals and collection/frame changes are outside v1',
     'preserve_other_objects':'true','preserve_cameras':'true','preserve_materials':'true',
-    'expected_dimensions':'Map of changed object name to expected [x,y,z] dimensions, at least one; tolerance max(0.0001, abs(expected)*0.0001). Differences require user review of the preview; missing/invalid evidence and unauthorized edits fail.',
+    'expected_dimensions':'Map of changed geometry object name to expected [x,y,z] world-axis extents in meters, at least one. Measured from evaluated geometry including modifiers and parent transforms, scaled by scene scale_length; not object-local dimensions. Tolerance max(0.0001, abs(expected)*0.0001). Differences require user review of the preview; missing/invalid evidence and unauthorized edits fail.',
     'preview':{'camera':'Existing camera name, preserved','resolution':'[width,height], each 64–1024','samples':'1–16; CPU Cycles'},
     'scope':'Self-contained scenes only: packed/generated assets; no library imports, animation setup or UI. Checks are scoped, not full Blender semantic equivalence.'}
 
 def validate_checks(value):
+    if isinstance(value,dict) and value.get('mode')=='create':
+        return validate_create_checks(value)
     if not isinstance(value,dict) or set(value)!={'changed_objects','preserve_other_objects','preserve_cameras','preserve_materials','expected_dimensions','preview'}:
         raise ValueError('Use the exact Blender edit checks schema')
     names=value['changed_objects']
@@ -36,14 +51,34 @@ def validate_checks(value):
     if type(p['samples']) is not int or not 1<=p['samples']<=16:raise ValueError('Preview samples exceed bounds')
     return value
 
+def validate_create_checks(value):
+    if set(value)!={'mode','objects','expected_dimensions','preview','units','changed_objects','preserve_other_objects','preserve_cameras','preserve_materials'}:
+        raise ValueError('Blender create checks need mode, objects, expected_dimensions, preview and units')
+    if value['changed_objects']!=[] or any(value[k] is not True for k in ('preserve_other_objects','preserve_cameras','preserve_materials')):
+        raise ValueError('Create uses an empty preserved baseline')
+    names=value['objects']
+    if not isinstance(names,list) or not 1<=len(names)<=500 or any(not isinstance(n,str) or not n.strip() or len(n)>200 for n in names) or len(set(names))!=len(names):
+        raise ValueError('Declare every created object by a unique name (maximum 500)')
+    if value['units']!='Meters':raise ValueError('Procedural scene creation currently uses meters')
+    # Reuse the strict numeric/preview contract without granting edit privileges.
+    proxy=dict(changed_objects=names[:100],preserve_other_objects=True,preserve_cameras=True,
+               preserve_materials=True,expected_dimensions=value['expected_dimensions'],preview=value['preview'])
+    if not isinstance(value['expected_dimensions'],dict) or not value['expected_dimensions'] or set(value['expected_dimensions'])-set(names[:100]):
+        raise ValueError('Declare dimensions for named created geometry within the first 100 objects')
+    validate_checks(proxy)
+    if value['preview']['camera'] not in names:raise ValueError('Preview camera must be a declared created object')
+    return value
+
 def execute(frozen,control,documents):
     from task_relay.host_apps import blender
     host_code.verify_frozen(frozen)
     workspace=Path(frozen['workspace']);control=Path(control);out=workspace/'delivery'
     if out.exists() or out.is_symlink():raise ValueError('Candidate outputs exist; no replacement or replay')
     paths={i['media_type']:safe_file(workspace,i['path']) for i in frozen['inputs'] if i['media_type'] in ('application/x-blender','text/x-python','application/json')}
-    scene=paths['application/x-blender'];script=paths['text/x-python'];contract=paths['application/json']
-    validate_checks(json.loads(contract.read_text()))
+    scene=paths.get('application/x-blender');script=paths['text/x-python'];contract=paths['application/json']
+    checks=validate_checks(json.loads(contract.read_text()))
+    creating=checks.get('mode')=='create'
+    if creating != (scene is None):raise ValueError('Create requires no scene; edit requires an exact scene')
     receipt={'host_execution':True,'capability':'blender.run_python','authorization':frozen['host_code_authorization'],
              'assignment':frozen['assignment_id'],'run':frozen['run'],'backend':frozen['backend'],
              'input_versions':[{k:i[k] for k in ('artifact','sha256','path')} for i in frozen['inputs']],
@@ -55,7 +90,7 @@ def execute(frozen,control,documents):
     passed=True;baseline_hash=None;findings=[]
     for mode in ('before','edit','verify'):
         command=[blender()['executable'],'--background','--factory-startup','--disable-autoexec','--python-exit-code','1',
-            '--python',str(Path(__file__).with_name('blender_edit_worker.py')),'--',mode,str(scene),str(script),str(contract),str(out)]
+            '--python',str(Path(__file__).with_name('blender_edit_worker.py')),'--',mode,str(scene) if scene else '-',str(script),str(contract),str(out)]
         start=time.monotonic()
         try:
             result=subprocess.run(command,cwd=workspace,stdin=subprocess.DEVNULL,capture_output=True,timeout=max(.1,deadline-start))
@@ -73,7 +108,7 @@ def execute(frozen,control,documents):
         try:
             passed=r['returncode']==0 and 'RELAY_EDIT_'+mode.upper()+'_OK' in r['stdout']
             if any(file_hash(safe_file(workspace,i['path']))!=i['sha256'] for i in frozen['inputs']):raise ValueError('Input copy changed')
-            if file_hash(out/'edit.py')!=frozen['execution']['parameters']['script_sha256']:raise ValueError('Delivered script changed')
+            if file_hash(out/'edit.py')!=next(i['sha256'] for i in frozen['inputs'] if i['media_type']=='text/x-python'):raise ValueError('Delivered script changed')
             if passed and mode=='before':baseline_hash=file_hash(safe_file(workspace,'delivery/checks.json'))
             if passed and mode=='edit' and baseline_hash!=file_hash(safe_file(workspace,'delivery/checks.json')):raise ValueError('Script changed baseline verification evidence')
             if sum(p.stat().st_size for p in out.iterdir() if p.is_file())>frozen['limits']['output_bytes']:raise ValueError('Output byte limit exceeded')
@@ -92,7 +127,7 @@ def execute(frozen,control,documents):
         atomic(out/'execution.json',receipt)
         if not passed:break
     if passed:
-        receipt['lineage']={'source_scene_sha256':frozen['execution']['parameters']['scene_sha256'],
+        receipt['lineage']={'source_scene_sha256':next((i['sha256'] for i in frozen['inputs'] if i['media_type']=='application/x-blender'),None),
             'script_sha256':file_hash(out/'edit.py'),'candidate_sha256':file_hash(out/'candidate.blend'),
             'attempt':frozen['assignment_id'],'selected':False}
         atomic(out/'execution.json',receipt)

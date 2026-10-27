@@ -7,7 +7,41 @@ import UniformTypeIdentifiers
 import Darwin
 
 let protocolID = "relay.computer-observer.v1"
-struct Blocked: Error { let code: String; init(_ code: String) { self.code = code } }
+struct Blocked: Error {
+    let code: String
+    let navigation: [String: Any]?
+    let observation: [String: Any]?
+    init(_ code: String, navigation: [String: Any]? = nil, observation: [String: Any]? = nil) {
+        self.code = code; self.navigation = navigation; self.observation = observation
+    }
+}
+// BEGIN bounded observation contract (also compiled with controlled closures).
+let observationSettlingErrors = ["selected_document_url_changed_or_unavailable", "visible_text_unavailable",
+    "document_changed_during_observation", "document_geometry_changed_during_observation",
+    "active_web_document_not_unique"]
+@MainActor func boundedObservation<T>(read: () async throws -> T,
+    check: () throws -> Void, wait: () async throws -> Void) async throws -> T {
+    for attempt in 0..<5 {
+        try check()
+        do { return try await read() }
+        catch let error as Blocked {
+            guard attempt < 4, observationSettlingErrors.contains(error.code) else { throw error }
+            try check(); try await wait()
+        }
+    }
+    throw Blocked("dynamic_document_not_stable")
+}
+// END bounded observation contract.
+// A policy decision over URLs only. Never reads a redirected page or repeats an action.
+func sameNavigationOrigin(_ expected: String, _ actual: String) -> Bool {
+    guard actual.utf8.count <= 4000, !actual.contains("\\"),
+          !actual.unicodeScalars.contains(where: { $0.value < 33 }),
+          let a = URLComponents(string: expected), let b = URLComponents(string: actual),
+          b.user == nil, b.password == nil, b.fragment == nil,
+          let ah = a.host, let bh = b.host else { return false }
+    return a.scheme == b.scheme && ah.lowercased() == bh.lowercased() &&
+        (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+}
 
 func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
     var value: CFTypeRef?
@@ -533,6 +567,7 @@ struct ComputerObserver {
     @MainActor static var token = ""
     @MainActor static var lastText = ""
     @MainActor static var allowedURLs: [String] = []
+    @MainActor static var navigationPolicy: String?
     @MainActor static var deadline = Date.distantPast
     @MainActor static var calls = 0
 
@@ -560,6 +595,10 @@ struct ComputerObserver {
                     throw Blocked("invalid_session_url")
                 }
             }
+            if let policy = input["navigation_policy"] as? String {
+                guard policy == "same-origin-observed-v1", operation == "launch" else { throw Blocked("invalid_navigation_policy") }
+                navigationPolicy = policy
+            }
             allowedURLs = urls; deadline = Date().addingTimeInterval(Double(seconds))
             sessionRequest = request
             allowRefresh = input["allow_refresh"] as? Bool == true
@@ -578,6 +617,22 @@ struct ComputerObserver {
         }
         calls += 1
         guard var request = sessionRequest else { throw Blocked("session_not_bound") }
+        if operation == "observe" {
+            do {
+                let fresh = try await settledObservation(request)
+                request["expected_url"] = fresh["url"]
+                sessionRequest = request; token = UUID().uuidString
+                lastText = fresh["text"] as? String ?? ""
+                var observation = fresh; observation["protocol"] = protocolID; observation["ok"] = true
+                return ["observation": observation, "token": token, "refreshed": false, "action_executed": false]
+            } catch let error as Blocked {
+                guard observationSettlingErrors.contains(error.code) else { throw error }
+                // Exact rejection of a read, not a navigation/scroll receipt.
+                throw Blocked(error.code, observation: ["version": 1, "terminal": true,
+                    "operation": operation, "requested_url": input["observation_request"].flatMap { ($0 as? [String: Any])?["expected_url"] } ?? "",
+                    "target": request["target"]!, "token": input["token"] ?? "", "action_executed": false])
+            }
+        }
         if operation != "bind" && operation != "launch" {
             // Fresh validation before effects, without producing an extra image.
             var check = request; check["capture"] = false
@@ -676,7 +731,18 @@ struct ComputerObserver {
                    let area = try? webArea(window, bounds: rect), let actual = documentURL(area),
                    actual != request["expected_url"] as? String,
                    actual != sessionRequest?["expected_url"] as? String, actual != "about:blank", !actual.isEmpty {
-                    throw Blocked("unexpected_navigation_destination")
+                    // Rebind only the observed URL in this owned window/tab. The
+                    // next normal observation still verifies focus, tab, URL and
+                    // document stability. Never reissue navigation.
+                    let expected = request["expected_url"] as! String
+                    if navigationPolicy == "same-origin-observed-v1", sameNavigationOrigin(expected, actual) {
+                        request["expected_url"] = actual
+                    } else {
+                        throw Blocked("unexpected_navigation_destination", navigation: [
+                            "version": 1, "terminal": true, "operation": operation,
+                            "requested_url": input["observation_request"].flatMap { ($0 as? [String: Any])?["expected_url"] } ?? expected,
+                            "observed_url": actual, "target": request["target"]!, "action_executed": true])
+                    }
                 }
                 try await Task.sleep(for: .milliseconds(100))
             }
@@ -810,15 +876,13 @@ struct ComputerObserver {
     }
 
     @MainActor static func settledObservation(_ request: [String: Any]) async throws -> [String: Any] {
-        for attempt in 0..<5 {
-            do { return try await handle(request) }
-            catch let error as Blocked {
-                guard attempt < 4, ["document_changed_during_observation", "document_geometry_changed_during_observation"].contains(error.code) else { throw error }
+        return try await boundedObservation(
+            read: { try await handle(request) },
+            check: {
                 guard ownership?.halted != true else { throw Blocked("session_ownership_released") }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-        }
-        throw Blocked("dynamic_document_not_stable")
+                guard sessionRequest == nil || Date() < deadline else { throw Blocked("session_stale_or_expired") }
+            },
+            wait: { try await Task.sleep(for: .milliseconds(100)) })
     }
 
     // Read stdin off the main thread so AppKit buttons keep working while the
@@ -900,7 +964,7 @@ struct ComputerObserver {
         }
         guard let selected = request["target"] as? [String: Any],
               let pid = selected["pid"] as? Int, let number = selected["window_id"] as? Int,
-              let launch = selected["launch_id"] as? String, let expectedURL = request["expected_url"] as? String,
+              let launch = selected["launch_id"] as? String, var expectedURL = request["expected_url"] as? String,
               let parsed = URLComponents(string: expectedURL), let host = parsed.host,
               parsed.user == nil, parsed.password == nil, parsed.fragment == nil,
               parsed.scheme == "https" || ((request["local_fixture"] as? Bool) == true && parsed.scheme == "http" && ["127.0.0.1", "localhost", "::1"].contains(host)),
@@ -935,7 +999,13 @@ struct ComputerObserver {
                 throw Blocked("bound_tab_or_document_changed")
             }
         }
-        guard documentURL(area) == expectedURL else { throw Blocked("selected_document_url_changed_or_unavailable") }
+        if documentURL(area) != expectedURL {
+            guard sessionRequest != nil, navigationPolicy == "same-origin-observed-v1",
+                  let actual = documentURL(area), sameNavigationOrigin(expectedURL, actual) else {
+                throw Blocked("selected_document_url_changed_or_unavailable")
+            }
+            expectedURL = actual
+        }
         guard let areaFrame = frame(area) else { throw Blocked("document_bounds_unavailable") }
         let viewport = areaFrame.intersection(selectedWindow.frame)
         let before = readDocument(area, bounds: viewport)
@@ -1009,7 +1079,9 @@ struct ComputerObserver {
                 bytes.append(10); FileHandle.standardOutput.write(bytes)
             } catch {
                 let code = (error as? Blocked)?.code ?? "native_session_failed"
-                let result: [String: Any] = ["protocol": protocolID, "ok": false, "error": code]
+                var result: [String: Any] = ["protocol": protocolID, "ok": false, "error": code]
+                if let evidence = (error as? Blocked)?.navigation { result["navigation_failure"] = evidence }
+                if let evidence = (error as? Blocked)?.observation { result["observation_failure"] = evidence }
                 if var bytes = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
                     bytes.append(10); FileHandle.standardOutput.write(bytes)
                 }

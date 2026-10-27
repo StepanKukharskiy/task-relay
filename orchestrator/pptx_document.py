@@ -8,13 +8,17 @@ from .handoff_contracts import PPTX_SLIDES, PPTX_ELEMENTS
 
 MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 VERSION = '1.0.2'
+TITLE_MAX = 255
 DESCRIPTION = '''Version 1 slide specification: {version:1,title:string,slides:[
 {background?:"FFFFFF",notes?:string,elements:[...]}],size?:[width,height],font?:"Arial"}.
 Dimensions and x,y,w,h are inches; default size is [13.333333,7.5].
-Each element has type, x,y,w,h and optional name. Supported elements:
+Each element has type, x,y,w,h and optional name. Text, shape and image elements
+may include hyperlink: an absolute HTTPS purchase/source URL without credentials.
+The hyperlink is retained on the native object and checked after reopening. Supported elements:
 text: {text:string,font_size?:24,color?:"172B4D",bold?:false,align?:"left"|"center"|"right"}.
 shape: {shape:"rectangle"|"ellipse",fill?:"E8EEF5",color?:"172B4D",text?:string,font_size?:24,bold?:false,align?:"left"|"center"|"right"}.
-image: {path:exact staged PNG/JPEG input path,fit?:"contain"|"cover"}.
+image: {path:exact staged PNG/JPEG input path,fit?:"contain"|"cover",source_region?:[left,top,right,bottom]}.
+source_region uses normalized original-image coordinates with positive area; original pixels stay embedded.
 Default contain preserves the whole image; explicit cover center-crops to fill its box.
 Sourced image bundles from images.collect are also accepted: use
 the exact ZIP input path + "/" + the image member path in manifest.json. For
@@ -30,7 +34,7 @@ equally among rows and columns. Text-fit estimates are not rendered measurements
 report assumptions and distinguish confirmed errors from visual review notes.
 Limits: 1–50 slides, 1–50 elements/slide, 1000 elements/deck, 4000 characters/text,
 20x10 table cells (300 characters each), 50 chart categories and 8 series.
-No arbitrary code, URLs, native PPTX import, animations, or font installation.
+No arbitrary code, remote image loading, native PPTX import, animations, or font installation.
 Creation reopens and checks native objects, text, table/chart data and image bytes.
 These are structural checks, not visual layout approval or Keynote qualification.
 '''
@@ -70,6 +74,20 @@ def _color(value):
         raise ValueError('Use six-digit RGB colors.')
 
 
+def _hyperlink(value):
+    from urllib.parse import urlsplit
+    _text(value, 4096, False)
+    if any(ch.isspace() for ch in value) or any(ord(ch) < 32 for ch in value):
+        raise ValueError('Hyperlink must be an absolute HTTPS URL without credentials.')
+    try:
+        parsed = urlsplit(value)
+        valid = parsed.scheme == 'https' and parsed.hostname and not parsed.username and not parsed.password and parsed.port in (None, 443)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError('Hyperlink must be an absolute HTTPS URL without credentials.')
+
+
 def load(text):
     def unique(pairs):
         result = {}
@@ -83,11 +101,14 @@ def load(text):
 
 def validate(document, image_paths=()):
     document = expand(document)
-    _object(document, ('version', 'title', 'slides'), ('size', 'font'))
+    _object(document, ('version', 'title', 'slides'), ('size', 'font', 'asset_sha256'))
     if type(document['version']) is not int or document['version'] != 1:
         raise ValueError('Unsupported slide specification version.')
-    _text(document['title'], 300, False)
+    _text(document['title'], TITLE_MAX, False)
     _text(document.get('font', 'Arial'), 100, False)
+    bindings=document.get('asset_sha256',{})
+    if not isinstance(bindings,dict) or any(not isinstance(p,str) or not isinstance(h,str) or not re.fullmatch('[a-f0-9]{64}',h) for p,h in bindings.items()):
+        raise ValueError('Invalid document asset identities')
     size = document.get('size', [13.333333, 7.5])
     if not isinstance(size, list) or len(size) != 2:
         raise ValueError('Slide size must contain width and height.')
@@ -113,23 +134,35 @@ def validate(document, image_paths=()):
             fields = {
                 'text': (('text',), ('font_size', 'color', 'bold', 'align', 'font')),
                 'shape': (('shape',), ('fill', 'text', 'font_size', 'color', 'bold', 'align', 'font')),
-                'image': (('path',), ('fit',)),
-                'table': (('rows',), ('font_size', 'color', 'font')),
+                'image': (('path',), ('fit','source_region')),
+                'table': (('rows',), ('font_size', 'color', 'font', 'row_heights')),
                 'chart': (('chart', 'categories', 'series'), ()),
             }
             if kind not in fields:
                 raise ValueError('Unsupported presentation element type.')
             required, optional = fields[kind]
-            _object(item, ('type', 'x', 'y', 'w', 'h', *required), ('name', *optional))
+            _object(item, ('type', 'x', 'y', 'w', 'h', *required), ('name', *optional, *(('hyperlink',) if kind in ('text', 'shape', 'image') else ())))
+            if 'hyperlink' in item:
+                _hyperlink(item['hyperlink'])
             for key in ('x', 'y', 'w', 'h'):
                 _number(item[key], 0 if key in ('x', 'y') else 0.01, 40)
             if item['x'] + item['w'] > size[0] + 1e-6 or item['y'] + item['h'] > size[1] + 1e-6:
                 raise ValueError('Presentation element extends beyond slide bounds.')
             _text(item.get('name', ''), 100)
+            if 'row_heights' in item:
+                heights=item['row_heights']
+                if not isinstance(heights,list) or len(heights)!=len(item['rows']):raise ValueError('Table row heights must match rows')
+                for height in heights:_number(height,.01,40)
+                if abs(sum(heights)-item['h'])>1e-6:raise ValueError('Table row heights exceed its box')
             if 'font_size' in item:
                 _number(item['font_size'], 8, 96)
             if 'font' in item:
                 _text(item['font'],100,False)
+            if 'source_region' in item:
+                region=item['source_region']
+                if not isinstance(region,list) or len(region)!=4:raise ValueError('Image source region needs four normalized coordinates')
+                for value in region:_number(value,0,1)
+                if region[0]>=region[2] or region[1]>=region[3]:raise ValueError('Image source region must have positive area')
             if 'fit' in item and item['fit'] not in ('contain','cover'):
                 raise ValueError('Image fit must be contain or cover.')
             for key in ('color', 'fill'):
@@ -181,11 +214,13 @@ def validate(document, image_paths=()):
 def validator_source():
     """Freeze the actual stdlib schema checker for isolated draft/review workers."""
     import inspect
-    from .slide_templates import CATALOG, STYLES, COLLECTION_LAYOUTS, grid_pages
-    functions=(relative,_object,_text,_number,_color,load,validate)
-    compiler=inspect.getsource(grid_pages).replace('    from .pptx_document import _object, _text\n','')+'\n'+inspect.getsource(expand).replace('    from .pptx_document import _object, _text, _color, _number\n','')
-    return ('import json, math, re, sys, copy\nfrom pathlib import PurePosixPath\n\n'+
-            'PPTX_SLIDES = '+repr(PPTX_SLIDES)+'\nPPTX_ELEMENTS = '+repr(PPTX_ELEMENTS)+'\n'+
+    from .slide_templates import CATALOG, STYLES, COLLECTION_LAYOUTS, grid_pages, card_pages, table_pages
+    functions=(relative,_object,_text,_number,_color,_hyperlink,load,validate)
+    compiler=inspect.getsource(grid_pages).replace('    from .pptx_document import _object, _text\n','')+'\n'+inspect.getsource(card_pages).replace('    from .pptx_document import _object, _text, _hyperlink\n','')+'\n'+inspect.getsource(expand).replace('    from .pptx_document import _object, _text, _color, _number, TITLE_MAX\n','').replace('    from .table_layout import paginate_text\n','')
+    from . import table_layout
+    compiler=inspect.getsource(table_layout).replace('import math','').replace('import re','').replace('import unicodedata','')+'\n'+inspect.getsource(table_pages).replace('    from .pptx_document import _object,_text\n','').replace('    from .table_layout import pages\n','')+'\n'+compiler
+    return ('import json, math, re, sys, copy, unicodedata\nfrom pathlib import PurePosixPath\n\n'+
+            'TITLE_MAX = '+repr(TITLE_MAX)+'\nPPTX_SLIDES = '+repr(PPTX_SLIDES)+'\nPPTX_ELEMENTS = '+repr(PPTX_ELEMENTS)+'\n'+
             'CATALOG = '+repr(CATALOG)+'\nSTYLES = '+repr(STYLES)+'\nCOLLECTION_LAYOUTS = '+repr(COLLECTION_LAYOUTS)+'\n\n'+compiler+'\n\n'+
             '\n\n'.join(inspect.getsource(f) for f in functions)+
             '\nif __name__ == "__main__":\n'
@@ -239,16 +274,60 @@ def _inspect_notes_master(deck):
         raise ValueError('PPTX reopen failed: notes master registration is out of order.')
 
 
-def create(document, images=None, max_bytes=50000000, bundles=None):
-    """Return checked PPTX bytes and structural evidence, before any output write."""
-    available()
+def prepare(document, images=None, bundles=None):
+    """Validate the same expanded inputs used by creation, without producing a deck."""
     from .slide_templates import expand
     document = expand(document)
-    images = images or {}
+    images = dict(images or {})
     if bundles:
         from .image_sources import presentation_inputs
         document,images=presentation_inputs(document,images,bundles)
+    import hashlib
+    bindings=document.get('asset_sha256',{})
+    # Validate the authored envelope before resolving code-owned staged aliases.
+    # A saved pixel identity can follow the same bytes into a different node;
+    # names alone never authorize a substitute or an undeclared filesystem read.
+    validate(document, set(images) | (set(bindings) if isinstance(bindings,dict) else set()))
+    by_hash={hashlib.sha256(raw).hexdigest():raw for raw in images.values()}
+    for path,digest in bindings.items():
+        if path not in images and digest in by_hash:
+            images[path]=by_hash[digest]
+        if path not in images or hashlib.sha256(images[path]).hexdigest()!=digest:
+            raise ValueError('Saved document image version changed: '+path)
     validate(document, images)
+    from PIL import Image
+    for raw in images.values():
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.format not in ('PNG', 'JPEG') or image.width * image.height > 40000000:
+                raise ValueError('Only bounded PNG/JPEG images are supported.')
+            image.verify()
+    return document, images
+
+
+def preflight_inputs(inputs):
+    manifests=[i for i in inputs if i.get('media_type')=='application/json']
+    if len(manifests)!=1:
+        raise ValueError('PPTX creation requires exactly one JSON slide specification.')
+    images={i['path']:i['blob'].read_bytes() for i in inputs if i.get('media_type') in ('image/png','image/jpeg')}
+    bundles={i['path']:i['blob'].read_bytes() for i in inputs if i.get('media_type')=='application/zip'}
+    return prepare(load(manifests[0]['blob'].read_text()),images,bundles)
+
+
+def image_region(item,width,height):
+    left,top,right,bottom=item.get('source_region',[0,0,1,1])
+    if item.get('fit','contain')=='cover':
+        ratio=width*(right-left)/(height*(bottom-top));target=item['w']/item['h']
+        if ratio>target:
+            inset=(right-left)*(1-target/ratio)/2;left+=inset;right-=inset
+        else:
+            inset=(bottom-top)*(1-ratio/target)/2;top+=inset;bottom-=inset
+    return left,top,right,bottom
+
+
+def create(document, images=None, max_bytes=50000000, bundles=None):
+    """Return checked PPTX bytes and structural evidence, before any output write."""
+    available()
+    document, images = prepare(document, images, bundles)
     from pptx import Presentation
     from pptx.chart.data import CategoryChartData
     from pptx.dml.color import RGBColor
@@ -278,6 +357,21 @@ def create(document, images=None, max_bytes=50000000, bundles=None):
         frame.margin_left = frame.margin_right = Inches(0.06)
         frame.margin_top = frame.margin_bottom = Inches(0.03)
         for paragraph in frame.paragraphs:
+            # Preserve literal text while making supplied HTTPS citations usable.
+            # No URL discovery, rewriting or inference of source support occurs.
+            literal=paragraph.text
+            matches=list(re.finditer(r'https://[^\s<>]+',literal))
+            if matches:
+                paragraph.clear();position=0
+                for match in matches:
+                    url=match.group().rstrip('.,;')
+                    if match.start()>position:paragraph.add_run().text=literal[position:match.start()]
+                    run=paragraph.add_run();run.text=url
+                    try:_hyperlink(url)
+                    except ValueError:pass
+                    else:run.hyperlink.address=url
+                    position=match.start()+len(url)
+                if position<len(literal):paragraph.add_run().text=literal[position:]
             paragraph.font.name = item.get('font', document.get('font', 'Arial'))
             paragraph.font.size = Pt(item.get('font_size', default_size))
             paragraph.font.bold = item.get('bold', False)
@@ -302,20 +396,26 @@ def create(document, images=None, max_bytes=50000000, bundles=None):
                 shape.fill.fore_color.rgb = RGBColor.from_string(item.get('fill', 'E8EEF5'))
                 shape.line.fill.background()
                 text(shape.text_frame, item.get('text', ''), item)
+                if item['shape']=='ellipse' and item.get('text','').isdigit():
+                    # The ellipse's inscribed text area is narrower than its
+                    # bounding box. Preserve short numeric diagram markers.
+                    shape.text_frame.margin_left=shape.text_frame.margin_right=0
+                    shape.text_frame.word_wrap=False
             elif kind == 'image':
                 iw, ih = dimensions[item['path']]
+                region=image_region(item,iw,ih);left,top,right,bottom=region
                 if item.get('fit','contain')=='cover':
                     shape=slide.shapes.add_picture(io.BytesIO(images[item['path']]),*box)
-                    ratio=iw/ih;target=box[2]/box[3]
-                    if ratio>target:shape.crop_left=shape.crop_right=(1-target/ratio)/2
-                    else:shape.crop_top=shape.crop_bottom=(1-ratio/target)/2
                 else:
-                    scale = min(box[2] / iw, box[3] / ih)
-                    w, h = round(iw * scale), round(ih * scale)
-                    shape = slide.shapes.add_picture(io.BytesIO(images[item['path']]), round(box[0] + (box[2] - w) / 2), round(box[1] + (box[3] - h) / 2), w, h)
+                    iw*=right-left;ih*=bottom-top
+                    scale=min(box[2]/iw,box[3]/ih);w,h=round(iw*scale),round(ih*scale)
+                    shape=slide.shapes.add_picture(io.BytesIO(images[item['path']]),round(box[0]+(box[2]-w)/2),round(box[1]+(box[3]-h)/2),w,h)
+                shape.crop_left=left;shape.crop_top=top;shape.crop_right=1-right;shape.crop_bottom=1-bottom
             elif kind == 'table':
                 rows = item['rows']
                 shape = slide.shapes.add_table(len(rows), len(rows[0]), *box)
+                if 'row_heights' in item:
+                    for r,height in enumerate(item['row_heights']):shape.table.rows[r].height=Inches(height)
                 for r, row in enumerate(rows):
                     for col, value in enumerate(row):
                         cell = shape.table.cell(r, col)
@@ -331,6 +431,8 @@ def create(document, images=None, max_bytes=50000000, bundles=None):
                 shape.chart.has_legend = len(item['series']) > 1
                 shape.chart.font.name = document.get('font', 'Arial')
                 shape.chart.font.size = Pt(16)
+            if 'hyperlink' in item:
+                shape.click_action.hyperlink.address = item['hyperlink']
             shape.name = item.get('name') or f'{kind}-{index + 1}'
     _register_notes_master(deck)
     buffer = io.BytesIO()
@@ -362,12 +464,29 @@ def inspect(raw, document, images):
         for shape, item in zip(slide.shapes, spec['elements']):
             kind = item['type']
             counts[kind] += 1
+            if kind in ('text', 'shape', 'image') and shape.click_action.hyperlink.address != item.get('hyperlink'):
+                raise ValueError('PPTX reopen failed: purchase/source hyperlink changed.')
             if kind in ('text', 'shape') and (not shape.has_text_frame or shape.text != item.get('text', '')):
                 raise ValueError('PPTX reopen failed: editable text changed.')
+            if kind in ('text','shape'):
+                expected=[]
+                for match in re.finditer(r'https://[^\s<>]+',item.get('text','')):
+                    url=match.group().rstrip('.,;')
+                    try:_hyperlink(url)
+                    except ValueError:continue
+                    expected.append((url,url))
+                actual=[(run.text,run.hyperlink.address) for paragraph in shape.text_frame.paragraphs
+                        for run in paragraph.runs if run.hyperlink.address]
+                if actual!=expected:raise ValueError('PPTX reopen failed: literal source hyperlink changed.')
             if kind == 'table':
                 rows = [[cell.text for cell in row.cells] for row in shape.table.rows] if shape.has_table else None
                 if rows != item['rows']:
                     raise ValueError('PPTX reopen failed: editable table data changed.')
+                if 'row_heights' in item:
+                    if any(abs(row.height-Inches(height))>2 for row,height in zip(shape.table.rows,item['row_heights'])) or shape.top+shape.height>deck.slide_height:
+                        raise ValueError('PPTX reopen failed: table row geometry changed or clipped')
+                    if any(p.font.size is None or abs(p.font.size.pt-item['font_size'])>.01 for row in shape.table.rows for cell in row.cells for p in cell.text_frame.paragraphs):
+                        raise ValueError('PPTX reopen failed: table typography changed')
             if kind == 'chart':
                 if not shape.has_chart or list(shape.chart.plots[0].categories) == []:
                     raise ValueError('PPTX reopen failed: missing chart.')
@@ -379,8 +498,12 @@ def inspect(raw, document, images):
                     for actual, expected in zip(series, item['series']))
                 if labels != item['categories'] or not matches:
                     raise ValueError('PPTX reopen failed: editable chart data changed.')
-            if kind == 'image' and shape.image.blob != images[item['path']]:
-                raise ValueError('PPTX reopen failed: image content changed.')
+            if kind == 'image':
+                if shape.image.blob!=images[item['path']]:raise ValueError('PPTX reopen failed: image content changed.')
+                from PIL import Image
+                with Image.open(io.BytesIO(images[item['path']])) as original:region=image_region(item,*original.size)
+                actual=(shape.crop_left,shape.crop_top,1-shape.crop_right,1-shape.crop_bottom)
+                if any(abs(a-b)>0.000011 for a,b in zip(actual,region)):raise ValueError('PPTX reopen failed: image source region changed.')
     return {'slide_count': len(deck.slides), 'native_objects': counts, 'reopened': True,
             'visual_review': 'not_performed', 'keynote_import': 'not_tested', 'python_pptx': VERSION,
             'chart_numeric_relative_tolerance': 1e-14}

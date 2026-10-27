@@ -55,6 +55,8 @@ def initialize(db,legacy=None):
         if statement.strip():db.execute(statement)
     from .operation_records import initialize as initialize_records
     initialize_records(db)
+    from .verification import initialize as initialize_verifications
+    initialize_verifications(db)
     db.execute('CREATE TABLE IF NOT EXISTS storage_migrations(id TEXT PRIMARY KEY, applied REAL NOT NULL, evidence TEXT NOT NULL)')
 
 

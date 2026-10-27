@@ -90,6 +90,10 @@ def current(state, run):
     if view.get('deferred_operations') and view['status'] in ('active','awaiting_user','completed'):
         lines[1]='Preparation in progress; execution pending' if view['status']=='active' else 'Preparation ready; execution pending'
     lines.append('Outcome: '+view['brief'])
+    if view.get('delivery'):
+        from orchestrator.partial_delivery import lines as delivery_lines
+        lines[1]='Partial delivery — unresolved issues require attention'
+        lines.extend(['']+delivery_lines(view['delivery']))
     from . import production_review_corrections
     correction=production_review_corrections.text(state,run)
     if correction:lines.extend(['',correction])
@@ -101,15 +105,18 @@ def current(state, run):
         from .workflow_files import location_text
         lines.append(location_text(state,owner['id']))
     if view.get('deferred_operations'):lines.append(pc.pending_execution_text(view,workflow).lstrip())
-    if view['status']=='paused':lines.append('Running workers may finish. Further tasks wait for Resume.')
-    if view['status']=='cancelled' and any(t['attempt_state'] in ('launching','running','cancelling','uncertain') for t in view['tasks']):
+    control_status=view.get('settlement',{}).get('terminal_outcome',view['status'])
+    if view.get('settlement'):lines.append('Collecting already-dispatched results; scheduling stopped: '+control_status+'. No new work will start.')
+    if control_status=='paused':lines.append('Running workers may finish. Further tasks wait for Resume.')
+    if control_status=='cancelled' and any(t['attempt_state'] in ('launching','running','cancelling','uncertain') for t in view['tasks']):
         lines.append('Worker termination is not yet confirmed. Cancellation remains pending; no new task will start.')
     if requested!=run:lines.append('Current continuation of '+requested)
     if history:lines.append('Earlier stages: '+', '.join(history))
     for task in view['tasks']:
         status=task['status']
         if status=='queued':
-            if not task['runnable']:
+            if view.get('settlement'):status='Queued; scheduling stopped while dispatched work drains'
+            elif not task['runnable']:
                 status='Waiting for '+', '.join(d['task']+' ('+d['status']+')' for d in task['dependencies'])
             else:status='Queued to start' if view['scheduler_enabled'] else 'Queued; scheduling is off'
         elif status=='running':status='Running'
@@ -143,7 +150,7 @@ def current(state, run):
     if not stamp or time.time()-stamp>30:
         lines.append('Scheduler heartbeat is unavailable or stale; these are the latest recorded states, not proof of live execution.')
     lines.append('Checked '+datetime.now(timezone.utc).strftime('%H:%M:%S UTC'))
-    if view['status']=='completed':
+    if view['status']=='completed' or view.get('delivery'):
         from .result_handoff import saved_text
         try:
             handoff=saved_text(state,run)

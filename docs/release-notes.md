@@ -1,53 +1,22 @@
-# Task Relay 0.13.155
+# Task Relay 0.13.318
 
-Mac beta with the current desktop workspace, universal request intake, new Codex
-project tasks, Grasshopper definition authoring and the latest recovery fixes.
-This release includes the merged desktop changes since 0.13.89.
+Mac beta with the latest canvas workspace, editable nodes and a bundled job template.
 
 ## What changed
 
-- Requests retain their outcomes, output counts, formats and validation criteria
-  before routing. Large work can use bounded stages and independent reviews.
-  Oversized or rejected provider replies remain available for read-only recovery.
-- Create new Codex tasks in saved projects, including projects without existing
-  chats. Original requests, selected files and uncertain submission receipts are
-  preserved; work starts only within the requested scope.
-- The desktop workspace brings jobs, workflow steps, results, review and version
-  history together. Shared plans retain their delivery channel, exact Start
-  decisions and recovery records. Saved work has reviewed removal and restoration.
-- Create new Grasshopper definitions in Rhino 7/8 on macOS with reviewed Python.
-  Native .gh and .ghx candidates are independently reopened and solved. Editing
-  existing definitions and visual/geometric fidelity are outside this operation.
-- Browser/computer work, reusable workflow procedures, research campaigns and
-  reviewed revisions retain bounded permissions and exact artifact handoffs.
-- Fix Codex attachment album continuations, migration of inert provider defaults,
-  and core startup without optional YAML support. Nondefault provider settings
-  still require migration review. Regression coverage is included in CI.
+- Jobs, Chat, Results and History share the latest canvas interface, with editable nodes, named input/output connections, saved versions and workflow import/export.
+- Jobs → Templates now includes **Cellular aggregation · from Chat**. Use template creates a fresh editable 11-node job: Perplexity research → Codex preparation → Blender pavilion and growth animation → Gemini visualization → editable PowerPoint. Configure the required connections and review Run before execution; selecting a template does not start work or authorize paid calls.
+- Includes the accumulated registered-operation, evidence handoff, native execution, recovery and Blender animation improvements since 0.13.155. Historical attempts and uncertain submissions retain their original records and limits.
+- Desktop and Python packages include node icons, node schemas, request limits and template assets alongside the updated UI.
 
 ## Install or upgrade
 
-For Apple Silicon Macs running macOS 14 or later, download
-Task-Relay-0.13.155-arm64.dmg. Quit Task Relay, replace the app in Applications,
-and reopen it. Keep the same saved data folder.
+For Apple Silicon Macs running macOS 14 or later, download Task-Relay-0.13.318-arm64.dmg. Quit Task Relay, replace the app in Applications and reopen it, keeping the same data folder.
 
-Compatible apps from 0.13.26 onward can use Settings → App updates. Enable
-Include beta releases, then Check for updates → Download update → Install and
-restart. Earlier apps need the manual DMG installation and any offered service
-handoff. The matching CLI source includes install.sh; a wheel does not update the app.
+Existing compatible apps can use Settings → App updates: enable **Include beta releases**, then **Check for updates → Download update → Install and restart**. The release includes the signed app update ZIP and matching manifest; a wheel alone does not update the desktop interface.
 
-This is a locally signed beta without Apple Developer ID or notarization. It uses
-the existing signing identity for compatible in-app updates. macOS may require
-Privacy & Security → Open Anyway and refreshed permissions. No Windows or Intel
-Mac installer is included. Native applications and optional renderers need their
-own installation, access and qualification.
+This is a locally signed beta, without Apple Developer ID notarization. Native applications and provider connections require their own installation and setup. Windows and Intel Mac installers are not included.
 
 ## Validation scope
 
-Controlled release validation passed 106 Python tests and 11 website/updater
-JavaScript tests. Prior merged-source CI covers affected orchestration and
-recovery contracts. Packaging checks
-verify matching versions, bundled dependencies, exact runtime source hashes,
-existing signing identity, image integrity and asset checksums. Grasshopper has
-controlled and earlier fixed native-fixture qualification on Rhino 7/8; no new
-installed-app Grasshopper run, paid provider job, messenger delivery, clean-host
-installation or user acceptance is claimed by this release.
+Controlled checks cover template selection and draft isolation, canvas UI contracts, packaging, updater recovery and the complete offline lifecycle matrix. Results are recorded during release preparation. These fixtures do not establish live provider quality, clean-host installation or successful execution of the template on every machine.

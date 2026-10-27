@@ -40,7 +40,7 @@ class ChannelTests(unittest.TestCase):
             self.state.db.execute('INSERT INTO outbox(id,text) VALUES (?,?)', (ident, text))
             self.state.db.execute('INSERT INTO relay_event_channels VALUES (?,?)', (ident, channel))
 
-    def test_paused_replies_survive_restart_and_keep_their_destination(self):
+    def test_resume_keeps_old_telegram_replies_local_and_preserves_other_destination(self):
         self.queue('tg')
         self.queue('msg', 'messages')
         self.change(paused=True)
@@ -49,8 +49,11 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(policy.load(self.paths.state)['paused'], True)
         self.change(paused=False)
         self.bridge.flush()
+        self.assertEqual(self.telegram.sent, [])
+        self.queue('fresh')
         self.bridge.flush()
         self.assertEqual(self.telegram.sent, [(123, 'Result')])
+        self.assertEqual(self.state.db.execute("SELECT sent FROM outbox WHERE id='tg'").fetchone()[0], 0)
         self.assertEqual(self.state.db.execute("SELECT sent FROM outbox WHERE id='msg'").fetchone()[0], 0)
 
     def test_stale_and_invalid_edits_do_not_overwrite_saved_policy(self):
@@ -134,7 +137,8 @@ class ChannelTests(unittest.TestCase):
         self.change(channel='telegram', enabled=True)
         self.bridge.flush_media()
         self.bridge.flush_media()
-        self.assertEqual(self.telegram.media, [('original', b'Small attachment')])
+        self.assertEqual(self.telegram.media, [])
+        self.assertEqual(self.state.db.execute('SELECT status,attempts FROM media_outbox').fetchone()[:], ('pending', 0))
 
     def test_transport_rechecks_after_pacing_and_before_messages_subprocess(self):
         pacer = Mock()
@@ -153,7 +157,7 @@ class ChannelTests(unittest.TestCase):
         network.assert_not_called()
         process.assert_not_called()
 
-    def test_pause_between_parts_resumes_only_remaining_text(self):
+    def test_pause_between_parts_keeps_remaining_old_text_local(self):
         self.queue('parts', text=('One sentence. ' * 700))
         original = self.telegram.send
         def send(*args, **kwargs):
@@ -169,9 +173,9 @@ class ChannelTests(unittest.TestCase):
         self.bridge.flush()
         delivered = list(self.telegram.sent)
         self.bridge.flush()
-        self.assertGreater(len(delivered), 1)
+        self.assertEqual(len(delivered), 1)
         self.assertEqual(self.telegram.sent, delivered)
-        self.assertEqual(self.state.db.execute("SELECT count(*) FROM outbox_parts WHERE sent=0").fetchone()[0], 0)
+        self.assertGreater(self.state.db.execute("SELECT count(*) FROM outbox_parts WHERE sent=0").fetchone()[0], 0)
 
     def test_known_messages_pause_is_pending_but_ambiguous_send_is_not_replayed(self):
         with self.state.db:

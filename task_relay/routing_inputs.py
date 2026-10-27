@@ -177,6 +177,20 @@ def freeze_uploads(state,job,ids):
     return [{**r,**m} for r,m in zip(records,metadata)]
 
 
+def desktop_files(state, request_id):
+    """Read this request's captured attachments, never re-read changing originals."""
+    row=state.db.execute('''SELECT i.manifest FROM desktop_plan_inputs i
+        JOIN desktop_plan_requests r ON r.request_id=i.request_id WHERE r.job_id=?''',
+        (request_id,)).fetchone()
+    if not row:return []
+    records=json.loads(row['manifest'])
+    import mimetypes
+    for record in records:
+        handoff(state,dict(id=request_id,cwd=record['project'],input_manifest=json.dumps([record])))
+        record['media_type']=mimetypes.guess_type(record['name'])[0] or 'application/octet-stream'
+    return records
+
+
 def guide_paths(project,prompt,state=None):
     from task_relay.guide_discovery import discover
     return [(Path(d['source']),d['name']) for d in discover(project,prompt,state)['guides']]
@@ -281,7 +295,7 @@ def artifact_catalog(state):
             row=state.db.execute("SELECT a.*,j.status,w.title FROM artifacts a JOIN backend_jobs j ON j.id=a.job_id JOIN watched w ON w.id=a.thread_id WHERE a.id=? AND a.role='output'",(ident[6:],)).fetchone()
             if row:result.append(dict(id=ident,run=row['thread_id'],task='media',attempt=row['job_id'],path=row['filename'],sha256=row['sha256'],bytes=row['size'],purpose=row['title'],attempt_state=row['status'],display_name=row['filename'],media_type=row['mime']))
         else:
-            row=state.db.execute("SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,t.state AS attempt_state FROM production_artifacts a JOIN production_attempts t ON t.id=a.attempt WHERE a.id=?",(ident,)).fetchone()
+            row=state.db.execute("SELECT a.id,a.run,a.task,a.attempt,a.path,a.sha256,a.bytes,a.purpose,t.state AS attempt_state FROM production_artifacts a LEFT JOIN production_attempts t ON t.id=a.attempt WHERE a.id=?",(ident,)).fetchone()
             if row:result.append({**dict(row),'display_name':artifact_filename(state,dict(row))})
     return result
 
@@ -293,6 +307,10 @@ def validate_artifact_ids(ids, artifacts):
 
 
 def freeze_artifacts(state,job,ids):
+    # Native dispatch may receive the shared State rather than a channel view.
+    # Resolve the durable request channel before selecting retained inputs.
+    from . import relay_channels
+    state=relay_channels.ScopedState(state,relay_channels.request_channel(state,job['id']))
     artifacts=artifact_catalog(state)
     # Other callers (e.g. planning) still support conversation-only snapshots.
     if ids is None:return []

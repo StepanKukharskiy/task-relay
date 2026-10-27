@@ -252,8 +252,9 @@ class Workspace:
         if len(raw) > pdf_reader.MAX_BYTES or not raw.startswith(b'%PDF-'):
             raise FileToolError('Choose a PDF file no larger than 20 MB.')
         try:
-            result = subprocess.run([sys.executable, str(Path(pdf_reader.__file__).resolve()),
-                                     json.dumps(arguments)], input=raw, capture_output=True, timeout=15)
+            from . import runtime_process
+            result = subprocess.run(runtime_process.command(sys.executable,Path(pdf_reader.__file__).resolve(),
+                                     json.dumps(arguments)), input=raw, capture_output=True, timeout=15)
         except subprocess.TimeoutExpired:
             raise FileToolError('PDF extraction exceeded 15 seconds. No text was returned; no automatic retry was made.') from None
         if result.returncode or len(result.stdout) > 128000:

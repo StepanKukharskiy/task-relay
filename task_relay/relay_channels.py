@@ -58,11 +58,13 @@ def event_channel(state, event_id, thread_id=None, rowid=None):
 
 
 def pending(state, channel, limit=20, *, exclude_ids=()):
-    from .channel_policy import read
+    from .channel_policy import read, event_allowed
     proactive = read(state.db)['proactive']
     result = []
     for row in state.db.execute('SELECT rowid,* FROM outbox WHERE sent=0 ORDER BY rowid'):
         if row['id'] in exclude_ids:
+            continue
+        if not event_allowed(state.db, channel, row['id']):
             continue
         if row['id'].startswith('proactive:') and proactive == 'none':
             continue

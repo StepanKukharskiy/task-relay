@@ -98,17 +98,50 @@ class DirectTests(unittest.TestCase):
         with self.assertRaisesRegex(advice.AdviceError,'must agree'):
             advice.validate(json.dumps(invalid),REQUEST)
 
-    def test_exploration_cannot_silently_become_a_full_build_reply(self):
+    def test_explicit_source_choice_owns_advisory_fields_only(self):
+        for action in ({'kind':'plan_pipeline','stage_details':[{'id':'parts','capabilities':['web.sources']}]},
+                       {'kind':'plan_production','research_mode':'sources'}):
+            value=self.value();value['action']=action
+            raw=json.dumps(value);compiled,receipt=advice.bind_research_choice(raw,'sources')
+            self.assertEqual(json.loads(compiled)['action'],action)
+            self.assertEqual(json.loads(compiled)['answer'],value['answer'])
+            self.assertEqual(json.loads(raw),value)
+            self.assertFalse(receipt['action_changed'])
+            self.assertEqual(advice.bind_research_choice(raw,'suggest'),(raw,None))
+            self.assertEqual(advice.bind_research_choice(raw,'none'),(raw,None))
+        properties=advice.response_definition('Research and deliver a report',[],research_mode='sources')['parameters']['properties']['research_advice']['properties']
+        self.assertEqual(properties['recommended_mode']['enum'],['sources'])
+        self.assertEqual(properties['requirement']['enum'],['required'])
+
+    def test_exploration_style_is_not_an_authorization_boundary(self):
         value=self.value();value['answer']='Follow this step-by-step firmware implementation guide.'
-        with self.assertRaisesRegex(advice.AdviceError,'exploratory'):
-            advice.validate(json.dumps(value),REQUEST)
+        raw=json.dumps(value)
+        self.assertEqual(advice.validate(raw,REQUEST),raw)
         value['answer']='A'*2201
         # Concision is constrained in the runtime-owned response schema; a longer
         # non-executing compatible reply is preserved, rather than replayed.
         advice.validate(json.dumps(value),REQUEST)
-        self.assertEqual(advice.response_definition(REQUEST,[])['parameters']['properties']['answer']['maxLength'],2200)
+        self.assertEqual(advice.response_definition(REQUEST,[])['parameters']['properties']['answer']['maxLength'],advice.MAX_DIRECT_ANSWER_CHARACTERS)
         # An explicit implementation request retains its own scope.
         advice.validate(json.dumps(value),'Write a full implementation guide.')
+
+    def test_marketing_bill_of_materials_answer_is_delivered_without_dispatch_or_retry(self):
+        request='Any ideas for marketing and distribution without social media?'
+        value=self.value();value['answer']='Specifier & Bill-of-Materials Loops: getting specified in project plans can expose a product to contractors.'
+        value['answer_basis']='supplied_context';value['claim_sources']=[]
+        self.message(request)
+        raw=json.dumps(value)
+        with patch.object(chat.gemini,'DATA',Path(self.temp.name)), patch.object(chat.gemini,'read_config',return_value={'api_key':'fixture'}), patch.object(chat.gemini,'Client') as client:
+            client.return_value.request.side_effect=[intake.response('gemini'),{'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':raw}]}}]}]
+            worker=chat.Worker(self.state);worker.tick();worker.tick()
+            self.assertEqual(client.return_value.request.call_count,2)
+        row=self.state.db.execute('SELECT * FROM orchestrator_chats').fetchone()
+        self.assertEqual(row['status'],'answered',row['answer'])
+        self.assertIn(value['answer'],row['answer'])
+        self.assertEqual(json.loads(row['response'])['answer'],value['answer'])
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],0)
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM orchestrator_proposals').fetchone()[0],0)
+        self.assertEqual(self.telegram.sent,[])
 
 
 class SourceTests(unittest.TestCase):

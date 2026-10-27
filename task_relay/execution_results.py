@@ -113,7 +113,7 @@ def production(r, e, ident):
             e['validation']['checks'].append(item)
             e['issues'].extend(item['data'].get('result', {}).get('findings', []))
     e['assignment']['specification_sha256'] = ws.digest(spec)
-    for table in ('operation_record_sets', 'operation_records', 'operation_submissions'):
+    for table in ('operation_record_sets', 'operation_records', 'operation_submissions','operation_record_versions','operation_record_resumes'):
         rows = r.rows(table, 'attempt=?', (ident,), optional=True)
         if rows:
             e['evidence'].append({'kind': table, 'basis': 'saved_typed_operation_records', 'records': rows})

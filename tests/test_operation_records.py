@@ -57,7 +57,7 @@ class Tests(unittest.TestCase):
                 ([self.audit['claims'][1],dict(self.audit['claims'][2],supports=[{'observation':'foreign','quote':'invented'}])],'mixed',1)]:
             with self.assertRaises(ValueError):self.submit(values,key,revision)
         self.assertEqual(self.store.progress()['committed'],1)
-        with self.assertRaisesRegex(ValueError,'completion'):self.store.export(self.files,complete=True)
+        with self.assertRaisesRegex(ValueError,'Incomplete operation record set'):self.store.export(self.files,complete=True)
         self.submit(self.audit['claims'][1:],'next',1)
         self.assertEqual(self.store.progress()['remaining'],0)
 
@@ -79,14 +79,17 @@ class Tests(unittest.TestCase):
         from orchestrator import executors
         control=self.root/'control';control.mkdir()
         atomic(control/'launch.json',dict(credential_fingerprint=executors.fingerprint(CONFIG,BACKEND)))
-        model=Mock();model.request.side_effect=[response('operation_submit',dict(request_key='first',revision=0,records=self.audit['claims'])),
+        model=Mock();model.request.side_effect=[response('operation_submit',dict(request_key='first',revision=0,records_json=json.dumps(self.audit['claims']))),
             response('finish',dict(report_json=json.dumps(report(self.frozen))))]
         result=execute(self.frozen,control,model,lambda:(CONFIG,BACKEND))
         self.assertEqual(result['decision'],'accept');self.assertEqual(model.request.call_count,2)
         declaration=next(t for t in model.request.call_args_list[0].args[1]['tools'][0]['functionDeclarations'] if t['name']=='operation_submit')
-        self.assertNotIn('parameters',declaration)
-        self.assertFalse(declaration['parametersJsonSchema']['additionalProperties'])
-        self.assertEqual(declaration['parametersJsonSchema']['properties']['records']['maxItems'],3)
+        self.assertNotIn('parametersJsonSchema',declaration)
+        wire=declaration['parameters']
+        self.assertEqual(wire['properties']['records_json']['type'],'string')
+        fragment=json.loads(wire['properties']['records_json']['description'].partition('schema: ')[2])
+        self.assertEqual(fragment,contracts.tool(self.frozen['operation_contract'])['parameters']['properties']['records'])
+        self.assertEqual(fragment['maxItems'],3)
         self.store.verify_export(lambda p:(self.root/p).read_bytes())
         self.assertTrue((self.root/'review.md').is_file())
 
@@ -183,7 +186,7 @@ class Tests(unittest.TestCase):
             research=dict(mode='discovery',parameters=dict(entity_type='supplier',required_fields=['product'],max_records=2)))
         for t in p['tasks']:t['limits']['provider_requests']=16
         research_quality.bind(p,'Discover suppliers.',structured=True)
-        frozen={**producer,'assignment_id':'candidate-fixture','workspace':str(self.root),
+        frozen={**producer,'backend':BACKEND.copy(),'assignment_id':'candidate-fixture','workspace':str(self.root),
                 'operation_store':self.frozen['operation_store']}
         self.db.execute('INSERT INTO production_attempts VALUES (?,?,?,?,?,?,?,?,?,?)',
             ('candidate-fixture','run','produce','candidate-version','running',None,json.dumps(frozen),'{}',None,None))
@@ -236,7 +239,7 @@ class Tests(unittest.TestCase):
                 atomic(control/'launch.json',dict(credential_fingerprint=executors.fingerprint(config,f['backend'])))
                 def reply(name,args,index):
                     if provider=='gemini':
-                        return response(name,dict(report_json=json.dumps(args)) if name=='finish' else args)
+                        return response(name,dict(report_json=json.dumps(args)) if name=='finish' else {**{k:v for k,v in args.items() if k!='records'},'records_json':json.dumps(args['records'])})
                     return tool_response(provider,name,args,call_id=str(index))
                 good=dict(request_key='same-records',revision=0,records=self.audit['claims'])
                 bad=copy.deepcopy(good);bad['records'][0]['supports'][0]['quote']='Fabricated source text'
@@ -252,11 +255,13 @@ class Tests(unittest.TestCase):
                 payload=model.request.call_args_list[0].args[1]
                 if provider=='gemini':
                     wire=next(t for t in payload['tools'][0]['functionDeclarations'] if t['name']=='operation_submit')
-                    schema=wire['parametersJsonSchema'];self.assertNotIn('parameters',wire)
+                    schema=wire['parameters'];self.assertNotIn('parametersJsonSchema',wire)
+                    self.assertEqual(schema['properties']['records_json']['type'],'string')
+                    self.assertEqual(json.loads(schema['properties']['records_json']['description'].partition('schema: ')[2]),neutral['parameters']['properties']['records'])
                 else:
                     tools=payload['tools'] if provider=='openai' else [t['function'] for t in payload['tools']]
                     wire=next(t for t in tools if t['name']=='operation_submit');schema=wire['parameters']
                     self.assertNotIn('parametersJsonSchema',wire)
-                self.assertEqual(schema,neutral['parameters'])
+                if provider!='gemini':self.assertEqual(schema,neutral['parameters'])
                 artifacts.append((ws/f['operation_contract']['output']).read_bytes())
         self.assertTrue(all(a==artifacts[0] for a in artifacts))

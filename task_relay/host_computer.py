@@ -145,7 +145,8 @@ class Observer:
 
 class NativeSessionError(ValueError):
     """Retain only a bounded protocol code across the worker boundary."""
-    def __init__(self, code):
+    def __init__(self, code, response=None):
+        self.response=response
         self.code = code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_-]{0,159}', code) else 'invalid_native_error'
         super().__init__('Native session blocked: ' + self.code)
 
@@ -194,5 +195,5 @@ class NativeSession:
         if not isinstance(value, dict) or value.get('protocol') != PROTOCOL:
             raise NativeSessionError('native_protocol_mismatch')
         if value.get('ok') is not True:
-            raise NativeSessionError(value.get('error', 'native_response_rejected'))
+            raise NativeSessionError(value.get('error', 'native_response_rejected'),value)
         return value

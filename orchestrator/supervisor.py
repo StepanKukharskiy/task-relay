@@ -41,7 +41,7 @@ def main():
     with (control / 'supervisor.claim').open('x') as f:
         f.write(str(os.getpid()))
     start = time.time(); proc = None; reason = None; usage = []; tools = 0; thread = None
-    cursor = 0; pending = b''; drained = False
+    cursor = 0; pending = b''; drained = False; cleanup_attempted = False
     last_event = None; activity = 'waiting_for_response'; last_progress = 0
     identity=HOST.process_identity(os.getpid())
     atomic(control / 'started.json', {'token': token, 'supervisor_pid': os.getpid(), 'started': start,
@@ -92,6 +92,10 @@ def main():
                             'last_event_at':last_event,'activity':activity,'tool_calls':tools,'usage':usage})
                     except OSError:pass
                     last_progress=time.time()
+                # Count the final drain before accepting a fast-exiting child.
+                # This records an observed excess; it cannot undo external tools.
+                if tools > spec['limits']['tool_calls']:
+                    reason = reason or 'tool_limit'
                 if proc.poll() is not None:
                     if drained:
                         break
@@ -104,6 +108,7 @@ def main():
                 elif tools > spec['limits']['tool_calls']:
                     reason = 'tool_limit'
                 if reason:
+                    cleanup_attempted = True
                     stop(proc)
                     # One more iteration drains final events and usage.
                     continue
@@ -112,12 +117,27 @@ def main():
             'thread_id': thread, 'usage': usage, 'tool_calls': tools, 'started': start,
             'finished': time.time(), 'elapsed_seconds': time.time() - start}
     except BaseException as exc:
-        if proc:
-            stop(proc)
+        cleanup_error = None
+        if proc is not None and not cleanup_attempted:
+            cleanup_attempted = True
+            try:
+                stop(proc)
+            except BaseException as cleanup_exc:
+                cleanup_error = type(cleanup_exc).__name__ + ': ' + str(cleanup_exc)
+        elif proc is not None:
+            cleanup_error = type(exc).__name__ + ': ' + str(exc)
         receipt = {'token': token, 'exit_code': -1, 'reason': type(exc).__name__ + ': ' + str(exc),
                    'usage': usage, 'tool_calls': tools, 'elapsed_seconds': time.time() - start}
+        if cleanup_error is not None:
+            receipt.update(status='uncertain', child_pid=proc.pid, cleanup_error=cleanup_error,
+                           stop_reason=reason, reason='Worker cleanup could not be confirmed: '+cleanup_error)
     if proc is not None and HOST.platform=='win32':
-        proc.close()  # End any surviving descendants before publishing completion.
+        try:
+            proc.close()  # End surviving descendants before publishing completion.
+        except BaseException as exc:
+            error = type(exc).__name__ + ': ' + str(exc)
+            receipt.update(status='uncertain', child_pid=proc.pid, cleanup_error=error,
+                           stop_reason=reason, reason='Worker cleanup could not be confirmed: '+error)
     atomic(control / 'done.json', receipt)
 
 

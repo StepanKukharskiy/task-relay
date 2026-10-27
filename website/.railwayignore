@@ -3,6 +3,7 @@
 !.dockerignore
 !railway.json
 !server.mjs
+!funnel.mjs
 !package.json
 !public/
 !public/index.html
@@ -11,6 +12,10 @@
 !public/llms.txt
 !public/chatgpt/
 !public/chatgpt/*.html
+!public/chrome/
+!public/chrome/*.html
+!public/skills/
+!public/skills/**
 
 
 

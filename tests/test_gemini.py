@@ -604,6 +604,16 @@ class Tests(unittest.TestCase):
         self.assertNotIn('test-secret', str(caught.exception))
         self.assertEqual(client.opener.open.call_count, 1)
 
+    def test_transport_diagnostic_distinguishes_failures_without_messages_or_retry(self):
+        for error,kind in [(TimeoutError('secret URL'),'timeout'),(OSError('secret key'),'connection'),(ValueError('secret body'),'invalid-response')]:
+            client=gemini.Client('secret');client.opener=Mock();client.opener.open.side_effect=error
+            with self.subTest(kind=kind),self.assertRaises(gemini.ProviderError) as caught:
+                client.request('models/test:generateContent',{})
+            self.assertEqual(caught.exception.detail['failure_kind'],kind)
+            self.assertNotIn('secret',json.dumps(caught.exception.detail))
+            self.assertTrue(caught.exception.uncertain)
+            self.assertEqual(client.opener.open.call_count,1)
+
     def test_structured_rejection_retains_bounded_redacted_diagnostic_without_retry(self):
         client=gemini.Client('test-secret/+');client.opener=Mock()
         body=json.dumps({'error':{'code':400,'status':'INVALID_ARGUMENT','message':

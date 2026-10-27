@@ -131,6 +131,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(compare({'objects':{}},result,contract),[])
         result['objects']['duplicate']=dict(result['objects']['hidden'])
         self.assertIn('Expected object name is missing or ambiguous: Zone',compare({'objects':{}},result,contract))
+        # Native user strings occupy one user-data entry even for several keys.
+        # Accept that embedded metadata without losing hidden-reference checks;
+        # an additional opaque payload on the same object must still block.
+        objects[1].Attributes.UserData.Count=1
+        objects[1].Attributes.UserStringCount=2
+        with patch.dict('sys.modules',{'Rhino':rhino}),patch('orchestrator.rhino_worker.fingerprint',return_value='with-metadata'):
+            embedded=snapshot(doc)
+            self.assertEqual(embedded['dependencies'],[{'kind':'reference_or_block','object':'ref'}])
+            objects[1].Attributes.UserData.Count=2
+            opaque=snapshot(doc)
+        self.assertIn(dict(kind='custom_user_data',object='hidden',geometry_entries=0,attribute_entries=1),opaque['dependencies'])
+        self.assertIn(dict(kind='reference_or_block',object='ref'),opaque['dependencies'])
 
     def test_preview_named_view_is_required_in_reopened_scene(self):
         contract=checks();contract['preview']['named_view']='FacadeSheet';validate_checks(contract)

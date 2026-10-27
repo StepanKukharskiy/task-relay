@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createReleaseResolver, renderRelease, assetKinds } from './releases.mjs';
+import { skillPath, articlePath, editorialUrl, campaignFor, countRequest, renderSkillPage, attributeRelayLinks } from './funnel.mjs';
 const resolveRelease = createReleaseResolver({fallback: JSON.parse(await readFile(new URL('./release-fallback.json', import.meta.url)))});
 
 // Exact public routes only: no access to Relay configuration or arbitrary files.
@@ -16,8 +17,22 @@ for (const [route, file, type] of [
   ['/llms.txt', 'llms.txt', 'text/plain; charset=utf-8'],
   ['/chatgpt', 'chatgpt/index.html', 'text/html; charset=utf-8'],
   ...['support', 'privacy', 'terms'].map(slug => ['/chatgpt/' + slug, 'chatgpt/' + slug + '.html', 'text/html; charset=utf-8']),
+  ['/chrome', 'chrome/index.html', 'text/html; charset=utf-8'],
+  ...['support', 'privacy', 'terms'].map(slug => ['/chrome/' + slug, 'chrome/' + slug + '.html', 'text/html; charset=utf-8']),
   ['/guides/', 'guides/index.html', 'text/html; charset=utf-8'],
   ['/guides/guide.css', 'guides/guide.css', 'text/css; charset=utf-8'],
+  [articlePath, 'guides/excel-to-powerpoint.html', 'text/html; charset=utf-8'],
+  ['/skills', 'skills/index.html', 'text/html; charset=utf-8'],
+  [skillPath, 'skills/excel-to-powerpoint.html', 'text/html; charset=utf-8'],
+  ['/skills/privacy', 'skills/privacy.html', 'text/html; charset=utf-8'],
+  ['/skills/skill.css', 'skills/skill.css', 'text/css; charset=utf-8'],
+  ...['excel-to-powerpoint-v1-january-kpis.png', 'excel-to-powerpoint-v1-february-kpis.png', 'excel-to-powerpoint-v1-february-trends.png']
+    .map(name => ['/skills/assets/' + name, 'skills/assets/' + name, 'image/png']),
+  ['/skills/assets/excel-to-powerpoint-hero-v1.png', 'skills/assets/excel-to-powerpoint-hero-v1.png', 'image/png'],
+  ['/skills/assets/excel-to-powerpoint-v1-proof.json', 'skills/assets/excel-to-powerpoint-v1-proof.json', 'application/json; charset=utf-8'],
+  ['/skills/assets/excel-to-powerpoint-v1-SKILL.md', 'skills/assets/excel-to-powerpoint-v1-SKILL.md', 'text/plain; charset=utf-8'],
+  ['/skills/assets/excel-to-powerpoint-v2-proof.json', 'skills/assets/excel-to-powerpoint-v2-proof.json', 'application/json; charset=utf-8'],
+  ['/skills/assets/excel-to-powerpoint-v2-SKILL.md', 'skills/assets/excel-to-powerpoint-v2-SKILL.md', 'text/plain; charset=utf-8'],
   ...['architectural-site-analysis', 'rhino-model-revisions', 'rhino-named-view-renders', 'blender-asset-handoff', 'design-review-presentation',
       'rename-invoice-pdfs', 'combine-csv-exports', 'find-automation-opportunities']
     .map(slug => ['/guides/' + slug, 'guides/' + slug + '.html', 'text/html; charset=utf-8']),
@@ -33,11 +48,23 @@ for (const [route, file, type] of [
 assets.set('/index.html', assets.get('/'));
 assets.set('/guides', assets.get('/guides/'));
 assets.set('/chatgpt/', assets.get('/chatgpt'));
+assets.set('/chrome/', assets.get('/chrome'));
+assets.set(skillPath + '/', assets.get(skillPath));
+assets.set('/skills/', assets.get('/skills'));
+assets.set('/skills/privacy/', assets.get('/skills/privacy'));
 for (const [route, asset] of [...assets]) {
   if (route.startsWith('/guides/') && asset.type.startsWith('text/html') && !route.endsWith('/')) assets.set(route + '/', asset);
 }
 assets.set('/health', { body: Buffer.from('ok\n'), type: 'text/plain; charset=utf-8' });
 const downloads = new Map();
+const skillDownloads = new Map();
+for (const version of ['v1', 'v2']) for (const kind of ['skill', 'example']) {
+  const filename = `excel-to-powerpoint-${version}-${kind}.zip`;
+  const body = await readFile(new URL(`./public/skills/assets/${filename}`, import.meta.url));
+  if (version === 'v2') skillDownloads.set(skillPath + '/download/' + kind, {body, filename, event: kind + '_download_request'});
+  assets.set('/skills/assets/' + filename, {body, type: 'application/zip'});
+  assets.set('/skills/assets/' + filename + '.sha256', {body: await readFile(new URL(`./public/skills/assets/${filename}.sha256`, import.meta.url)), type: 'text/plain; charset=utf-8'});
+}
 const directory = process.env.TASK_RELAY_DOWNLOAD_DIR || fileURLToPath(new URL('./downloads/', import.meta.url));
 for (const name of ['Task-Relay-0.12.1-beta.1-arm64.dmg', 'Task-Relay-0.12.1-beta.1-source.tar.gz',
   'Task-Relay-0.13.0-beta.1-arm64.dmg', 'Task-Relay-0.13.0-beta.1-source.tar.gz',
@@ -55,12 +82,33 @@ const server = createServer(async (request, response) => {
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
   if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405, {Allow:'GET, HEAD'}); response.end(); return; }
-  const route = (request.url || '/').split('?')[0];
+  const url = new URL(request.url || '/', 'http://localhost');
+  const route = url.pathname, campaign = campaignFor(url);
+  if ([articlePath, articlePath + '/'].includes(route)) {
+    const target = editorialUrl + (campaign === 'direct' ? '' : '?campaign=' + campaign);
+    response.writeHead(308, {'Cache-Control': 'no-store', Location: target});
+    response.end(); return;
+  }
+  if (route === skillPath + '/get-relay') {
+    countRequest(request, 'relay_cta_request', campaign);
+    response.writeHead(302, {'Cache-Control': 'no-store', Location: `/?skill=excel-to-powerpoint&campaign=${campaign}#download`});
+    response.end(); return;
+  }
+  const skillDownload = skillDownloads.get(route);
+  if (skillDownload) {
+    countRequest(request, skillDownload.event, campaign);
+    response.writeHead(200, {'Content-Type': 'application/zip', 'Content-Length': skillDownload.body.length,
+      'Content-Disposition': `attachment; filename="${skillDownload.filename}"`, 'Cache-Control': 'no-store'});
+    response.end(request.method === 'HEAD' ? undefined : skillDownload.body); return;
+  }
   const latestKind = Object.keys(assetKinds).find(kind => route === '/downloads/latest/' + assetKinds[kind]);
   if (latestKind || route === '/api/release') {
     const release = await resolveRelease();
     response.setHeader('Cache-Control', 'no-store');
-    if (latestKind) { response.writeHead(302, {Location: release.assets[latestKind].url}); response.end(); return; }
+    if (latestKind) {
+      if (url.searchParams.get('skill') === 'excel-to-powerpoint' && ['dmg', 'source'].includes(latestKind)) countRequest(request, 'relay_download_request', campaign);
+      response.writeHead(302, {Location: release.assets[latestKind].url}); response.end(); return;
+    }
     const body = JSON.stringify(release);
     response.writeHead(200, {'Content-Type':'application/json; charset=utf-8', 'Content-Length':Buffer.byteLength(body)});
     response.end(request.method === 'HEAD' ? undefined : body); return;
@@ -86,8 +134,18 @@ const server = createServer(async (request, response) => {
   }
   const asset = assets.get(route);
   if (!asset) { response.writeHead(404, {'Content-Type':'text/plain; charset=utf-8'}); response.end(request.method === 'HEAD' ? undefined : 'Not found\n'); return; }
-  const body = ['/', '/index.html', '/llms.txt'].includes(route) ? Buffer.from(renderRelease(asset.body.toString(), await resolveRelease())) : asset.body;
-  response.writeHead(200, {'Content-Type':asset.type, 'Content-Length':body.length, 'Cache-Control':'public, max-age=0, must-revalidate'});
+  let body = asset.body, personalized = false;
+  if (['/', '/index.html', '/llms.txt'].includes(route)) {
+    const release = await resolveRelease();
+    let text = renderRelease(body.toString(), release);
+    if (route !== '/llms.txt' && url.searchParams.get('skill') === 'excel-to-powerpoint') { text = attributeRelayLinks(text, release, campaign); personalized = true; }
+    body = Buffer.from(text);
+  }
+  if ([skillPath, skillPath + '/'].includes(route)) {
+    body = Buffer.from(renderSkillPage(body.toString(), campaign)); personalized = true;
+    countRequest(request, 'skill_page_request', campaign);
+  }
+  response.writeHead(200, {'Content-Type':asset.type, 'Content-Length':body.length, 'Cache-Control': personalized ? 'no-store' : 'public, max-age=0, must-revalidate'});
   response.end(request.method === 'HEAD' ? undefined : body);
 });
 server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`Task Relay website listening on port ${server.address().port}`));

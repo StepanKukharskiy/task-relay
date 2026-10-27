@@ -1,6 +1,7 @@
 """Deterministic workflow ports and capacity checks; no provider or host calls."""
 import copy
 import re
+from pathlib import Path
 
 VERSION = 1
 PPTX_SLIDES = 50
@@ -27,6 +28,9 @@ def operation(capability, frozen=None):
     if capability not in REGISTRY:raise ContractError('unknown_capability','Unknown capability: '+str(capability))
     result=copy.deepcopy(REGISTRY[capability])
     if frozen is not None:
+        from .connector_protocol import verify
+        try:verify(capability,frozen.get('connector_interface'))
+        except ValueError as exc:raise ContractError('connector_interface_changed',str(exc)) from exc
         if 'version' in frozen and frozen['version']!=result['version']:
             raise ContractError('version_mismatch','Capability version changed: '+capability)
         for field in ('input_bytes','output_bytes','seconds','max_inputs'):
@@ -59,9 +63,19 @@ def descriptor(value):
     return value
 
 
+def descriptor_schema():
+    """Planner wire shape for the same port descriptor checked above."""
+    capacity={'anyOf':[{'type':'integer'},{'type':'null'}]}
+    return dict(type='object',required=['media_type'],additionalProperties=False,properties={
+        'media_type':{'type':'string'},'max_bytes':copy.deepcopy(capacity),'slides':copy.deepcopy(capacity),
+        'companions':{'type':'array','items':{'type':'string'}},
+        'content_contract':{'type':'object','properties':{'id':{'type':'string'},'version':{'type':'integer'}},
+                            'required':['id','version'],'additionalProperties':False}})
+
+
 def compile_workflow(stages, catalog=(), required=False):
     """Validate every declared edge before the first stage. Unknown sizes stay explicit."""
-    saved={x['id']:x for x in catalog};seen={};edges=[];unknown=[]
+    saved={x['id']:x for x in catalog};seen={};edges=[];unknown=[];edge_checks=[]
     for stage in stages:
         handoff=stage.get('handoff')
         if handoff is None:
@@ -130,8 +144,12 @@ def compile_workflow(stages, catalog=(), required=False):
                 if consumer not in stage['capabilities'] and not (stage['route']=='image' and consumer=='gemini.image'):
                     raise ContractError('missing_consumer','Handoff consumer is outside the selected stage capabilities.')
                 target=operation(consumer,saved.get(consumer))
-                if edge['media_type'] not in target['input_types']:
-                    raise ContractError('incompatible_input',consumer+' cannot consume '+edge['media_type']+'. Declare a compatible derived output or conversion stage.')
+                from .connector_protocol import interface,edge as check_edge
+                check=check_edge(source,interface(consumer,target),max_bytes=source.get('max_bytes'),content_contract=edge.get('content_contract'))
+                edge_checks.append(dict(destination=stage['id'],source_stage=edge['stage'],source_output=edge['deliverable'],consumer=consumer,**check))
+                if check['status']=='incompatible':
+                    code='input_capacity' if 'input_capacity' in check['reasons'] else 'incompatible_input'
+                    raise ContractError(code,consumer+' cannot consume '+edge['media_type']+' within its declared input contract. Declare a compatible bounded derivative or conversion stage.')
                 if seen[edge['stage']]['route'] in ('conversation','browser_research'):
                     raise ContractError('context_requires_file','Conversation/research results are context. Use consumer=context and prepare a file before a direct operation.')
                 totals[consumer]=totals.get(consumer,0)+(source.get('max_bytes') or 0)
@@ -147,7 +165,7 @@ def compile_workflow(stages, catalog=(), required=False):
                 if not any(e['stage']==edge['stage'] and e['deliverable']==companion for e in handoff['inputs']):
                     raise ContractError('missing_companion','Required companion missing: '+edge['stage']+'/'+companion)
         seen[stage['id']]=stage
-    return dict(version=VERSION,status='compatible_with_runtime_checks' if not unknown else 'compatible_with_unknowns',edges=edges,unknowns=unknown,
+    return dict(version=VERSION,status='compatible_with_runtime_checks' if not unknown else 'compatible_with_unknowns',edges=edges,unknowns=unknown,edge_checks=edge_checks,
                 limitations=['Content accuracy and image/model fidelity require independent review.','Unknown file sizes and future schemas are checked at their actual handoff; this is not a live provider qualification.'])
 
 
@@ -168,15 +186,27 @@ def bind_stage(stage, plan, bindings=(), sources=()):
     if not stage or not stage.get('handoff') or plan.get('deferred_operations'):return
     for ident,expected in stage['handoff']['outputs'].items():
         binding=plan.get('deliverables',{}).get(ident,{})
+        carried=plan.get('carried_deliverables',{}).get(ident,{})
+        if binding.get('artifact') and carried.get('artifact')==binding['artifact']:
+            source=next((s for s in sources if s.get('artifact')==binding['artifact']),None)
+            if not source or any(source.get(k)!=carried.get(k) for k in ('sha256','bytes')):
+                raise ContractError('missing_binding','Carry-forward version is not an exact frozen source')
+            import mimetypes
+            media=source.get('media_type') or mimetypes.guess_type(source['path'])[0]
+            if media!=expected['media_type'] or (expected.get('max_bytes') is not None and source['bytes']>expected['max_bytes']):
+                raise ContractError('type_mismatch','Carry-forward source differs from its workflow port')
+            carried['handoff']=copy.deepcopy(expected)
+            continue
         task=next((t for t in plan['tasks'] if t['id']==binding.get('task')),None)
         output=next((o for o in task['outputs'] if o['path']==binding.get('output')),None) if task else None
         if output is None:raise ContractError('missing_output','No concrete output bound to workflow deliverable '+ident)
         if output.setdefault('media_type',expected['media_type'])!=expected['media_type']:
             raise ContractError('type_mismatch','Concrete output type differs from workflow deliverable '+ident)
         content=expected.get('content_contract')
-        if content and content['id'] in ('research.candidates','research.batch','research.audit'):
-            bound=task.get('operation_contract',{})
-            if any(bound.get(k)!=content[k] for k in ('id','version')) or bound.get('output')!=output['path']:
+        from .operation_contracts import identity as record_family, output_contract
+        if content and record_family(content).get('schema'):
+            bound=output_contract(task,output['path'])
+            if bound!=content:
                 raise ContractError('missing_contract','Typed research outputs require their registered record operation')
         output['handoff']=copy.deepcopy(expected)
     known={s['artifact']:s for s in sources}
@@ -186,6 +216,12 @@ def bind_stage(stage, plan, bindings=(), sources=()):
         if binding['kind']=='context':continue
         artifact=binding['source']['artifact']
         candidates=[t for t in plan['tasks'] if not t.get('review_of') and (edge['consumer']=='context' or t.get('execution',{}).get('capability')==edge['consumer'])]
+        if edge['consumer']=='context' and candidates and all(t.get('execution') for t in candidates):
+            # Native operations have typed inputs. Semantic context can belong
+            # to their actual independent reviewer instead of an unrelated port.
+            producers={t['id'] for t in candidates}
+            candidates += [t for t in plan['tasks'] if t.get('review_of') in producers
+                           and t['review_of'] in t.get('dependencies',[])]
         if not any(known.get(i.get('artifact'),{}).get('workflow_artifact',i.get('artifact'))==artifact for t in candidates for i in t['inputs']):
             raise ContractError('missing_binding','The selected consumer omitted the exact upstream artifact for '+edge['stage']+'/'+edge['deliverable'])
 

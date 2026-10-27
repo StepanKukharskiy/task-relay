@@ -18,6 +18,25 @@ class Tests(unittest.TestCase):
                 (ident,'Update the script',focus,'gemini','fixture','answered',created,text))
             self.state.db.execute('INSERT INTO relay_request_channels VALUES (?,?)',(ident,channel))
 
+    def test_followup_keeps_caption_attachment_ids_without_rebinding(self):
+        self.saved(90,1,'Choose sourcing or deck')
+        self.saved(91,2,'current')
+        with self.state.db:
+            self.state.put('orchestrator-attachments:90',[367])
+        rows=ci.recent(self.state,{'id':91})
+        self.assertEqual(rows[0]['attachment_ids'],[367])
+        self.assertIsNone(self.state.get('orchestrator-attachments:91'))
+        snap={'uploaded_files':[{'id':662,'filename':'photo.jpg','path':'old'},
+                                {'id':367,'filename':'photo.jpg','path':'correct','status':'ready'}],
+              'production_runs':[], 'codex_tasks':[], 'capabilities':{}}
+        payload=chat.conversation_context(self.state,{'id':91,'focus':None,'prompt':'2'},snap)
+        binding=payload['conversation_attachments'][0]
+        self.assertEqual(binding['files'][0]['path'],'correct')
+        snap['uploaded_files']=snap['uploaded_files'][:1]
+        payload=chat.conversation_context(self.state,{'id':91,'focus':None,'prompt':'2'},snap)
+        self.assertEqual(payload['conversation_attachments'][0]['missing_ids'],[367])
+        self.assertEqual(payload['conversation_attachments'][0]['files'],[])
+
     def test_handoff_carries_exact_newer_chat_draft(self):
         draft='S01: Ancient helpers.\nS02: Current market.\nS03: Future.'
         self.saved(900,1,draft)
@@ -57,6 +76,20 @@ class Tests(unittest.TestCase):
         self.request({'kind':'route_task','task_id':'t0'},'Share this with Codex.')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM task_routes').fetchone()[0],0)
         self.assertEqual(self.calls,[])
+
+    def test_workflow_journals_do_not_reenter_conversation_or_hide_human_draft(self):
+        self.saved(90,1,'Exact human-authored draft',focus='workflow')
+        for ident in range(100,113):
+            self.saved(ident,ident,'Recorded machine stage context '+('x'*ci.MAX_BYTES),focus='workflow')
+            with self.state.db:
+                self.state.db.execute('INSERT INTO relay_pipeline_requests VALUES (?,?,?,?)',(ident,'workflow','stage','{}'))
+        self.saved(999,1000,'Current request',focus='workflow')
+        frozen=ci.freeze(self.state,{'id':999});self.assertEqual(len(frozen),1)
+        context=json.loads(Path(frozen[0]['path']).read_text())
+        self.assertEqual([r['id'] for r in context['entries']],[90])
+        self.assertEqual(context['entries'][0]['answer'],'Exact human-authored draft')
+        self.assertEqual(self.state.db.execute('SELECT count(*) FROM relay_pipeline_requests').fetchone()[0],13)
+        self.assertGreater(len(self.state.db.execute('SELECT answer FROM orchestrator_chats WHERE id=100').fetchone()[0]),ci.MAX_BYTES)
 
     def test_explicit_handoff_keeps_task_catalog_on_production_reply(self):
         payload={'snapshot':{'focus':'video','production_runs':[{'name':'video','status':'blocked'}],

@@ -84,7 +84,7 @@ def _prompt(goal, constraints):
 
 
 def create(goal, constraints, project, parent_id, request_id, paths=PATHS, *, files=None, previous_run=None, research_mode='suggest', entry_mode='plan', followup=None):
-    if entry_mode not in ('plan', 'conversation') or (entry_mode == 'conversation' and (parent_id or previous_run)):
+    if entry_mode not in ('plan', 'conversation', 'node') or (entry_mode == 'conversation' and (parent_id or previous_run)) or (entry_mode == 'node' and parent_id):
         raise DesktopPlanError('Plan revisions and stage follow-ups retain their existing planning scope.')
     if research_mode not in ('suggest', 'none', 'sources'):
         raise DesktopPlanError('Choose suggested research, no new research, or a source-backed answer.')
@@ -107,8 +107,10 @@ def create(goal, constraints, project, parent_id, request_id, paths=PATHS, *, fi
             db.execute('BEGIN IMMEDIATE')
             if not _ready(db) or not db.execute("SELECT 1 FROM sqlite_master WHERE name='desktop_plan_requests'").fetchone():
                 raise DesktopPlanError('Restart the current Relay service to enable desktop planning.')
-            if entry_mode == 'conversation':
+            if entry_mode in ('conversation', 'node'):
                 health = json.loads(db.execute("SELECT value FROM kv WHERE key='health:desktop-plans'").fetchone()[0])
+                if entry_mode == 'node' and health.get('node_entry_version') != 1:
+                    raise DesktopPlanError('Restart Relay to enable node admission before submitting.')
                 if health.get('orchestrator_entry_version') != 1:
                     raise DesktopPlanError('Restart Relay to enable the shared orchestrator entry before sending this request.')
             existing = db.execute('SELECT * FROM desktop_plan_requests WHERE request_id=?', (request_id,)).fetchone()
@@ -160,7 +162,8 @@ def create(goal, constraints, project, parent_id, request_id, paths=PATHS, *, fi
                 [(Path(p), Path(p).name, 'User-selected task attachment', None, None) for p in files],
                 section='desktop-files', max_bytes=50_000_000)
             if followup is not None:
-                original=conversation_flow.selected(db,followup['id'],followup['index'],followup['digest'])[1]
+                original=(conversation_flow.message_context(db,followup['id'])[1] if followup.get('message') else
+                          conversation_flow.selected(db,followup['id'],followup['index'],followup['digest'])[1])
                 frozen=json.loads(original['manifest'])
                 if [(f['sha256'],f['bytes']) for f in manifest]!=[(f['sha256'],f['bytes']) for f in frozen]:
                     raise DesktopPlanError('A frozen attachment changed during capture. No follow-up was queued.')
@@ -172,10 +175,10 @@ def create(goal, constraints, project, parent_id, request_id, paths=PATHS, *, fi
                        (request_id, job_id, prompt, project, parent_id, time.time()))
             if followup is not None:
                 db.execute('INSERT INTO conversation_followups VALUES (?,?,?,?,?,?,?)',
-                           (request_id,int(conversation_flow.root_for(db,job_id=int(followup['id'])) or followup['id']),followup['index'],followup['digest'],
-                            'research' if entry_mode=='conversation' else 'plan',time.time(),int(followup['id'])))
+                           (request_id,int(conversation_flow.root_for(db,job_id=int(followup['id'])) or followup['id']),followup.get('index',-1),followup.get('digest',request_id),
+                            'message' if followup.get('message') else 'research' if entry_mode=='conversation' else 'plan',time.time(),int(followup['id'])))
     return dict(request_id=request_id, plan_id='plan-' + str(job_id), status='queued',
-                message=('Request saved for the shared orchestrator.' if entry_mode == 'conversation' else
+                message=('Request saved for the node runtime.' if entry_mode == 'node' else 'Request saved for the shared orchestrator.' if entry_mode == 'conversation' else
                          'Planning request saved. The planner may use your configured API provider; no workers have started.'))
 
 
@@ -190,11 +193,19 @@ def process_requests(state, clock=time.time):
                 break
             admission_started = False
             try:
-                provider, model = orchestrator_chat.provider(state)
                 state.db.execute('SAVEPOINT desktop_plan_admission')
                 admission_started = True
                 state.db.execute('INSERT OR REPLACE INTO relay_request_channels VALUES (?,?)', (row['job_id'], 'desktop'))
                 mode = state.db.execute('SELECT entry_mode FROM desktop_request_modes WHERE request_id=?', (row['request_id'],)).fetchone()
+                if mode and mode[0] == 'node':
+                    from . import persistent_jobs
+                    preference = state.db.execute('SELECT research_mode FROM desktop_plan_preferences WHERE request_id=?', (row['request_id'],)).fetchone()
+                    run = persistent_jobs.enqueue_node(state, row, research_mode=preference[0] if preference else 'suggest')
+                    state.db.execute('RELEASE desktop_plan_admission')
+                    admission_started = False
+                    state.db.execute("UPDATE desktop_plan_requests SET status='accepted',result=? WHERE request_id=?", (run, row['request_id']))
+                    continue
+                provider, model = orchestrator_chat.provider(state)
                 if mode and mode[0] == 'conversation':
                     state.db.execute('INSERT INTO orchestrator_chats(id,prompt,focus,provider,model,created) VALUES (?,?,NULL,?,?,?)',
                                      (row['job_id'], row['prompt'], provider, model, row['created']))
@@ -237,7 +248,7 @@ def process_requests(state, clock=time.time):
                 state.db.execute("UPDATE desktop_plan_requests SET status='rejected',result=? WHERE request_id=?",
                                  (str(exc), row['request_id']))
     with state.db:
-        state.put('health:desktop-plans', {'interface_version': 1, 'orchestrator_entry_version': 1, 'last_success': clock()})
+        state.put('health:desktop-plans', {'interface_version': 1, 'orchestrator_entry_version': 1, 'node_entry_version': 1, 'last_success': clock()})
 
 
 def list_plans(paths=PATHS):

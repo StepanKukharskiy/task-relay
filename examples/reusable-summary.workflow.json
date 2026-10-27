@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "workflow",
+  "inputs": {
+    "article_url": {
+      "type": "string",
+      "label": "Article URL",
+      "required": true
+    },
+    "length": {
+      "type": "string",
+      "label": "Length",
+      "required": false,
+      "default": "Three short paragraphs"
+    }
+  },
+  "tasks": [
+    {
+      "schema_version": 3,
+      "id": "article",
+      "operation": "web.fetch",
+      "objective": "Read the article",
+      "inputs": {
+        "url": {
+          "workflow": "article_url"
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "summary",
+      "operation": "model",
+      "objective": "Summarise the supplied article to the requested length. Disclose incomplete source access.",
+      "input_definitions": {
+        "article": {
+          "type": "artifact",
+          "label": "Article",
+          "required": true,
+          "media_type": "application/json"
+        },
+        "length": {
+          "type": "string",
+          "label": "Length",
+          "required": true
+        }
+      },
+      "inputs": {
+        "article": {
+          "task": "article",
+          "output": "page"
+        },
+        "length": {
+          "workflow": "length"
+        }
+      },
+      "outputs": [
+        {
+          "name": "summary",
+          "media_type": "text/markdown",
+          "purpose": "Source-grounded summary"
+        }
+      ]
+    }
+  ]
+}

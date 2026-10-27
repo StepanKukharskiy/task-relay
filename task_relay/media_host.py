@@ -65,17 +65,19 @@ def implementation():
 
 
 def environment(runtime,folder):
+    from . import runtime_process
     folder=Path(folder);home=folder/'home';home.mkdir(exist_ok=True)
     tmp=folder/'tmp';tmp.mkdir(exist_ok=True)
-    return {'PATH':':'.join(dict.fromkeys([str(Path(runtime['paths'][k]).parent) for k in ('node','ffmpeg','ffprobe')]+['/usr/bin','/bin'])),
+    return runtime_process.environment({'PATH':':'.join(dict.fromkeys([str(Path(runtime['paths'][k]).parent) for k in ('node','ffmpeg','ffprobe')]+['/usr/bin','/bin'])),
         'HOME':str(home),'CFFIXED_USER_HOME':str(home),'TMPDIR':str(tmp),'LANG':'en_US.UTF-8','PYTHONDONTWRITEBYTECODE':'1',
         'HYPERFRAMES_BROWSER_PATH':runtime['paths']['browser'],'PRODUCER_HEADLESS_SHELL_PATH':runtime['paths']['browser'],
         'HYPERFRAMES_NO_TELEMETRY':'1','DO_NOT_TRACK':'1','CI':'1','NO_COLOR':'1',
-        'PRODUCER_LOW_MEMORY_MODE':'1','PRODUCER_EXPERIMENTAL_FAST_CAPTURE':'false'}
+        'PRODUCER_LOW_MEMORY_MODE':'1','PRODUCER_EXPERIMENTAL_FAST_CAPTURE':'false'})
 
 
 def run(runtime,folder,command,cwd,seconds,maximum,cancelled=lambda:False,output_root=None,isolated=False):
     """Only trusted adapter callers construct command; no shell or inherited secrets."""
+    from . import runtime_process
     folder=Path(folder);folder.mkdir()
     policy=folder/'network.sb'
     policy.write_text('(version 1)\n(allow default)\n(deny network*)\n'
@@ -85,7 +87,7 @@ def run(runtime,folder,command,cwd,seconds,maximum,cancelled=lambda:False,output
     spec.write_text(json.dumps(dict(command=['/usr/bin/sandbox-exec','-f',str(policy),*command],
         cwd=str(cwd),output_root=str(output_root) if output_root else None,runtime=runtime,isolated=isolated,
         env=environment(runtime,folder),seconds=max(.1,seconds),maximum=maximum)))
-    process=subprocess.Popen([sys.executable,'-I','-B',str(Path(__file__).resolve()),str(spec)],
+    process=subprocess.Popen(runtime_process.command(sys.executable,Path(__file__).resolve(),spec,isolated=True),
         stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
         env=environment(runtime,folder),start_new_session=True,close_fds=True)
     try:

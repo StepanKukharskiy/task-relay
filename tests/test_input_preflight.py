@@ -22,6 +22,25 @@ class Tests(unittest.TestCase):
         view=pc.inspect(self.state,'demo')[0]
         return next(t['error'] for t in view['tasks'] if t['id']==tid)
 
+    def test_pptx_missing_bound_image_blocks_before_any_attempt(self):
+        import json
+        from tests.test_presentations import pptx_step
+        value=dict(version=1,title='Bound sources',slides=[dict(elements=[
+            dict(type='image',path='assets.zip/images/missing.jpg',x=0,y=0,w=1,h=1)])])
+        source={**self.source(json.dumps(value).encode(),'slides.json'),'media_type':'application/json'}
+        self.rt.create(plan([pptx_step([source])]))
+        self.rt.tick('demo');self.rt.tick('demo')
+        self.assertEqual((self.rt.task('demo','deck')['status'],self.rt.task('demo','deck')['attempts']),('blocked',0))
+        self.assertEqual(self.factory.calls,[])
+        self.assertIsNotNone(self.rt.artifact(source['artifact']))
+
+    def test_selected_artifact_path_survives_fallback_catalog(self):
+        from task_relay.production_planning import source_catalog
+        selected=dict(artifact='same',path='assets/lamp.zip',sha256='a'*64)
+        fallback=dict(selected,path='prior-outputs/lamp.zip')
+        known={s['artifact']:s for s in source_catalog(dict(sources=[selected],available_sources=[fallback]))}
+        self.assertEqual(known['same']['path'],'assets/lamp.zip')
+
     def test_new_upstream_text_is_checked_before_reviewer_attempt(self):
         self.rt.create(graph());self.rt.tick('demo')
         aid=self.rt.task('demo','produce')['latest'];self.factory.finish(aid)

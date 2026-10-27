@@ -461,6 +461,13 @@ class Desktop:
 
 class State:
     def __init__(self, path):
+        try:
+            self._initialize(path)
+        except BaseException:
+            if getattr(self,'db',None) is not None:self.db.close()
+            raise
+
+    def _initialize(self, path):
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.media_dir = path.parent / 'media'
         self.db = sqlite3.connect(path)
@@ -514,6 +521,8 @@ class State:
         workflows.initialize(self.db)
         orchestrator_chat.initialize(self.db)
         relay_channels.initialize(self.db)
+        from . import delivery_effects
+        delivery_effects.initialize(self.db)
         from . import desktop_plans
         desktop_plans.initialize(self.db)
         usage_tracker.initialize(self.db)
@@ -694,6 +703,7 @@ class Watcher:
     def event(self, thread_id, title, event, cwd=None, require_timestamp=False):
         if event.get('type') != 'event_msg':
             return
+        occurred = None
         timestamp = event.get('timestamp')
         if timestamp:
             try:
@@ -722,6 +732,7 @@ class Watcher:
             event_id = f'{thread_id}:{turn_id}:{kind}'
             inserted = self.state.db.execute('INSERT OR IGNORE INTO outbox(id,thread_id,text) VALUES (?,?,?)',
                                              (event_id, thread_id, text)).rowcount
+            channel_policy.hold_historical_telegram(self.state.db, event_id, occurred)
             if inserted:
                 queue_attachments(self.state, event_id, thread_id, title, summary, cwd)
 
@@ -775,6 +786,7 @@ class Bridge:
         return self.state.get('selected')
 
     def flush(self, include_media=True):
+        from . import delivery_effects
         channel_policy.heartbeat(self.state, 'telegram', 'delivery')
         with self.state.db:
             self.state.put('health:messages-routing', {'version': 1, 'last_success': time.time()})
@@ -784,7 +796,8 @@ class Bridge:
             return
         if not channel_policy.outgoing(self.state.db, 'telegram'):
             return
-        for row in relay_channels.pending(self.state, 'telegram'):
+        unresolved={r[0] for r in self.state.db.execute("SELECT event_id FROM relay_delivery_effects WHERE status IN ('submitting','uncertain') AND id LIKE 'text:%'")}
+        for row in relay_channels.pending(self.state, 'telegram',exclude_ids=unresolved):
             # Freeze boundaries once. A later failed part or service restart
             # resumes after confirmed sends, including if task emoji changes.
             with self.state.db:
@@ -801,9 +814,17 @@ class Bridge:
                 try:
                     if not channel_policy.outgoing(self.state.db, 'telegram'):
                         return
+                    if not channel_policy.event_allowed(self.state.db, 'telegram', row['id']):
+                        break
                     if row['id'].startswith('proactive:') and channel_policy.read(self.state.db)['proactive'] == 'none':
                         break
-                    response = self.send_part(part['text'], row['thread_id'], json.loads(part['entities'] or '[]'), markup)
+                    from . import delivery_effects
+                    payload=dict(chat=self.state.get('chat_id'),text=part['text'],thread=row['thread_id'],
+                                 entities=json.loads(part['entities'] or '[]'),markup=markup)
+                    response = delivery_effects.send(self.state,'text:'+row['id']+':'+str(part['part']),row['id'],payload,
+                        lambda:self.send_part(payload['text'],payload['thread'],payload['entities'],payload['markup']))
+                except delivery_effects.UncertainDelivery:
+                    break
                 except channel_policy.ChannelPaused:
                     return
                 with self.state.db:
@@ -821,6 +842,7 @@ class Bridge:
             self.flush_media()
 
     def flush_media(self):
+        from . import delivery_effects
         if not channel_policy.outgoing(self.state.db, 'telegram'):
             return
         if self.state.get('chat_id') is None:
@@ -829,17 +851,33 @@ class Bridge:
             "SELECT m.* FROM media_outbox m JOIN outbox o ON o.id=m.event_id "
             "WHERE m.status='pending' AND m.next_attempt<=? AND o.sent=1 ORDER BY m.rowid",
             (time.time(),)).fetchall()
-        rows = [r for r in rows if relay_channels.event_channel(self.state, r['event_id']) == 'telegram'][:6]
+        rows = [r for r in rows if relay_channels.event_channel(self.state, r['event_id']) == 'telegram'
+                and channel_policy.event_allowed(self.state.db, 'telegram', r['event_id'])][:6]
         for row in rows:
             try:
                 if not channel_policy.outgoing(self.state.db, 'telegram'):
                     return
-                response = self.telegram.send_media(self.state.get('chat_id'), row['path'],
-                                                     row['filename'], row['kind'],
-                                                     self.decorate(row['caption'], row['thread_id']) if row['thread_id'] else row['caption'])
+                if not channel_policy.event_allowed(self.state.db, 'telegram', row['event_id']):
+                    continue
+                from . import delivery_effects
+                ident='media:'+row['id']+':'+row['kind']
+                with Path(row['path']).open('rb') as source:content_hash=hashlib.file_digest(source,'sha256').hexdigest()
+                payload=dict(chat=self.state.get('chat_id'),path=row['path'],filename=row['filename'],kind=row['kind'],
+                             caption=row['caption'],thread=row['thread_id'],sha256=content_hash)
+                response = delivery_effects.send(self.state,ident,row['event_id'],payload,
+                    lambda:self.telegram.send_media(payload['chat'],payload['path'],payload['filename'],payload['kind'],
+                        self.decorate(payload['caption'],payload['thread']) if payload['thread'] else payload['caption']))
+            except delivery_effects.UncertainDelivery:
+                with self.state.db:
+                    self.state.db.execute("UPDATE media_outbox SET status='uncertain' WHERE id=?",(row['id'],))
+                continue
             except channel_policy.ChannelPaused:
                 return
             except (BridgeError, OSError) as exc:
+                if delivery_effects.uncertain(self.state.db,ident):
+                    with self.state.db:
+                        self.state.db.execute("UPDATE media_outbox SET status='uncertain',attempts=attempts+1 WHERE id=?",(row['id'],))
+                    continue
                 if row['kind'] in ('video', 'audio') and isinstance(exc, TelegramError) and exc.status == 400:
                     # Codec/container rejected for inline playback: retain the
                     # same snapshot and deliver the exact file as a document.
@@ -878,7 +916,7 @@ class Bridge:
                     if isinstance(response.get('video'), dict):
                         self.state.put('video-receipt:' + row['id'], {key: response['video'].get(key) for key in ('width', 'height', 'duration')})
                     self.state.db.execute("UPDATE media_outbox SET status='sent' WHERE id=?", (row['id'],))
-            if not self.state.db.execute("SELECT 1 FROM media_outbox WHERE path=? AND status='pending'", (row['path'],)).fetchone():
+            if not self.state.db.execute("SELECT 1 FROM media_outbox WHERE path=? AND status IN ('pending','sending','uncertain')", (row['path'],)).fetchone():
                 # Delete only snapshots owned by this bridge, after both deliveries.
                 path = Path(row['path'])
                 if path.parent.resolve() == self.state.media_dir.resolve():
@@ -1451,6 +1489,7 @@ class BackgroundWorkers:
         self.telegram_factory, self.watcher_factory = telegram_factory, watcher_factory
         self.stop = threading.Event()
         self.threads = []
+        self.initialization_lock = threading.Lock()
 
     def start(self):
         for name, interval in [('desktop', .5), ('updates', 60), ('usage',30), ('scan', 2), ('approvals', 2), ('workflows', 5), ('orchestrator-chat', .5), ('production-planning', .5), ('reference-packs', 1), ('task-routing', .5), ('task-creation', .5), ('production', 2), ('notifications', .5), ('uploads', 1), ('backends', .5), ('gemini', .5), ('inputs', 1), ('codex-inputs', .5), ('providers', .5), *[(p, .5) for p in api.SPECS]]:
@@ -1459,64 +1498,103 @@ class BackgroundWorkers:
             self.threads.append(thread)
             thread.start()
 
-    def work(self, name, interval):
-        state = State(self.state_path)
+    def open_state(self,name):
+        """Serialize local migrations; a transient database lock cannot kill a worker."""
+        backoff=2
+        while not self.stop.is_set():
+            try:
+                with self.initialization_lock:
+                    if self.stop.is_set():return None
+                    return State(self.state_path)
+            except sqlite3.OperationalError as exc:
+                if getattr(exc,'sqlite_errorcode',0)&255 not in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED):raise
+                log_operation_error(name+' initialization',exc)
+                if self.stop.wait(backoff):return None
+                backoff=min(backoff*2,30)
+        return None
+
+    def build_job(self, state, name, resources):
+        """Construct only this worker, inside the supervised connection lifetime."""
         bridge = Bridge(state, service_transport(self.config, self.pacer, self.telegram_factory), self.config)
-        watcher = self.watcher_factory(state)
-        backend_worker = backends.BackendWorker(state, backend='claude' if name == 'backends' else name) if name in ('backends', 'gemini', *api.SPECS) else None
-        provider_worker = providers.Worker(state, telegram=bridge.telegram) if name == 'providers' else None
-        production_worker = production_control.Worker(state, telegram=bridge.telegram) if name == 'production' else None
         from . import releases
-        job = {'desktop': lambda: process_desktop(bridge),
-               'updates': lambda: releases.tick(state, bridge.telegram),
-               'scan': watcher.scan,
-               'reference-packs': reference_packs.Worker(state).tick,
-               'task-routing': task_routing.Worker(state, Desktop).tick,
-               'task-creation': task_creation.Worker(state, Desktop).tick,
-               'production': production_worker.tick if production_worker else None,
-               'orchestrator-chat': orchestrator_chat.Worker(state).tick,
-               'production-planning': orchestrator_chat.production_planning.Worker(state).tick,
-               'usage': usage_tracker.Worker(state).tick,
-               'workflows': workflows.Worker(state, Desktop).tick,
-               'approvals': codex_approvals.Worker(state, Desktop).tick,
-               **{p: backend_worker.tick if backend_worker else None for p in api.SPECS},
-               'notifications': lambda: bridge.flush(include_media=False),
-               'uploads': bridge.flush_media,
-               'backends': backend_worker.tick if backend_worker else None,
-               'gemini': backend_worker.tick if backend_worker else None,
-               'inputs': gemini.InputWorker(state, bridge.telegram).tick,
-               'codex-inputs': codex_inputs.Worker(state, bridge.telegram).tick,
-               'providers': provider_worker.tick if provider_worker else None}[name]
-        backoff = 2
-        runtime_evidence = {}
-        if name == 'orchestrator-chat':
-            from orchestrator.execution import REGISTRY
-            runtime_evidence = {'interface_version': 1, 'process_id': os.getpid(),
-                                'registered_graph_operations': sorted(REGISTRY)}
+        if name == 'desktop':return lambda: process_desktop(bridge)
+        if name == 'updates':return lambda: releases.tick(state, bridge.telegram)
+        if name == 'notifications':return lambda: bridge.flush(include_media=False)
+        if name == 'uploads':return bridge.flush_media
+        if name == 'scan':return self.watcher_factory(state).scan
+        factories = {
+            'reference-packs': lambda: reference_packs.Worker(state),
+            'task-routing': lambda: task_routing.Worker(state, Desktop),
+            'task-creation': lambda: task_creation.Worker(state, Desktop),
+            'production': lambda: production_control.Worker(state, telegram=bridge.telegram),
+            'orchestrator-chat': lambda: orchestrator_chat.Worker(state),
+            'production-planning': lambda: orchestrator_chat.production_planning.Worker(state),
+            'usage': lambda: usage_tracker.Worker(state),
+            'workflows': lambda: workflows.Worker(state, Desktop),
+            'approvals': lambda: codex_approvals.Worker(state, Desktop),
+            'inputs': lambda: gemini.InputWorker(state, bridge.telegram),
+            'codex-inputs': lambda: codex_inputs.Worker(state, bridge.telegram),
+            'providers': lambda: providers.Worker(state, telegram=bridge.telegram),
+        }
+        worker = (backends.BackendWorker(state, backend='claude' if name == 'backends' else name)
+                  if name in ('backends', 'gemini', *api.SPECS) else factories[name]())
+        resources.append(worker)
+        return worker.tick
+
+    def failure_health(self, state, name, exc, phase, retrying):
+        if state is None:return
         try:
-            while not self.stop.is_set():
-                start = time.monotonic()
-                try:
-                    job()
-                    with state.db:
-                        state.put(f'health:{name}', {'last_success': time.time(),
-                                                   'seconds': round(time.monotonic() - start, 3),
-                                                   **runtime_evidence})
-                    backoff = 2
-                    self.stop.wait(interval)
-                except Exception as exc:
-                    state.db.rollback()
-                    log_operation_error(name, exc)
-                    self.stop.wait(max(backoff, getattr(exc, 'retry_after', 0)))
-                    backoff = min(backoff * 2, 30)
-        finally:
-            if backend_worker:
-                backend_worker.close()
-            if provider_worker:
-                provider_worker.close()
-            if production_worker:
-                production_worker.close()
-            state.db.close()
+            state.db.rollback()
+            with state.db:
+                state.put('health:'+name, dict(status='retrying' if retrying else 'failed',
+                    phase=phase, error=type(exc).__name__+': '+str(exc), observed_at=time.time()))
+        except Exception as health_error:
+            # A locked/unavailable DB cannot hide the original service failure.
+            log_operation_error(name+' health', health_error)
+
+    def work(self, name, interval):
+        startup_failures=0
+        while not self.stop.is_set():
+            state=None;resources=[];retry=False
+            try:
+                state=self.open_state(name)
+                if state is None:return
+                job=self.build_job(state,name,resources)
+                backoff=2
+                runtime_evidence={}
+                if name=='orchestrator-chat':
+                    from orchestrator.execution import REGISTRY
+                    runtime_evidence=dict(interface_version=1,process_id=os.getpid(),registered_graph_operations=sorted(REGISTRY))
+                while not self.stop.is_set():
+                    start=time.monotonic()
+                    try:
+                        job()
+                        with state.db:
+                            state.put('health:'+name,dict(status='healthy',last_success=time.time(),
+                                seconds=round(time.monotonic()-start,3),**runtime_evidence))
+                        backoff=2
+                        self.stop.wait(interval)
+                    except Exception as exc:
+                        self.failure_health(state,name,exc,'execution',True)
+                        log_operation_error(name,exc)
+                        self.stop.wait(max(backoff,getattr(exc,'retry_after',0)))
+                        backoff=min(backoff*2,30)
+                return
+            except Exception as exc:
+                startup_failures+=1
+                retry=(isinstance(exc,sqlite3.OperationalError) and
+                       getattr(exc,'sqlite_errorcode',0)&255 in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED) and startup_failures<5)
+                log_operation_error(name+' initialization',exc)
+                self.failure_health(state,name,exc,'initialization',retry)
+            finally:
+                for resource in reversed(resources):
+                    try:
+                        if hasattr(resource,'close'):resource.close()
+                    except Exception as exc:
+                        log_operation_error(name+' cleanup',exc)
+                        self.failure_health(state,name,exc,'cleanup',False)
+                if state is not None:state.db.close()
+            if not retry or self.stop.wait(min(2**startup_failures,30)):return
 
     def close(self):
         self.stop.set()
@@ -1593,6 +1671,10 @@ def run():
     from task_relay.messages_storage import require_consolidated
     require_consolidated(DATA / 'state.sqlite', PATHS.messages)
     state = State(DATA / 'state.sqlite')
+    # Before any scanning/sending threads: each service activation starts a new
+    # delivery window. Reopening the UI or worker connections does not reset it.
+    with state.db:
+        channel_policy.begin_telegram_delivery_window(state.db)
     pacer = SendPacer()
     bridge = Bridge(state, service_transport(config, pacer), config)
     # A restart after a lost acknowledgement cannot safely replay a command.

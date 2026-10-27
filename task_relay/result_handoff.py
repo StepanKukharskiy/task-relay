@@ -12,7 +12,12 @@ def initialize(db):
     job_ownership.initialize(db)
     # Existing installations must not send a backlog of historical completions.
     db.execute('CREATE TABLE IF NOT EXISTS result_handoff_epoch (id INTEGER PRIMARY KEY, after_created REAL NOT NULL)')
-    db.execute('INSERT OR IGNORE INTO result_handoff_epoch SELECT 1,COALESCE(max(created),0) FROM production_decisions')
+    db.execute('INSERT OR IGNORE INTO result_handoff_epoch(id,after_created) SELECT 1,COALESCE(max(created),0) FROM production_decisions')
+    # Node completion is a delivery trigger, never a synthetic selection. On an
+    # existing installation, establish an epoch without publishing old results.
+    if 'after_delivery_event' not in {r[1] for r in db.execute('PRAGMA table_info(result_handoff_epoch)')}:
+        db.execute('ALTER TABLE result_handoff_epoch ADD COLUMN after_delivery_event INTEGER NOT NULL DEFAULT 0')
+        db.execute("UPDATE result_handoff_epoch SET after_delivery_event=(SELECT COALESCE(max(id),0) FROM production_events WHERE kind='owner_delivery_verified')")
 
 
 def channel_for(state,run):
@@ -52,12 +57,16 @@ def snapshot(state,run):
         identity,runs,plans=ancestry(state,run)
         row=state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()
         if not row:raise ValueError('Missing result production.')
-        plan=json.loads(row['plan']);status=Runtime(runtime_root(state),connection=state.db).status(run)['status']
+        plan=json.loads(row['plan']);view=Runtime(runtime_root(state),connection=state.db).status(run);status=view['status']
         original=state.db.execute('SELECT request FROM production_plans WHERE id=?',(identity,)).fetchone()
         pid='job-'+hashlib.sha256(identity.encode()).hexdigest()[:24]
         stage=dict(id='results',position=0,status=status,result='',sources=[],runs=sorted(runs),plans=sorted(plans),target=run)
         report=dict(format_version=2,kind='production_result',id=pid,title=plan['brief'],request=original[0] if original else plan['brief'],status=status,
                     plan=plan,stages=[stage],artifacts=[],missing_artifacts=[])
+        if view.get('delivery'):report.update(delivery=view['delivery'],execution_status=status,status='partial')
+        if status=='completed' and plan.get('job_owner',{}).get('execution_policy'):
+            row=state.db.execute("SELECT data FROM production_events WHERE run=? AND kind='owner_delivery_verified' ORDER BY id DESC LIMIT 1",(run,)).fetchone()
+            if row:report['owner_delivery']=json.loads(row[0])
         aids=set()
         for ident in plans:
             q=state.db.execute('SELECT context FROM production_plans WHERE id=?',(ident,)).fetchone()
@@ -93,6 +102,35 @@ def saved_text(state,run):
     if not marker.is_file():return ''
     old=json.loads(marker.read_text())
     if old.get('workflow')!=ident:return ''
+    from orchestrator.runtime import Runtime
+    from .production_control import root as runtime_root
+    delivery=Runtime(runtime_root(state),connection=state.db).status(run).get('delivery')
+    if delivery:
+        from orchestrator.partial_delivery import lines
+        available=[]
+        for a in delivery['candidates']:
+            relative=old.get('paths',{}).get(a['artifact'])
+            if not relative:continue
+            path=files._inside(root,relative)
+            if not path.is_file() or path.stat().st_size!=a['bytes'] or hashlib.sha256(path.read_bytes()).hexdigest()!=a['sha256']:continue
+            available.append(str(path)+' — '+a['review_status'])
+        if not available:return ''
+        return '\n'.join(['Partial delivery — available files:']+available+['']+lines(delivery))
+    plan=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0])
+    if plan.get('job_owner',{}).get('execution_policy') and Runtime(runtime_root(state),connection=state.db).status(run)['status']=='completed':
+        row=state.db.execute("SELECT data FROM production_events WHERE run=? AND kind='owner_delivery_verified' ORDER BY id DESC LIMIT 1",(run,)).fetchone()
+        if not row:return ''
+        parts=[];bound=json.loads(row[0])['deliverables']
+        for key,v in bound.items():
+            relative=old.get('paths',{}).get(v['artifact'])
+            if not relative:return ''
+            path=files._inside(root,relative)
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=v['sha256']:return ''
+            if path.suffix in ('.md','.txt'):
+                text=path.read_text()
+                if len(text)<=12000:parts.append(text)
+            parts.append(str(path)+' — '+v['review_status'])
+        return '\n\n'.join(parts)
     selected=[]
     for a in state.db.execute('''SELECT DISTINCT a.id,a.sha256,a.bytes,a.path FROM production_decisions d
         JOIN production_artifacts a ON a.id=d.artifact JOIN production_tasks t ON t.run=d.run AND t.id=d.task
@@ -116,10 +154,15 @@ def tick(state):
     # Selection is a durable handoff trigger, including runs completed by a button.
     # Limit pending completed handoffs, not recent selections. Already delivered
     # cards and partial/preparation runs must not hide an older finished result.
-    rows=state.db.execute('''SELECT d.run,max(d.created) stamp FROM production_decisions d
+    rows=state.db.execute('''WITH delivered AS (
+        SELECT run,created stamp FROM production_decisions
+          WHERE created>(SELECT after_created FROM result_handoff_epoch WHERE id=1)
+        UNION ALL
+        SELECT run,created stamp FROM production_events
+          WHERE kind='owner_delivery_verified' AND id>(SELECT after_delivery_event FROM result_handoff_epoch WHERE id=1)
+        ) SELECT d.run,max(d.stamp) stamp FROM delivered d
         JOIN production_runs r ON r.id=d.run
-        WHERE d.created>(SELECT after_created FROM result_handoff_epoch WHERE id=1)
-          AND r.status IN ('active','completed')
+        WHERE r.status IN ('active','completed')
           AND NOT EXISTS (SELECT 1 FROM production_tasks t WHERE t.run=d.run AND t.status!='completed')
           AND NOT EXISTS (SELECT 1 FROM json_each(r.plan,'$.deferred_operations'))
           AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.id='production:' || d.run || ':files-ready')
@@ -141,6 +184,8 @@ def tick(state):
             title=('Workflow completed — selected results are ready.' if owner and owner['status']=='completed' else
                    'Stage completed — selected results are ready.' if owner else
                    'Completed — your selected results are ready.')
+            policy=json.loads(state.db.execute('SELECT plan FROM production_runs WHERE id=?',(run,)).fetchone()[0]).get('job_owner',{}).get('execution_policy')
+            if policy:title='Completed — files ready for your choice.' if policy.get('review')=='user' else 'Completed — your results are ready.'
             with transaction(state.db):
                 if rt.status(run)['status']!='completed':continue
                 state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)',(event,title+'\n\n'+text))

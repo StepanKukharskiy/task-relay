@@ -25,6 +25,25 @@ def _cleanup_paths():
 
 
 def dispatch(action, value):
+    if action=='node-catalog':
+        from orchestrator.operation_definition import catalog
+        if not isinstance(value,dict) or set(value)-{'include_legacy'} or type(value.get('include_legacy',False)) is not bool:
+            raise ValueError('Supply only an optional include_legacy boolean')
+        return dict(operations=catalog(include_legacy=value.get('include_legacy',False)),execution_authorized=False)
+    if action=='node-validate':
+        from orchestrator import node_spec
+        if not isinstance(value,dict) or set(value)-{'workflow','values','canvas'} or 'workflow' not in value:
+            raise ValueError('Supply workflow and optional run values')
+        if 'values' in value and not isinstance(value['values'],dict):raise ValueError('Run values must be an object')
+        from .desktop_node_files import lookup
+        if 'canvas' in value:
+            from .desktop_node_runs import _database,canvas_lookup
+            from orchestrator.runtime import Runtime
+            from contextlib import closing
+            with closing(_database()) as db:
+                rt=Runtime(PATHS.data/'orchestrator',connection=db,read_only=True)
+                return dict(validation=node_spec.resolve_workflow(value['workflow'],value.get('values'),artifact=canvas_lookup(rt,value['canvas'])),execution_authorized=False)
+        return dict(validation=node_spec.resolve_workflow(value['workflow'],value.get('values'),artifact=lookup),execution_authorized=False)
     if action.startswith('app-update-'):
         from .app_updates import Updater
         updater = Updater()
@@ -46,7 +65,9 @@ def dispatch(action, value):
              'shared-history-list', 'shared-history-preview',
              'computer-sessions', 'computer-session-detail', 'computer-setup-status'}
     reads.update({'workspace-jobs', 'workspace-detail', 'workspace-artifact', 'workspace-request', 'workspace-plan', 'workspace-source-changes', 'workspace-compare'})
-    reads.update({'workspace-source', 'workspace-chat', 'workspace-chat-source', 'conversation-delete-preview'})
+    reads.update({'workspace-artifact-link', 'workspace-source', 'workspace-chat', 'workspace-chat-source', 'conversation-delete-preview'})
+    reads.update({'workflow-import-preview'})
+    reads.update({'node-templates', 'node-template', 'node-drafts', 'node-draft', 'node-setup', 'node-run-preview', 'node-files','node-canvas'})
     if action not in reads:
         from .app_updates import Updater, read, TERMINAL
         updater = Updater()
@@ -60,6 +81,37 @@ def dispatch(action, value):
 
 
 def _dispatch(action, value):
+    if action in ('workflow-export','workflow-import-preview','workflow-import'):
+        from .workflow_transfer import dispatch as transfer
+        return transfer(action,value)
+    if action in ('node-compose','node-compose-preview','node-compose-result'):
+        from .desktop_node_runs import compose_workflow,composition_result
+        if action=='node-compose-preview':return compose_workflow(value,preview_only=True)
+        return (compose_workflow if action=='node-compose' else composition_result)(value)
+    if action=='node-codex-runtime':
+        from .desktop_node_setup import configure_codex
+        return configure_codex(value)
+    if action in ('node-files','node-file-import'):
+        from .desktop_node_files import dispatch as file_dispatch
+        return file_dispatch(action,value)
+    if action in ('node-setup','node-connect','node-model-verify'):
+        from . import desktop_node_setup as setup
+        if action=='node-connect':
+            from .credentials import CredentialError
+            try:return setup.connect(value)
+            except CredentialError as exc:raise DesktopPlanError(str(exc)) from None
+        return setup.snapshot() if action=='node-setup' else setup.verify(value)
+    if action in ('node-run-preview','node-run-start','node-run-advance','node-result-draft','node-result-chat','node-prompt-save','node-canvas','node-canvas-save'):
+        from . import desktop_node_runs as runs
+        return {'node-run-preview':runs.preview,'node-run-start':runs.start,'node-run-advance':runs.advance,
+            'node-result-draft':runs.result_draft,'node-result-chat':runs.result_chat,'node-prompt-save':runs.save_node_prompt,
+            'node-canvas':runs.read_canvas,'node-canvas-save':runs.save_canvas}[action](value)
+    if action in ('node-templates', 'node-template'):
+        from .job_templates import dispatch as template_dispatch
+        return template_dispatch(action, value)
+    if action in ('node-drafts', 'node-draft', 'node-draft-save'):
+        from .desktop_node_drafts import dispatch as draft_dispatch
+        return draft_dispatch(action, value)
     if action in ('conversation-delete-preview','conversation-delete','conversation-delete-recover'):
         from . import conversation_delete
         if action == 'conversation-delete-preview':return conversation_delete.preview(value.get('id'))
@@ -67,16 +119,27 @@ def _dispatch(action, value):
         return conversation_delete.recover(value.get('id'))
     if action.startswith('workspace-'):
         from . import desktop_workspace
+        if action == 'workspace-job-delete-preview':
+            from .job_delete import preview_item
+            return preview_item(value)
+        if action == 'workspace-job-visibility': return desktop_workspace.job_visibility(value)
         if action == 'workspace-jobs': return desktop_workspace.jobs(value.get('offset', 0), include_archived=value.get('include_archived', False))
         if action == 'workspace-chat': return desktop_workspace.chat_detail(value.get('id'))
         if action == 'workspace-chat-source': return desktop_workspace.chat_source(value.get('id'), value.get('url'))
-        if action == 'workspace-detail': return desktop_workspace.detail(value.get('run'))
+        if action == 'workspace-detail':
+            return desktop_workspace.pipeline_detail(value['pipeline']) if value.get('pipeline') else desktop_workspace.detail(value.get('run'))
         if action == 'workspace-source':
             from .desktop_sources import source_url
             return source_url(value.get('run'), value.get('source'))
         if action == 'workspace-plan': return plan_detail(value.get('plan_id'), shared=True)
         if action == 'workspace-request': return desktop_workspace.request_detail(value.get('request_id'))
-        if action == 'workspace-artifact': return desktop_workspace.artifact_path(value.get('artifact'))
+        if action == 'workspace-artifact-link':return desktop_workspace.artifact_link(value)
+        if action == 'workspace-artifact':
+            if value.get('preview') is True:
+                return desktop_workspace.artifact_preview(value.get('artifact'), value.get('sha256'), page=value.get('page',1))
+            return desktop_workspace.artifact_path(value.get('artifact'),location_only=value.get('location') is True)
+        if action == 'workspace-open-artifact':
+            return desktop_workspace.open_artifact(value)
         if action in ('workspace-source-changes', 'workspace-compare'):
             from . import desktop_file_changes
             if action == 'workspace-source-changes': return desktop_file_changes.check_sources(value.get('run'))
@@ -185,7 +248,7 @@ def _dispatch(action, value):
                 return {'id': backfill_standalone(value.get('run'))}
             if action.endswith('-preview'): return job_delete.preview(value.get('id'))
             if action in ('pipeline-delete', 'job-delete'):
-                return job_delete.delete(value.get('id'), value.get('digest'))
+                return job_delete.delete(value.get('id'), value.get('digest'), acknowledge_uncertain=value.get('acknowledge_uncertain',False))
             return job_delete.recover(value.get('id'))
         except (job_delete.JobDeleteError, ValueError) as exc:
             raise DesktopTaskError(str(exc)) from None
@@ -294,7 +357,11 @@ def _dispatch(action, value):
         return create_plan(value.get('goal'), value.get('constraints', ''), value.get('project'),
                            value.get('parent_id'), value.get('request_id'), files=value.get('files'), previous_run=value.get('previous_run'), research_mode=value.get('research_mode', 'suggest'), entry_mode=value.get('entry_mode', 'plan'))
     if action == 'conversation-followup':
-        from .conversation_flow import choose
+        from .conversation_flow import choose, send_message, message_status
+        if set(value)=={'id','request_id','check'} and value['check'] is True:
+            return message_status(value['id'],value['request_id'])
+        if set(value)=={'id','request_id','message'}:
+            return send_message(value['id'],value['message'],value['request_id'])
         return choose(value.get('id'),value.get('index'),value.get('digest'),value.get('request_id'))
     if action == 'plan-detail':
         return plan_detail(value.get('plan_id'))
@@ -309,8 +376,11 @@ def main():
     try:
         if len(sys.argv) != 2:
             raise launcher.LauncherError('Choose a setup action.')
-        raw = sys.stdin.buffer.read(16385)
-        if len(raw) > 16384:
+        from importlib.resources import files
+        limits = json.loads(files('task_relay').joinpath('assets/desktop-request-limits.json').read_text())
+        limit = limits['actions'].get(sys.argv[1], limits['default'])
+        raw = sys.stdin.buffer.read(limit + 1)
+        if len(raw) > limit:
             raise launcher.LauncherError('Request is too large.')
         value = json.loads(raw) if raw else {}
         # Legacy setup functions may print instructions; keep stdout a single
@@ -320,8 +390,10 @@ def main():
         reply = {'ok': True, 'value': result}
     except (AppUpdateError, launcher.LauncherError, DesktopServiceError, DesktopTaskError, DesktopPlanError, DesktopBindingError, UnsupportedHost) as exc:
         reply = {'ok': False, 'error': str(exc)}
-    except (ValueError, UnicodeError):
-        reply = {'ok': False, 'error': 'Invalid setup request.'}
+    except (ValueError, UnicodeError) as exc:
+        safe_actions={'workflow-export','workflow-import-preview','workflow-import','node-compose-preview','node-compose','node-compose-result','node-canvas-save','node-prompt-save','node-validate','node-draft-save','node-run-preview','node-run-start','node-file-import','node-result-draft','node-result-chat'}
+        message=str(exc)[:800] if len(sys.argv)==2 and sys.argv[1] in safe_actions and not isinstance(exc,UnicodeError) else 'Invalid setup request.'
+        reply = {'ok': False, 'error': message}
     except Exception:
         reply = {'ok': False, 'error': 'Action could not finish. Saved steps remain; run task-relay doctor for details.'}
     sys.stdout.write(json.dumps(reply, ensure_ascii=False, separators=(',', ':')) + '\n')

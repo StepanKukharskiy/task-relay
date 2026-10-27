@@ -182,10 +182,9 @@ class Tests(unittest.TestCase):
         try:
             rt.create(capture_graph());rt.tick('demo');aid=rt.task('demo','produce')['latest']
             record=factory.sessions[aid];f=record['frozen'];driver=CaptureDriver()
-            with sqlite3.connect(':memory:') as db:
-                session=Session(db,f['assignment_id'],f['browser'],driver,Files(f))
-                page=session.call('open','browser_open',{'url':'https://example.test/map'})
-                session.call('capture','browser_screenshot',dict(tab=page['tab'],observation=page['observation'],path='map.png',purpose='Fixture capture'))
+            session=Session(rt.db,f['assignment_id'],f['browser'],driver,Files(f))
+            page=session.call('open','browser_open',{'url':'https://example.test/map'})
+            session.call('capture','browser_screenshot',dict(tab=page['tab'],observation=page['observation'],path='map.png',purpose='Fixture capture'))
             atomic(Path(f['workspace'])/'.relay/result.json',report(f))
             record['status']={'status':'finished','exit_code':0}
             rt.tick('demo')

@@ -43,13 +43,15 @@ class NativeApp:
         # runtime in the baseline phase. A system Ruby is not authoritative.
 
 
-COMMON = ('host_code.py', 'host_script.py', 'native_apps.py', 'execution.py', 'step_runner.py', 'outcomes.py')
+COMMON = ('host_code.py', 'host_script.py', 'native_apps.py', 'execution.py', 'step_runner.py', 'outcomes.py',
+          'operation_adapters.py', 'operation_validators.py', 'parameter_contracts.py',
+          'operation_execution.py', 'operation_lifecycle.py', 'operation_bindings.py', 'operation_availability.py','operation_inspection.py')
 APPS = {
     'rhino3dm': NativeApp('rhino3dm', 'application/vnd.rhino', '.3dm', 'rhino3dm.run_python',
         'text/x-python', '.py', 'rhino3dm_script_contract', COMMON + ('rhino3dm_script_contract.py',
         'rhino3dm_script.py', 'rhino3dm_script_worker.py', 'rhino3dm_document.py', 'rhino3dm_contract.py'), True),
     'blender': NativeApp('blender', 'application/x-blender', '.blend', 'blender.run_python',
-        'text/x-python', '.py', 'blender_edit', COMMON + ('blender_edit.py', 'blender_edit_worker.py', 'blender_snapshot.py')),
+        'text/x-python', '.py', 'blender_edit', COMMON + ('blender_edit.py', 'blender_edit_worker.py', 'blender_snapshot.py'), True),
     'rhino': NativeApp('rhino', 'application/vnd.rhino', '.3dm', 'rhino.run_python',
         'text/x-python', '.py', 'rhino_contract', COMMON + ('rhino_contract.py', 'rhino_execution.py', 'rhino_worker.py',
         '../task_relay/rhino_host.py', '../task_relay/host_apps.py'), True),
@@ -81,7 +83,7 @@ def execute(frozen, control, documents):
         module = app.name + '_execution'
     else:
         modules = {'blender.startup':'blender_host', 'blender.scene':'blender_host',
-            'blender.mesh_scene':'blender_host', 'blender.inspect':'blender_inspection',
+            'blender.mesh_scene':'blender_host', 'blender.inspect':'blender_inspection', 'blender.geometry':'blender_inspection',
             'blender.run_python':'blender_edit', 'blender.import_asset':'blender_assets',
             'blender.animate':'blender_animation'}
         if capability not in modules: raise ValueError('Unknown native operation; no fallback')

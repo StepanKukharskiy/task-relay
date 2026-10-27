@@ -1,0 +1,10 @@
+{
+  "default": 16384,
+  "actions": {
+    "node-compose": 500000,
+    "node-compose-preview": 500000,
+    "node-canvas-save": 500000,
+    "node-draft-save": 500000,
+    "node-validate": 500000
+  }
+}

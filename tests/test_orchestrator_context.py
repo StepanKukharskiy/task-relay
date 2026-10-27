@@ -13,6 +13,32 @@ from tests import test_orchestrator_files as file_fixtures
 
 
 class ContextTests(unittest.TestCase):
+    def test_frozen_request_contract_survives_zero_text_and_wide_map_fallback(self):
+        contract={'mode':'existing_work','reason':'Exact retained scope','outcomes':[{'id':'inventory','description':'Exact description','kind':'file','count':1,'format':'.json','checks':['nonempty','json'],'validation':['Original criteria']}]}
+        payload=self.payload();payload['request_contract']=contract
+        payload.update({str(i):'x'*1000 for i in range(2000)})
+        original=copy.deepcopy(payload)
+        for budget in (160000,35000):
+            with patch.object(context,'MAX_OVERVIEW',budget):
+                view=context.overview(payload)
+                self.assertEqual(view['request_contract'],contract)
+                self.assertLessEqual(len(context.encoded(view).encode()),budget)
+        self.assertEqual(payload,original)
+
+    def test_photo_binding_survives_catalog_trimming_and_wide_fallback(self):
+        payload=self.payload()
+        binding=[{'request_id':367,'attachment_ids':[367],
+                  'files':[{'id':367,'filename':'photo.jpg','path':'correct'}], 'missing_ids':[]}]
+        payload['conversation_attachments']=binding
+        payload['snapshot']['uploaded_files']=[{'id':i,'filename':'photo.jpg','caption':'old '*1000} for i in range(100)]
+        for budget in (160000,35000):
+            with patch.object(context,'MAX_OVERVIEW',budget):
+                small=context.overview(payload)
+                self.assertEqual(small['conversation_attachments'],binding)
+                self.assertLessEqual(len(context.encoded(small).encode()),budget)
+        payload.update({str(i):'x'*1000 for i in range(2000)})
+        self.assertEqual(context.overview(payload)['conversation_attachments'],binding)
+
     def test_current_workers_survive_large_context_after_historical_blocker(self):
         payload=self.payload()
         catalog=[{'id':'worker-'+str(i),'backend':{'type':'fixture','model':'fixture'},

@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import uuid
+import os
 
 from . import contracts as c
 from .gemini_worker import Files
@@ -10,8 +11,16 @@ from .workers import atomic
 
 
 def definitions():
-    return [{'name':'python_run','description':'Run Python in the approved native sandbox. Read exact inputs below os.environ["RELAY_INPUTS"], write declared outputs below os.environ["RELAY_OUTPUTS"]. No network, subprocesses or native apps. Each call is fresh; only declared written outputs persist.',
+    return [{'name':'python_run','description':'Run Python in the approved native sandbox. Read exact inputs below os.environ["RELAY_INPUTS"]. The working directory and RELAY_OUTPUTS retain scripts, intermediate files and outputs from the last successful call in this assignment; Python variables do not persist. Only declared outputs become deliverable artifacts. No network, subprocesses or native apps. All working files share the existing output byte limit.',
              'parameters':{'type':'object','properties':{'code':{'type':'string','description':'One compact incremental edit, at most 6000 UTF-8 bytes. Load and transform existing data instead of retyping it. Save progress in declared output paths.'},'seconds':{'type':'integer'}},'required':['code','seconds']}}]
+
+
+def checkpoint_definition(python_tool):
+    """Registered restricted phase of the same granted Python capability."""
+    import copy
+    value=copy.deepcopy(python_tool)
+    value.update(name='python_checkpoint',description='Make a real incremental edit to a declared draft output. Read existing inputs or saved drafts and preserve their content. Save one or more changed outputs below RELAY_OUTPUTS; remaining outputs can follow in later calls. Do not write placeholders or empty documents. Printing or rewriting unchanged files is not progress. Use compact Python transformations rather than retyping source content. Same native sandbox and deadline as python_run.')
+    return value
 
 
 class CodeFiles(Files):
@@ -24,6 +33,32 @@ class CodeFiles(Files):
             raw=self.read_bytes(path);total+=len(raw)
             if hashlib.sha256(raw).hexdigest()!=item['sha256']:raise ValueError('Frozen code input changed.')
         if total>100000000:raise ValueError('Code input pack exceeds 100 MB.')
+
+    def workspace(self):
+        """Last committed successful call, never uncertain or failed writes."""
+        saved=[]
+        for path in self.control.glob('code-*/outcome.json'):
+            receipt=json.loads(path.read_text())
+            if receipt.get('returncode')==0 and 'workspace' in receipt:
+                intent=json.loads(path.with_name('intent.json').read_text())
+                if intent.get('assignment')!=self.frozen['assignment_id']:raise ValueError('Code workspace belongs to another assignment')
+                saved.append((intent['sequence'],path.parent/'outputs',receipt['workspace']))
+        return max(saved,key=lambda item:item[0])[1:] if saved else (None,{})
+
+    def snapshot(self,folder,maximum):
+        from task_relay.filesystem import FILES,Grant
+        blobs={};total=0;root=Path(folder)
+        grant=Grant(root,self.frozen['assignment_id'])
+        for directory,dirs,names in os.walk(root,followlinks=False):
+            for name in dirs:
+                if (Path(directory)/name).is_symlink():raise ValueError('Code workspace contains a linked directory')
+            for name in names:
+                path=(Path(directory)/name).relative_to(root).as_posix()
+                if path=='runtime.log':continue
+                c.relative(path)
+                if len(blobs)>=4096:raise ValueError('Code workspace file limit exceeded')
+                raw=FILES.read(grant,path,maximum-total);total+=len(raw);blobs[path]=raw
+        return blobs
 
     def read_bytes(self,path):
         from task_relay.filesystem import FILES
@@ -57,16 +92,32 @@ class CodeFiles(Files):
         for path in sorted(set(self.inputs)|set(self.written)):
             c.relative(path);target=inputs/path;target.parent.mkdir(parents=True,exist_ok=True)
             target.write_bytes(self.read_bytes(path));target.chmod(0o444)
-        atomic(folder/'intent.json',{'runtime':runtime['id'],'code_sha256':hashlib.sha256(args['code'].encode()).hexdigest(),'seconds':args['seconds']})
-        result=native_code_host.run(runtime['runtime'],folder,args['code'],args['seconds'],self.frozen['limits']['output_bytes'],lambda:(self.control/'cancel.json').exists())
+        previous,manifest=self.workspace();code=args['code']
+        if previous:
+            # Private seed is copied by trusted wrapper code inside the existing
+            # sandbox. Native host authority and runtime identity are unchanged.
+            seed=inputs/('.relay-work-'+uuid.uuid4().hex);seed.mkdir()
+            grant=Grant(previous,self.frozen['assignment_id'],frozenset(manifest))
+            total=0
+            for path,detail in manifest.items():
+                raw=FILES.read(grant,path,self.frozen['limits']['output_bytes']-total);total+=len(raw)
+                if len(raw)!=detail['bytes'] or hashlib.sha256(raw).hexdigest()!=detail['sha256']:raise ValueError('Saved code workspace changed')
+                target=seed/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+            code='import shutil as _relay_copy\n_relay_copy.copytree('+repr(str(seed))+', ".", dirs_exist_ok=True)\ndel _relay_copy\nexec(compile('+repr(code)+', "<relay-code>", "exec"), globals())'
+        atomic(folder/'intent.json',{'runtime':runtime['id'],'assignment':self.frozen['assignment_id'],'sequence':len(pending)+1,
+            'code_sha256':hashlib.sha256(args['code'].encode()).hexdigest(),'executed_code_sha256':hashlib.sha256(code.encode()).hexdigest(),'seconds':args['seconds']})
+        result=native_code_host.run(runtime['runtime'],folder,code,args['seconds'],self.frozen['limits']['output_bytes'],lambda:(self.control/'cancel.json').exists())
         blobs={};maximum=self.frozen['limits']['output_bytes']
+        workspace={}
         if result['returncode']==0:
-            grant=Grant(Path(result['outputs']),self.frozen['assignment_id'],frozenset(self.outputs))
-            for path in self.outputs:
-                try:blobs[path]=FILES.read(grant,path,maximum)
-                except FileNotFoundError:continue
+            if Path(result['outputs'])!=folder/'outputs':raise ValueError('Code workspace escaped its owned directory')
+            saved=self.snapshot(result['outputs'],maximum)
+            workspace={p:dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest()) for p,raw in saved.items()}
+            blobs={p:raw for p,raw in saved.items() if p in self.outputs}
             if sum(map(len,blobs.values()))+sum(n for p,n in self.written.items() if p not in blobs)>maximum:raise ValueError('Code output byte budget exceeded.')
             for path,raw in blobs.items():FILES.write(self.grant(),path,raw);self.written[path]=len(raw)
         receipt={k:result[k] for k in ('returncode','log')}
         receipt['outputs']={p:{'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()} for p,raw in blobs.items()}
-        atomic(folder/'outcome.json',receipt);return receipt
+        if result['returncode']==0:receipt['workspace']=workspace
+        atomic(folder/'outcome.json',receipt)
+        return {k:v for k,v in receipt.items() if k!='workspace'}|dict(working_files=len(workspace),working_bytes=sum(d['bytes'] for d in workspace.values()))

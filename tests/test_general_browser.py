@@ -45,6 +45,15 @@ class Driver:
 
 
 class Tests(unittest.TestCase):
+    def test_page_evidence_exposes_durable_action_identity(self):
+        observed=self.session.call('product-open','browser_open',{'url':'https://example.test/product'})
+        self.assertEqual(observed['action_id'],'product-open')
+        self.assertTrue(observed['observation'])
+        replay=self.session.call('product-open','browser_open',{'url':'https://example.test/product'})
+        self.assertEqual(replay,observed)
+        row=self.db.execute('SELECT result FROM general_browser_actions WHERE job=? AND id=?',('job','product-open')).fetchone()
+        self.assertEqual(json.loads(row[0])['action_id'],observed['action_id'])
+
     def setUp(self):
         self.db=sqlite3.connect(':memory:');self.driver=Driver()
         self.session=Session(self.db,'job',policy(),self.driver)

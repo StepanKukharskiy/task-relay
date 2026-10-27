@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "id": "article",
+  "operation": "web.fetch",
+  "objective": "Read the article",
+  "inputs": {
+    "url": {
+      "value": "https://www.w3.org/Provider/Style/URI.html"
+    }
+  }
+}

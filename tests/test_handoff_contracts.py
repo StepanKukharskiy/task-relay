@@ -33,6 +33,27 @@ def architecture():
 
 
 class ContractTests(unittest.TestCase):
+    def test_typed_native_ports_reject_forged_family_path_and_version(self):
+        import copy
+        content=dict(id='collection.options',version=1)
+        expected=stage('catalog','production',{'catalog':dict(media_type='application/json',content_contract=content)})
+        task=dict(id='merge',execution=dict(capability='records.merge',version=1),inputs=[],outputs=[dict(path='delivery/catalog.json')])
+        graph=dict(tasks=[task],deliverables={'catalog':dict(task='merge',output='delivery/catalog.json')})
+        h.bind_stage(expected,graph)
+        for change in ('family','version','path','capability'):
+            with self.subTest(change=change):
+                candidate=copy.deepcopy(graph);owner=candidate['tasks'][0]
+                if change=='family':owner['execution']['capability']='sourcing.merge'
+                if change=='version':owner['execution']['version']=99
+                if change=='path':
+                    owner['outputs'][0]['path']='delivery/forged.json'
+                    candidate['deliverables']['catalog']['output']='delivery/forged.json'
+                if change=='capability':owner['execution']['capability']='unknown.merge'
+                owner['operation_contract']={**content,'output':candidate['deliverables']['catalog']['output']}
+                owner['outputs'][0]['content_contract']=content
+                with self.assertRaisesRegex(h.ContractError,'registered record operation'):
+                    h.bind_stage(expected,candidate)
+
     def test_architecture_and_other_stage_orders_compile_without_templates(self):
         result=h.compile_workflow(architecture(),required=True)
         self.assertEqual(len(result['edges']),4)
@@ -86,6 +107,32 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(h.ContractError):h.bind_stage(s,graph,bindings,sources)
         sources[0]['workflow_artifact']='selected';h.bind_stage(s,graph,bindings,sources)
         self.assertEqual(graph['tasks'][0]['outputs'][0]['handoff']['slides'],3)
+
+    def test_native_context_can_reach_bound_reviewer_without_entering_typed_port(self):
+        s=stage('photo','production',{'photos':{'media_type':'application/zip'}},
+                ['images.fetch'],[edge('catalog','options','application/json')])
+        graph=dict(tasks=[dict(id='fetch',execution={'capability':'images.fetch'},inputs=[],
+                               outputs=[dict(path='photos.zip',media_type='application/zip')]),
+                          dict(id='review',review_of='fetch',dependencies=['fetch'],inputs=[dict(artifact='catalog-version')])],
+                   deliverables={'photos':dict(task='fetch',output='photos.zip')})
+        bindings=[dict(**s['handoff']['inputs'][0],kind='artifact',source={'artifact':'catalog-version'})]
+        sources=[dict(artifact='catalog-version')]
+        h.bind_stage(s,graph,bindings,sources)
+        graph['tasks'][1]['inputs'][0]['artifact']='different-version'
+        with self.assertRaises(h.ContractError):h.bind_stage(s,graph,bindings,sources)
+        graph['tasks'][1]['inputs'][0]['artifact']='catalog-version';graph['tasks'][1]['dependencies']=[]
+        with self.assertRaises(h.ContractError):h.bind_stage(s,graph,bindings,sources)
+
+    def test_agent_producer_and_explicit_native_port_cannot_delegate_to_context_review(self):
+        for consumer,execution in (('context',None),('images.fetch',{'capability':'images.fetch'})):
+            s=stage('photo','production',{'photos':{'media_type':'application/zip'}},['images.fetch'],
+                    [edge('catalog','options','application/json',consumer)])
+            graph=dict(tasks=[dict(id='fetch',inputs=[],outputs=[dict(path='photos.zip',media_type='application/zip')]),
+                              dict(id='review',review_of='fetch',dependencies=['fetch'],inputs=[dict(artifact='catalog')])],
+                       deliverables={'photos':dict(task='fetch',output='photos.zip')})
+            if execution:graph['tasks'][0]['execution']=execution
+            with self.assertRaises(h.ContractError):h.bind_stage(s,graph,
+                [dict(**s['handoff']['inputs'][0],kind='artifact',source={'artifact':'catalog'})],[dict(artifact='catalog')])
 
     def test_actual_slide_count_and_byte_limits_are_checked(self):
         with tempfile.TemporaryDirectory() as directory:

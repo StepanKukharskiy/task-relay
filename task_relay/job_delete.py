@@ -1,8 +1,8 @@
 """Permanent deletion of one proven Relay job ownership graph.
 
 The database is authoritative. A small tombstone survives solely to retry private
-view and provider-trace cleanup after a crash; native artifacts and external
-project files are kept.
+owned-file cleanup after a crash; imported originals and external exported
+copies are kept. Managed runtime artifacts are deleted with their job.
 """
 from contextlib import closing
 import hashlib
@@ -230,6 +230,7 @@ def _media_task_rows(db, rows, add, steps, task_links):
 
 
 def _graph(db, pid, paths):
+    if isinstance(pid,str) and pid.startswith(('canvas:','draft:')):return _node_graph(db,pid,paths)
     if not isinstance(pid, str) or not re.fullmatch(r'(?:job|pipe)-[a-f0-9]{24}', pid):
         raise JobDeleteError('Choose an exact saved pipeline.')
     owner = (db.execute('SELECT rowid AS _delete_rowid,* FROM relay_pipelines WHERE id=?',
@@ -257,7 +258,12 @@ def _graph(db, pid, paths):
     task_links = add('relay_pipeline_task_links', 'pipeline', {pid})
     add('relay_pipeline_requests', 'pipeline', {pid})
     add('relay_pipeline_events', 'pipeline', {pid})
+    add('relay_stage_state', 'pipeline', {pid})
+    add('relay_recovery_decisions', 'pipeline', {pid})
     add('research_campaign_receipts', 'pipeline', {pid})
+    for table in ('completion_recovery_grants','completion_recoveries',
+                  'completion_recovery_extensions','local_review_invocations'):
+        add(table,'pipeline',{pid})
     repairs = add('production_auto_repairs', 'pipeline', {pid})
     add('relay_procedure_runs', 'pipeline', {pid})
     requests = {owner['request_id']} | {s['request_id'] for s in steps if s['request_id']}
@@ -271,6 +277,10 @@ def _graph(db, pid, paths):
     plans.update(r['plan_id'] for r in repairs if r['plan_id'])
     runs = {s['target'] for s in steps if s['target_kind'] == 'production_run' and s['target']}
     runs.update(r['preparation'] for r in repairs if r['preparation'])
+    if not standalone_job:
+        from .pipeline_lineage import collect
+        lineage=collect(db,pid)
+        requests.update(lineage['requests']);plans.update(lineage['plans']);runs.update(lineage['runs'])
     direct_runs = set(runs)
     # Follow descendants and the plan/run relation. Never absorb a parent: it may
     # belong to another job, so an external parent becomes a shared-work blocker.
@@ -321,7 +331,7 @@ def _graph(db, pid, paths):
         add(table, 'parent', runs)
         add(table, 'child', runs)
     operation_attempts={r['id'] for r in rows.get('production_attempts',())}
-    for table in ('operation_record_sets','operation_records','operation_submissions'):
+    for table in ('operation_record_sets','operation_records','operation_submissions','operation_record_versions','operation_record_resumes'):
         add(table,'attempt',operation_attempts)
     output_artifacts = {r['id'] for r in rows.get('production_artifacts', ())}
     decision_ids = {r['id'] for r in rows.get('production_decisions', ())}
@@ -603,6 +613,7 @@ def _graph(db, pid, paths):
         add('outbox_parts', 'event_id', event_ids)
         add('relay_event_channels', 'event_id', event_ids)
         add('media_outbox', 'event_id', event_ids)
+        add('relay_delivery_effects', 'event_id', event_ids)
     if standalone_job and _table(db, 'outbox'):
         for prefix in (f'production:{r}:' for r in runs):
             shared_delivery.extend(db.execute('SELECT id,sent FROM outbox WHERE substr(id,1,?)=?',
@@ -659,22 +670,46 @@ def _graph(db, pid, paths):
                                ('browser_research_requests',browser,'id'),('backend_jobs',media,'id')):
         found = {r[column] for r in rows.get(table, ())}
         if ids - found: blockers.append(f'{table} has a missing ownership record.')
+    # Only inactive, exclusively owned history can be removed. Unstarted
+    # historical assignments are discarded atomically by the confirmed deletion;
+    # launched/uncertain attempts remain blockers regardless of parent status.
+    inactive=not standalone_job and owner['status'] in ('completed','cancelled','blocked')
+    from types import SimpleNamespace
+    from .relay_channels import event_channel
+    def desktop_event(ident):return event_channel(SimpleNamespace(db=db),ident)=='desktop'
     for table, statuses, column in (
         ('production_plans', {'queued','planning','active','running','awaiting_user','awaiting_review','needs_input','ready','uncertain'}, 'status'),
-        ('production_tasks', {'queued','running','awaiting_user','awaiting_review','uncertain'}, 'status'),
-        ('production_attempts', {'queued','running','dispatched','uncertain'}, 'state'),
+        ('production_tasks', {'queued','launching','running','cancelling','awaiting_user','awaiting_review','uncertain'}, 'status'),
+        ('production_attempts', {'queued','launching','running','cancelling','dispatched','uncertain'}, 'state'),
         ('production_continuations', {'queued','running','uncertain'}, 'status'),
         ('production_revisions', {'queued','running','uncertain'}, 'status'),
         ('production_uploads', {'queued','running','uncertain'}, 'status'),
-        ('media_outbox', {'queued','pending','sending','retry'}, 'status'),
+        ('media_outbox', {'queued','pending','sending','retry','uncertain'}, 'status'),
+        ('relay_delivery_effects', {'submitting','uncertain'}, 'status'),
         ('browser_research_requests', {'queued','running','inspect','uncertain'}, 'state'),
         ('browser_jobs', {'prepared','blocked','submitting','uncertain','running'}, 'status'),
         ('backend_jobs', {'queued','running','waiting','uncertain'}, 'status'),
         ('production_selection_cards', {'pending','awaiting_user'}, 'status'),
         ('production_replacement_cards', {'pending','awaiting_user'}, 'status'),
         ('production_visual_review_cards', {'pending','awaiting_user'}, 'status')):
-        if any(r[column] in statuses for r in rows.get(table, ())):
-            blockers.append(f'{table} has active or uncertain work.')
+        def blocks(r):
+            if r[column] not in statuses:return False
+            if table=='media_outbox' and r[column]=='pending' and desktop_event(r['event_id']):return False
+            if inactive and table=='production_tasks' and r[column] in ('queued','awaiting_review','awaiting_user'):return False
+            return True
+        if any(blocks(r) for r in rows.get(table, ())):
+            labels={
+                'production_plans':'A plan is still being prepared, awaiting a decision or uncertain.',
+                'production_tasks':'A workflow step is still queued, running, awaiting review or uncertain.',
+                'production_attempts':'A worker is running, stopping or has an uncertain outcome.',
+                'media_outbox':'A file delivery is pending or its outcome is uncertain.'}
+            blockers.append(labels.get(table,f'{table} has active or uncertain work.'))
+    for attempt in rows.get('production_attempts',()):
+        try:receipt=json.loads(attempt['receipt'] or '{}')
+        except (ValueError,TypeError):receipt=None
+        if not isinstance(receipt,dict) or receipt.get('pending_requests') or receipt.get('cleanup_error'):
+            blockers.append('A worker receipt has an unresolved external outcome or cleanup failure.')
+            break
     links_by_stage = {link['step']: link for link in task_links}
     media_stages = {stage['id'] for stage in steps
                     if stage['target_kind'] == 'generate_image' and stage['target']}
@@ -688,9 +723,9 @@ def _graph(db, pid, paths):
         if (not link or not backend or link['request_id'] != stage['request_id'] or
                 link['backend_job_id'] != stage['target'] or link['task_id'] != backend['thread_id']):
             blockers.append('A media stage has no verified agent task ownership link.')
-    if any(not r['sent'] for r in rows.get('outbox', ())):
+    if any(not r['sent'] and not desktop_event(r['id']) for r in rows.get('outbox', ())):
         blockers.append('An outbound message is still pending.')
-    if any(not r['sent'] for r in rows.get('outbox_parts', ())):
+    if any(not r['sent'] and not desktop_event(r['event_id']) for r in rows.get('outbox_parts', ())):
         blockers.append('An outbound message part is still pending.')
     for table in ('production_stage_links','production_continuations'):
         for link in rows.get(table, ()):
@@ -709,6 +744,12 @@ def _graph(db, pid, paths):
     for other in db.execute('SELECT pipeline,plan_id,preparation FROM production_auto_repairs WHERE pipeline<>?', (pid,)):
         if other['plan_id'] in plans or other['preparation'] in runs:
             blockers.append('Another pipeline uses this repair work.')
+    # A replaced run can be owned only through a recovery receipt; current stage
+    # pointers alone cannot detect shared recovery history.
+    for table in ('completion_recoveries','local_review_invocations'):
+        if _table(db,table):
+            for other in db.execute('SELECT pipeline,parent FROM '+table+' WHERE pipeline<>?',(pid,)):
+                if other['parent'] in runs: blockers.append('Another pipeline uses this recovery history.')
     if _table(db, 'relay_standalone_jobs'):
         for other in db.execute('SELECT id,root_plan,last_run FROM relay_standalone_jobs WHERE id<>?',
                                 (pid,)):
@@ -852,6 +893,10 @@ def _graph(db, pid, paths):
                     if record['_delete_rowid'] not in selected:
                         blockers.append('Another record has an unowned plan or run reference.')
                         break
+    try:
+        cleanup_files.extend(_runtime_files(paths,rows.get('production_attempts',()),rows.get('production_artifacts',()),strict=False).values())
+    except JobDeleteError as exc:
+        blockers.append(str(exc))
     # A digest of exact rows makes the confirmation conditional on the same graph.
     digest = hashlib.sha256()
     for table in sorted(rows):
@@ -874,6 +919,7 @@ def _graph(db, pid, paths):
             'counts':{k:len(v) for k,v in rows.items() if v},
             'blockers':sorted(set(blockers)), 'digest':digest.hexdigest(),
             '_rows':rows, '_cleanup_files':cleanup_files,
+            '_request_ids':sorted(requests),
             '_shared_history':shared_history}
 
 
@@ -884,7 +930,19 @@ def preview(pid, paths=PATHS):
         return {k:v for k,v in result.items() if not k.startswith('_')}
 
 
-def delete(pid, digest, paths=PATHS):
+def delete(pid, digest, paths=PATHS, *, acknowledge_uncertain=False):
+    # Serialize deletion with draft Save. The durable receipt owns cleanup after
+    # commit; a stale editor cannot recreate a removed draft.
+    if isinstance(pid,str) and pid.startswith(('canvas:','draft:')):
+        from .host import HOST
+        root=paths.data/'node-drafts';root.mkdir(parents=True,exist_ok=True)
+        with (root/'.lock').open('a') as lock:
+            HOST.lock(lock)
+            return _delete(pid,digest,paths,acknowledge_uncertain=acknowledge_uncertain)
+    return _delete(pid,digest,paths,acknowledge_uncertain=acknowledge_uncertain)
+
+
+def _delete(pid, digest, paths=PATHS, *, acknowledge_uncertain=False):
     if not isinstance(digest, str) or len(digest) != 64:
         raise JobDeleteError('Review the exact pipeline before deleting it.')
     with closing(_database(paths, writable=True)) as db:
@@ -897,10 +955,22 @@ def delete(pid, digest, paths=PATHS):
                 result = _graph(db, pid, paths)
                 if result['digest'] != digest: raise JobDeleteError('Pipeline changed. Review it again.')
                 if result['blockers']: raise JobDeleteError('Deletion blocked: ' + ' '.join(result['blockers']))
+                if result.get('stopped_uncertain_attempts') and acknowledge_uncertain is not True:
+                    raise JobDeleteError('Confirm deletion of stopped attempts whose external outcome is unknown. Nothing will be retried or cancelled at the provider.')
                 # All related rows and the tombstone commit together.
                 for table, records in result['_rows'].items():
                     if records:
                         db.executemany(f'DELETE FROM {table} WHERE rowid=?', ((r['_delete_rowid'],) for r in records))
+                if _table(db,'desktop_node_runs'):
+                    # Keep request IDs as no-replay tombstones, not saved input values.
+                    db.executemany("UPDATE desktop_node_runs SET command='{}' WHERE run=?",
+                                   ((run,) for run in result.get('runs',())))
+                if _table(db,'desktop_plan_requests'):
+                    # Retain intake identities so retrying the same UUID cannot
+                    # dispatch again, but do not resurrect a deleted parent as
+                    # a standalone conversation in Jobs.
+                    db.executemany("UPDATE desktop_plan_requests SET status='deleted' WHERE job_id=?",
+                                   ((ident,) for ident in result['_request_ids']))
                 db.execute('''INSERT INTO relay_delete_receipts
                     (id,digest,status,created,error,files,shared_history)
                     VALUES (?,?,?, ?,NULL,?,?)''',
@@ -953,9 +1023,13 @@ def _cleanup_private_files(files, paths):
             valid = bool(re.fullmatch(r'[A-Za-z0-9-]{1,80}(?:\.input)?\.json', relative.name))
         elif len(relative.parts) == 2 and relative.parts[0] == 'results':
             valid = bool(re.fullmatch(r'[A-Za-z0-9-]{1,80}\.md', relative.name))
+        elif len(relative.parts)==2 and relative.parts[0]=='node-drafts':
+            valid=bool(re.fullmatch(r'[a-f0-9]{32}(?:\.json|-context\.txt)',relative.name))
+        elif len(relative.parts)>=4 and relative.parts[0]=='orchestrator' and relative.parts[1] in ('workspaces','workers','artifacts'):
+            valid=bool(re.fullmatch('[a-f0-9]{32}',relative.parts[2])) and '..' not in relative.parts
         if not valid:
-            raise ValueError('Private media cleanup path is not a Relay provider trace.')
-        if path.is_symlink() or path.parent.is_symlink() or path.parent.parent.is_symlink():
+            raise ValueError('Private cleanup path is not an owned Relay file.')
+        if any(p.is_symlink() for p in [path,*path.parents] if p==paths.data or paths.data in p.parents):
             raise ValueError('Private media cleanup path is a symbolic link.')
         if not path.exists():
             continue
@@ -963,6 +1037,12 @@ def _cleanup_private_files(files, paths):
                 hashlib.sha256(path.read_bytes()).hexdigest() != entry['sha256']):
             raise ValueError('Private media file changed after deletion review.')
         path.unlink()
+        if len(relative.parts)>=4 and relative.parts[0]=='orchestrator':
+            parent=path.parent;boundary=paths.data.joinpath(*relative.parts[:3])
+            while parent==boundary or boundary in parent.parents:
+                try:parent.rmdir()
+                except OSError:break
+                parent=parent.parent
 
 
 def recover(pid, paths=PATHS):
@@ -975,7 +1055,7 @@ def recover(pid, paths=PATHS):
     folder = base / pid
     try:
         if folder.is_symlink(): raise ValueError('Workflow folder is a symbolic link.')
-        if folder.exists():
+        if folder.exists() and not pid.startswith(('canvas:','draft:')):
             from .host import HOST
             if base.is_symlink(): raise ValueError('Workflow path contains a symbolic link.')
             lock = base / ('.' + pid + '.lock')
@@ -987,7 +1067,7 @@ def recover(pid, paths=PATHS):
                 _cleanup_view(folder, pid)
         _cleanup_private_files(json.loads(receipt['files']), paths)
         with closing(_database(paths, writable=True)) as db, transaction(db):
-            db.execute("UPDATE relay_delete_receipts SET status='complete',error=NULL WHERE id=?", (pid,))
+            db.execute("UPDATE relay_delete_receipts SET status='complete',error=NULL,files='[]',shared_history=NULL WHERE id=?", (pid,))
         return {'id':pid, 'status':'complete'}
     except Exception as exc:
         with closing(_database(paths, writable=True)) as db, transaction(db):
@@ -1005,3 +1085,202 @@ def pending(paths=PATHS):
 def recover_pending(paths=PATHS):
     """Retry committed cleanup receipts at service startup; never replay deletion."""
     return [recover(row['id'], paths) for row in pending(paths)]
+
+
+def _capture_files(paths, roots):
+    files={}
+    def capture(path):
+        path=Path(path)
+        try:path.relative_to(paths.data)
+        except ValueError:raise JobDeleteError('Job file is outside Relay private storage.')
+        if any(p.is_symlink() for p in [path,*path.parents] if p==paths.data or paths.data in p.parents):
+            raise JobDeleteError('Job cleanup contains a symbolic link.')
+        if not path.exists():return
+        if path.is_dir():
+            for child in sorted(path.iterdir()):capture(child)
+        elif path.is_file():files[str(path)]=dict(path=str(path),sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        else:raise JobDeleteError('Job cleanup contains a non-regular file.')
+    for root in roots:capture(root)
+    return files
+
+
+def _runtime_files(paths, attempts, artifacts, *, strict=True):
+    roots=[]
+    for attempt in attempts:
+        aid=attempt['id']
+        if not re.fullmatch('[a-f0-9]{32}',aid):
+            if not strict:continue
+            raise JobDeleteError('Invalid attempt file ownership.')
+        frozen=json.loads(attempt['frozen'])
+        expected=paths.runtime/'workspaces'/aid
+        if not frozen.get('workspace') or Path(frozen['workspace'])!=expected:
+            if not strict:continue
+            raise JobDeleteError('Attempt workspace ownership changed.')
+        roots.extend((expected,paths.runtime/'workers'/aid))
+    for artifact in artifacts:
+        if not re.fullmatch('[a-f0-9]{32}',artifact['id']):
+            if not strict:continue
+            raise JobDeleteError('Invalid artifact file ownership.')
+        expected=paths.runtime/'artifacts'/artifact['id']/'content'
+        if Path(artifact['blob'])!=expected:
+            if not strict:continue
+            raise JobDeleteError('Artifact storage ownership changed.')
+        roots.append(expected.parent)
+    return _capture_files(paths,roots)
+
+
+def _stopped_uncertain(attempt):
+    """Local termination is distinct from external success; never reconcile here."""
+    if attempt['state']!='uncertain':return False
+    try:receipt=json.loads(attempt['receipt'] or '{}')
+    except (ValueError,TypeError):return False
+    if not isinstance(receipt,dict):return False
+    operation=receipt.get('operation') or {}
+    return (receipt.get('status')=='uncertain' and receipt.get('local_terminal') is True
+        and not receipt.get('pending_requests') and not receipt.get('cleanup_error')
+        and isinstance(operation,dict) and not operation.get('remote'))
+
+
+def _node_graph(db, pid, paths):
+    """Resolve canvas versions/drafts into this deletion service's existing receipt."""
+    from .app_updates import read
+    from orchestrator.runtime import Runtime
+    kind,ident=pid.split(':',1)
+    if kind not in ('canvas','draft') or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',ident):
+        raise JobDeleteError('Choose an exact saved canvas or draft.')
+    drafts=set();runs=set();blockers=[];files={};rows={}
+    admissions=list(db.execute('SELECT * FROM desktop_node_runs')) if _table(db,'desktop_node_runs') else []
+    if kind=='draft':
+        if not re.fullmatch('[a-f0-9]{32}',ident):raise JobDeleteError('Invalid draft identity.')
+        drafts.add(ident)
+    else:
+        if not any(r['run']==ident for r in admissions):raise JobDeleteError('Canvas has no exact node admission.')
+        runs.add(ident)
+        event=db.execute("SELECT data FROM production_events WHERE run=? AND kind='canvas_node_version'",(ident,)).fetchone()
+        if event:raise JobDeleteError('Delete the owning canvas, not an individual version.')
+        command=json.loads(next(r['command'] for r in admissions if r['run']==ident))
+        if command.get('id'):drafts.add(command['id'])
+    for admission in admissions:
+        command=json.loads(admission['command'])
+        if command.get('id') in drafts:runs.add(admission['run'])
+    for _ in range(100):
+        children={r['run'] for r in db.execute("SELECT run,data FROM production_events WHERE kind='canvas_node_version'") if json.loads(r['data']).get('run') in runs}
+        if children<=runs:break
+        runs.update(children)
+    else:raise JobDeleteError('Canvas version ownership could not be resolved.')
+    if len(runs)>500:raise JobDeleteError('Canvas history exceeds bounded deletion review.')
+    def add(table,column,ids):
+        selected=_ids(db,table,column,ids)
+        current={r['_delete_rowid']:r for r in rows.get(table,[])}
+        current.update({r['_delete_rowid']:r for r in selected});rows[table]=list(current.values())
+        return selected
+    run_rows=add('production_runs','id',runs)
+    if {r['id'] for r in run_rows}!=runs:raise JobDeleteError('Canvas execution is missing.')
+    rt=Runtime(paths.runtime,connection=db,read_only=True)
+    attempts=add('production_attempts','run',runs);attempt_ids={r['id'] for r in attempts}
+    stopped=[r['id'] for r in attempts if _stopped_uncertain(r)]
+    for run in runs:
+        status=rt.status(run)['status']
+        if status not in ('completed','cancelled','blocked','uncertain'):
+            blockers.append('An execution is active or paused; stop it before deletion.')
+        elif status=='uncertain' and not any(r['run']==run and r['id'] in stopped for r in attempts):
+            blockers.append('An unresolved execution has no confirmed local stop; it cannot be deleted.')
+    if any(r['state'] not in ('completed','blocked','cancelled','failed') and r['id'] not in stopped for r in attempts):
+        blockers.append('A worker is active or has no confirmed local stop; it cannot be deleted.')
+    for attempt in attempts:
+        try:receipt=json.loads(attempt['receipt'] or '{}')
+        except (ValueError,TypeError):receipt=None
+        if not isinstance(receipt,dict) or receipt.get('pending_requests') or receipt.get('cleanup_error'):
+            blockers.append('A worker receipt has an unresolved external outcome or cleanup failure.')
+    artifacts=add('production_artifacts','run',runs);artifact_ids={r['id'] for r in artifacts}
+    # Typed owner columns only. Unknown references below block rather than vanish.
+    for table in [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]:
+        if not table.startswith(('production_','operation_')):continue
+        columns={r[1] for r in db.execute('PRAGMA table_info("'+table+'")')}
+        if 'run' in columns:add(table,'run',runs)
+        if 'attempt' in columns:add(table,'attempt',attempt_ids)
+    add('relay_channel_bindings','entity',runs)
+    archives=list(db.execute('SELECT rowid AS _delete_rowid,* FROM desktop_job_archives')) if _table(db,'desktop_job_archives') else []
+    rows['desktop_job_archives']=[r for r in archives if (r['kind']=='run' and r['id'] in runs) or (r['kind']=='draft' and r['id'] in drafts)]
+    # Global selected-file metadata is owned by its exact artifact, not a new copy.
+    selected=list(db.execute("SELECT rowid AS _delete_rowid,* FROM production_events WHERE kind='node_file_selected'"))
+    prior={r['_delete_rowid']:r for r in rows.get('production_events',[])}
+    prior.update({r['_delete_rowid']:r for r in selected if json.loads(r['data']).get('artifact') in artifact_ids})
+    rows['production_events']=list(prior.values())
+    owned_blobs={r['blob'] for r in artifacts}
+    if any(r['id'] not in artifact_ids and r['blob'] in owned_blobs for r in db.execute('SELECT id,blob FROM production_artifacts')):
+        blockers.append('Another job shares an output file.')
+    protected=runs|artifact_ids|attempt_ids
+    def references(value):
+        if isinstance(value,str):return value in protected
+        if isinstance(value,dict):return any(references(v) for v in value.values())
+        if isinstance(value,list):return any(references(v) for v in value)
+        return False
+    for table in ('production_runs','production_assignments','production_attempts','production_events'):
+        selected_ids={r['_delete_rowid'] for r in rows.get(table,[])}
+        for row in db.execute('SELECT rowid AS _delete_rowid,* FROM '+table):
+            if row['_delete_rowid'] in selected_ids:continue
+            for column in ('plan','spec','frozen','data'):
+                if column in row.keys() and row[column] and references(json.loads(row[column])):
+                    blockers.append('Another job uses this canvas or its outputs. Remove that connection before deletion.')
+    for path in (paths.data/'node-drafts').glob('*.json'):
+        if path.stem in drafts:continue
+        if references(read(path)):blockers.append('Another saved draft references this job or its outputs.')
+    # Unknown typed references are not silently orphaned. Minimal admission IDs
+    # remain as no-replay receipts; saved commands/values are cleared at deletion.
+    for table in [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]:
+        if table=='desktop_node_runs':continue
+        columns={r[1] for r in db.execute('PRAGMA table_info("'+table+'")')}
+        selected_ids={r['_delete_rowid'] for r in rows.get(table,[])}
+        for col,ids in (('run',runs),('attempt',attempt_ids),('artifact',artifact_ids)):
+            if col in columns and any(r['_delete_rowid'] not in selected_ids for r in _ids(db,table,col,ids)):
+                blockers.append('Another record references this job; deletion ownership needs review.')
+    title=None
+    for draft in drafts:
+        if not re.fullmatch('[a-f0-9]{32}',draft):raise JobDeleteError('Invalid saved draft ownership.')
+        path=paths.data/'node-drafts'/(draft+'.json');record=read(path)
+        if record:
+            title=record['title'];files.update(_capture_files(paths,[path]))
+            if record.get('composition'):files.update(_capture_files(paths,[path.with_name(draft+'-context.txt')]))
+        elif kind=='draft':raise JobDeleteError('Draft no longer exists.')
+    files.update(_runtime_files(paths,attempts,artifacts))
+    if not title:title=json.loads(run_rows[0]['plan'])['brief'] if run_rows else ident
+    payload={table:[dict(r) for r in records] for table,records in rows.items()}
+    digest=hashlib.sha256(json.dumps(dict(rows=payload,files=files),sort_keys=True,default=str).encode()).hexdigest()
+    return dict(id=pid,kind=kind,title=title,runs=sorted(runs),plans=[],status='recorded',
+        counts={t:len(v) for t,v in rows.items() if v},files=len(files),
+        bytes=sum(Path(p).stat().st_size for p in files),draft_ids=sorted(drafts),
+        stopped_uncertain_attempts=sorted(stopped),
+        blockers=sorted(set(blockers)),digest=digest,_rows=rows,_cleanup_files=list(files.values()),
+        _request_ids=[],_shared_history=None)
+
+
+def preview_item(value, paths=PATHS):
+    """Route list identities to existing exact deletion owners."""
+    if not isinstance(value,dict) or set(value)!={'kind','id'}:raise JobDeleteError('Choose a saved job.')
+    kind,ident=value['kind'],value['id']
+    if not isinstance(ident,str) or not ident:raise JobDeleteError('Invalid job identity.')
+    if kind=='draft':return dict(preview('draft:'+ident,paths),delete_action='job-delete')
+    if kind=='pipeline':return dict(preview(ident,paths),delete_action='job-delete')
+    with closing(_database(paths)) as db:
+        if kind in ('run','plan'):
+            run=ident if kind=='run' else (db.execute('SELECT run FROM production_plans WHERE id=?',(ident,)).fetchone() or [None])[0]
+            if run and _table(db,'desktop_node_runs') and db.execute('SELECT 1 FROM desktop_node_runs WHERE run=?',(run,)).fetchone():
+                return dict(preview('canvas:'+run,paths),delete_action='job-delete')
+            from .job_ownership import standalone_candidate,backfill_standalone
+            owner=standalone_candidate(db,run,paths) if run else None
+            if owner:
+                if owner['registration_needed']:backfill_standalone(run,paths)
+                return dict(preview(owner['id'],paths),delete_action='job-delete')
+            raise JobDeleteError('This historical job has no verified deletion ownership. Its files were not changed.')
+        if kind in ('chat','request'):
+            from . import conversation_delete
+            if kind=='request':
+                row=db.execute('SELECT job_id FROM desktop_plan_requests WHERE request_id=?',(ident,)).fetchone()
+                if not row:raise JobDeleteError('Conversation not found.')
+                ident=str(row[0])
+            return dict(conversation_delete.preview(ident,paths),delete_action='conversation-delete')
+        if kind=='task':
+            from . import task_delete
+            return dict(task_delete.preview(ident,paths),delete_action='task-delete')
+    raise JobDeleteError('Unsupported saved job.')

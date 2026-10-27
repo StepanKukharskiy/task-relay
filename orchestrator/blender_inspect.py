@@ -5,9 +5,32 @@ from pathlib import Path
 import sys
 
 
+def export_geometry(source,path):
+    """Exact evaluated world meshes; shared geometry handoff, never inferred from pixels."""
+    import bpy, math, hashlib
+    objects=[];total=0;faces=0
+    graph=bpy.context.evaluated_depsgraph_get()
+    for obj in bpy.context.scene.objects:
+        if obj.type!='MESH' or obj.hide_render:continue
+        evaluated=obj.evaluated_get(graph);mesh=evaluated.to_mesh()
+        try:
+            total+=len(mesh.vertices);faces+=len(mesh.polygons)
+            if faces>200000:raise ValueError('Geometry handoff exceeds 200000 faces')
+            if total>100000:raise ValueError('Geometry handoff exceeds 100000 vertices')
+            vertices=[list(evaluated.matrix_world@v.co) for v in mesh.vertices]
+            if any(not math.isfinite(n) for v in vertices for n in v):raise ValueError('Nonfinite geometry')
+            objects.append(dict(name=obj.name,vertices=vertices,faces=[list(p.vertices) for p in mesh.polygons]))
+        finally:evaluated.to_mesh_clear()
+    value=dict(version=1,units='Meters' if bpy.context.scene.unit_settings.system=='METRIC' and bpy.context.scene.unit_settings.scale_length==1 else 'Blender units',
+               source_sha256=hashlib.sha256(Path(source).read_bytes()).hexdigest(),objects=objects)
+    raw=json.dumps(value,allow_nan=False).encode()
+    if len(raw)>10000000:raise ValueError('Geometry handoff exceeds 10 MB')
+    path.write_bytes(raw)
+
 def main():
     import bpy
-    source,destination=sys.argv[sys.argv.index('--')+1:]
+    args=sys.argv[sys.argv.index('--')+1:];source,destination=args[:2]
+    geometry=args[2] if len(args)==3 else None
     bpy.ops.wm.open_mainfile(filepath=source,load_ui=False,use_scripts=False)
     if len(bpy.data.objects)>5000:raise ValueError('Scene exceeds the 5000-object inspection limit')
     scene=bpy.context.scene
@@ -44,6 +67,7 @@ def main():
                         'children':sorted(child.name for child in c.children)} for c in bpy.data.collections],
         'objects':objects,'materials':[{'name':m.name,'diffuse_color':list(m.diffuse_color),
             'node_types':[n.bl_idname for n in m.node_tree.nodes] if m.node_tree else []} for m in bpy.data.materials],
+        'spatial':{'native_system':scene.unit_settings.system,'native_length_unit':scene.unit_settings.length_unit,'meters_per_coordinate':scene.unit_settings.scale_length if scene.unit_settings.system!='NONE' else None,'declared_json':scene.get('TaskRelay.Spatial') if isinstance(scene.get('TaskRelay.Spatial'),str) else None},
         'camera':scene.camera.name if scene.camera else None,
         'render':{'engine':scene.render.engine,'resolution':[scene.render.resolution_x,scene.render.resolution_y],
                   'percentage':scene.render.resolution_percentage,'fps':scene.render.fps,'fps_base':scene.render.fps_base,
@@ -59,6 +83,7 @@ def main():
     data=json.dumps(inventory,ensure_ascii=False,allow_nan=False,indent=2).encode()
     if len(data)>1800000:raise ValueError('Complete scene inventory exceeds 1.8 MB; no truncated inventory returned')
     with Path(destination).open('xb') as stream:stream.write(data)
+    if geometry:export_geometry(source,Path(geometry))
     print('RELAY_INSPECTION_WRITTEN',len(objects),flush=True)
 
 

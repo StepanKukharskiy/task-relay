@@ -13,7 +13,7 @@ NOTE = 'Recorded page visits and search results show retrieval, not factual veri
 
 def research_task(task):
     return not task.get('review_of') and bool(task.get('browser') or task.get('computer') or
-        task.get('execution', {}).get('capability') == 'web.sources')
+        task.get('execution', {}).get('capability') in ('web.sources','web.sources.prepared'))
 
 
 def proposal(plan):
@@ -62,9 +62,38 @@ def inspect(db, run, plan):
         else:
             pages[entry['id']] = entry
 
+    owner_reads_seen = False
     for row in db.execute('SELECT id,task,frozen,session FROM production_attempts WHERE run=? ORDER BY rowid', (run,)):
         attempt = dict(row)
         frozen = json.loads(row['frozen'])
+        if not owner_reads_seen and frozen.get('owner_grant', {}).get('execution_policy', {}).get('public_read'):
+            owner_reads_seen = True
+            # These durable receipts belong to the run, not a specific owner
+            # invocation. Project captured content only; never initiate a read.
+            root = Path(frozen['workspace']).parent.parent/'owner-context'/run/'public-reads'
+            claims = sorted(root.glob('*/*-claim.json'))
+            result['partial'] |= len(claims) > LIMIT
+            for claim in claims[:LIMIT]:
+                try:
+                    identity = _load(root, str(claim.relative_to(root)))
+                    record = _load(root, str(claim.relative_to(root)).replace('-claim.json','-result.json'))
+                    if record['identity'] != identity:
+                        raise ValueError('Public read identity changed.')
+                    if record['status'] == 'failed':
+                        continue
+                    if record['status'] != 'captured' or identity['method'] not in ('http','rendered'):
+                        raise ValueError('Public read has no confirmed capture.')
+                    from orchestrator.runtime import safe_file, file_hash
+                    evidence = Path(record['evidence'])
+                    control = claim.parent/identity['method']
+                    if file_hash(safe_file(control, str(evidence.relative_to(control)))) != record['evidence_sha256']:
+                        raise ValueError('Public read content changed.')
+                    page = record['page']
+                    if not isinstance(page.get('text'), str):
+                        raise ValueError('Public read page identity unavailable.')
+                    add(page, 'page', dict(task=row['task'],id=None), 'public-read:'+str(claim.relative_to(root)))
+                except (OSError, ValueError, KeyError, TypeError):
+                    result['partial'] = True
         for item in frozen.get('inputs', []):
             if item['path'].startswith(('request/', 'prior-outputs/')) or item['path'].endswith('conversation.json'):
                 continue
@@ -99,7 +128,7 @@ def inspect(db, run, plan):
                     add({**evidence, 'retrieved_at': receipt['created'], 'sha256': saved['files']['page.txt']['sha256']}, 'page', attempt, 'computer:' + receipt['id'])
                 except (OSError, ValueError, KeyError, TypeError):
                     result['partial'] = True
-        if frozen.get('execution', {}).get('capability') == 'web.sources':
+        if frozen.get('execution', {}).get('capability') in ('web.sources','web.sources.prepared'):
             control = json.loads(row['session']).get('control')
             if not control:
                 result['partial'] = True

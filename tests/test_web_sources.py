@@ -93,8 +93,22 @@ class Tests(unittest.TestCase):
         FakeSession.error = None
 
     def tearDown(self):
+        FakeSession.error = None
         self.config.stop()
         self.temp.cleanup()
+
+    def test_completed_observation_survives_failed_generation_with_error_provenance(self):
+        from orchestrator.observation_outcomes import retained_reads
+        outcome=retained_reads(dict(id='turn',status='failed',error=dict(message='Provider unavailable')),['read'],[])
+        class Observed(FakeSession):
+            def search(self,query):
+                return dict(super().search(query),observation_outcome=outcome)
+        raw,counts=web_sources.collect(['ABC-9182 OEM material'],['example.com'],'fixture-text',Path(self.temp.name),CONFIG,session_factory=Observed)
+        entry=json.loads(raw)['entries'][0]
+        self.assertEqual(entry['observation_outcome'],outcome)
+        self.assertEqual(counts['fetched'],1)
+        self.assertEqual(FakeSession.calls,[('search','ABC-9182 OEM material'),('fetch','https://parts.example.com/abc')])
+        self.assertFalse(entry['observation_outcome']['acceptance'])
 
     def test_bounded_source_pack_has_exact_query_domain_and_page_hash(self):
         with patch.object(orchestrator_web, 'Session', FakeSession), \
@@ -109,6 +123,42 @@ class Tests(unittest.TestCase):
         self.assertEqual(FakeSession.calls, [('search', 'ABC-9182 OEM material'),
                                              ('fetch', 'https://parts.example.com/abc')])
         self.assertIn('not verified facts', pack['interpretation'])
+
+    def test_repeated_pages_are_reused_and_variants_and_target_mappings_survive(self):
+        class RepeatedSession(FakeSession):
+            def search(self,query):
+                self.calls.append(('search',query))
+                return dict(queries=[query],retrieved_at=123,sources=[
+                    dict(url='https://parts.example.com/chair?variant=red&utm_source='+query,title='Red chair'),
+                    dict(url='https://parts.example.com/chair?variant=red&utm_source=duplicate',title='Repeated red chair'),
+                    dict(url='https://parts.example.com/chair?variant=blue',title='Blue chair')])
+        data=dict(version=1,targets=[dict(id='item-1',queries=['first'],required_options=3),dict(id='item-2',queries=['second'],required_options=3)])
+        with patch.object(orchestrator_web,'Session',RepeatedSession),patch.object(orchestrator_web,'public_url',side_effect=lambda url:url):
+            raw,_=web_sources.collect(['first','second'],['example.com'],'fixture-text',self.temp.name,CONFIG,
+                                     prepared_spec=dict(path='queries.json',sha256='a'*64,data=data))
+        pack=json.loads(raw);index=pack['mechanical']
+        self.assertEqual(len([c for c in FakeSession.calls if c[0]=='fetch']),2)
+        self.assertEqual(len([c for c in FakeSession.calls if c[0]=='search']),2)
+        self.assertEqual(index['counts'],dict(observations=4,distinct_urls=2,distinct_captures=2,exact_repeats=2))
+        self.assertEqual([e['target_ids'] for e in pack['entries']],[['item-1'],['item-2']])
+        self.assertEqual([len(e['grounding']) for e in pack['entries']],[3,3])
+        self.assertEqual(pack['entries'][1]['pages'][0]['reused_from'],'entries[0].pages[0]')
+        self.assertEqual(pack['entries'][1]['pages'][0]['retrieved_at'],124)
+        self.assertEqual([t['fetched_page_count'] for t in index['targets']],[2,2])
+        self.assertEqual(index['page_groups'][0]['target_ids'],['item-1','item-2'])
+        # Shared content is a warning, not proof that red and blue are one product.
+        self.assertEqual(len(index['repeated_text'][0]),4)
+
+    def test_page_index_keeps_changed_versions_and_unknown_url_parameters(self):
+        original=dict(url='https://retailer.example/product?sku=1',sha256='a'*64,text='Price 10')
+        changed=dict(original,sha256='b'*64,text='Price 20')
+        index=web_sources.mechanical_index(dict(entries=[dict(pages=[original,changed],target_ids=['item-1'])]))
+        self.assertEqual(index['counts']['distinct_urls'],1)
+        self.assertEqual(index['counts']['distinct_captures'],2)
+        self.assertEqual(index['counts']['exact_repeats'],0)
+        self.assertIsNone(index['observations'][1]['duplicate_of'])
+        self.assertNotEqual(web_sources.page_identity('https://retailer.example/p?sku=1'),web_sources.page_identity('https://retailer.example/p?sku=2'))
+        self.assertNotEqual(web_sources.page_identity('https://retailer.example/p?signature=a%20b'),web_sources.page_identity('https://retailer.example/p?signature=a+b'))
 
     def test_registered_step_delivers_pack_with_request_and_response_receipts(self):
         factory = SourceFactory()

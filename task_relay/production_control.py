@@ -119,12 +119,15 @@ def upload_path(state, row):
     return safe_file(root(state).parent/'production-guides',relative_path(state,row))
 
 
-def inspect(state, focus=None, include_files=True):
+def inspect(state, focus=None, include_files=True, *, exact=False):
     from orchestrator.storage import transaction
     db = state.db
     with transaction(db,write=False):
         result = []
-        for row in db.execute('SELECT * FROM production_runs ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END,rowid DESC LIMIT 20',(focus,)):
+        if exact and not focus:raise ValueError('Choose an exact saved job')
+        query=('SELECT * FROM production_runs WHERE id=?' if exact else
+               'SELECT * FROM production_runs ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END,rowid DESC LIMIT 20')
+        for row in db.execute(query,(focus,)):
             tasks = [dict(t) for t in db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY id', (row['id'],))]
             specs = [json.loads(db.execute('SELECT spec FROM production_assignments WHERE id=?', (t['assignment'],)).fetchone()[0]) for t in tasks]
             from orchestrator.runtime import run_status, dependencies_ready, failure_detail
@@ -172,10 +175,7 @@ def inspect(state, focus=None, include_files=True):
             uploads = upload_views(state, row['id'])
             pending = state.db.execute("SELECT id,status,error FROM production_revisions WHERE run=? ORDER BY id DESC LIMIT 3", (row['id'],)).fetchall()
             fingerprint = json.dumps([dict(row), tasks, specs, enabled, uploads, [dict(p) for p in pending]], sort_keys=True)
-            contracts = [{k: v for k, v in a.items() if k != 'revision'} for a in specs]
-            for a in contracts:
-                a['inputs'] = [i for i in a['inputs'] if not i.get('previous_delivery')]
-            digest = hashlib.sha256(json.dumps([row['plan'], contracts], sort_keys=True).encode()).hexdigest()
+            digest = contract_digest(db,row['id'],row['plan'],specs)
             from task_relay import production_folders
             view = {'research_folder': production_folders.view(state, row['id']), 'name': row['id'], 'revision': int(hashlib.sha256(fingerprint.encode()).hexdigest()[:15], 16),
                     'contract_digest': digest,
@@ -188,6 +188,13 @@ def inspect(state, focus=None, include_files=True):
                     'tasks': [{**{k: t[k] for k in ('id', 'status', 'attempts')},
                                **{k: a.get(k) for k in ('role', 'objective', 'instruction', 'limits', 'max_attempts', 'user_gate', 'review_of', 'execution')}, **p}
                               for t, a, p in zip(tasks, specs, progress)]}
+            from orchestrator.runtime import settlement
+            drain=settlement(row['status'],tasks,specs)
+            if drain:view['settlement']=drain
+            if view['status'] in ('blocked','uncertain') and any(s.get('job_owner') for s in specs):
+                from orchestrator.runtime import Runtime
+                delivery=Runtime(root(state),connection=db).status(row['id']).get('delivery')
+                if delivery:view['delivery']=delivery
             try:
                 revision_target(view)
                 view['revision_available'] = True
@@ -216,6 +223,21 @@ def inspect(state, focus=None, include_files=True):
                 view['historical_outputs'] = [{k:a[k] for k in ('id','task','attempt','path','purpose','sha256','bytes')}
                                               for a in outputs if a['task'] not in current_tasks]
                 outputs = [a for a in outputs if a['task'] in current_tasks]
+                # Direct node results have no worker task. Their committed port
+                # bindings, not task membership, identify the delivered files.
+                delivery = db.execute("SELECT data FROM production_events WHERE run=? AND kind='owner_delivery_verified' ORDER BY id DESC LIMIT 1", (row['id'],)).fetchone() if view['status']=='completed' else None
+                view['delivered_outputs'] = []
+                if delivery:
+                    for port, binding in json.loads(delivery[0]).get('deliverables', {}).items():
+                        artifact = db.execute('SELECT * FROM production_artifacts WHERE id=? AND sha256=?', (binding['artifact'], binding['sha256'])).fetchone()
+                        if not artifact:
+                            continue
+                        artifact = dict(artifact)
+                        view['delivered_outputs'].append(dict(port=port, artifact=artifact['id'], sha256=artifact['sha256'], review_status=binding.get('review_status','unreviewed')))
+                        if not any(a['id']==artifact['id'] for a in outputs):
+                            outputs.append(artifact)
+                    output_ids = {a['id'] for a in outputs}
+                    artifacts = [a for a in artifacts if a['id'] not in output_ids]
                 view['latest_outputs'] = [{k: a[k] for k in ('id', 'task', 'attempt', 'path', 'purpose', 'sha256', 'bytes')} for a in outputs]
                 view['output_texts'] = []
                 view['omitted_output_texts'] = []
@@ -314,13 +336,79 @@ def queue_revision(state, name, revision, job_id):
         (job_id, name, target['id'], job['prompt'], json.dumps({'tasks':view['task_state'], 'contract_digest':view['contract_digest']}), json.dumps(files)))
 
 
+def contract_digest(db,name,raw_plan,specs):
+    """One authorization projection for scheduling and read-only status."""
+    contracts=[{k:v for k,v in a.items() if k!='revision'} for a in specs]
+    for a in contracts:a['inputs']=[i for i in a['inputs'] if not i.get('previous_delivery')]
+    from orchestrator.corrections import authorized_layout
+    original={t['id']:t for t in json.loads(raw_plan)['tasks']}
+    from .input_preflight_recovery import authorized_budget
+    for spec,contract in zip(specs,contracts):
+        if authorized_budget(db,name,spec,original.get(spec['id'],{})):
+            contract['limits']=original[spec['id']]['limits']
+        if authorized_layout(db,name,spec,original.get(spec['id'],{})):
+            contract['execution']={**contract['execution'],'parameters':{**contract['execution']['parameters'],'layout':'standard'}}
+    return hashlib.sha256(json.dumps([raw_plan,contracts],sort_keys=True).encode()).hexdigest()
+
+
 def runtime_digest(rt, name):
-    run = rt.db.execute('SELECT plan FROM production_runs WHERE id=?', (name,)).fetchone()
-    specs = [rt.spec(t) for t in rt.db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY id', (name,))]
-    contracts = [{k:v for k,v in a.items() if k!='revision'} for a in specs]
-    for a in contracts:
-        a['inputs'] = [i for i in a['inputs'] if not i.get('previous_delivery')]
-    return hashlib.sha256(json.dumps([run['plan'],contracts],sort_keys=True).encode()).hexdigest()
+    run=rt.db.execute('SELECT plan FROM production_runs WHERE id=?',(name,)).fetchone()
+    specs=[rt.spec(t) for t in rt.db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY id',(name,))]
+    return contract_digest(rt.db,name,run['plan'],specs)
+
+
+def dispatch_authorized(state,rt,name):
+    """Check the current grant and graph in the task claim's write transaction."""
+    if not rt.db.in_transaction or rt.db is not state.db:raise ValueError('Dispatch authorization requires the shared claim transaction')
+    enabled=state.get('production-enabled:'+name)
+    if not enabled:return False
+    current=runtime_digest(rt,name)
+    if enabled!=current:
+        state.put('production-enabled:'+name,False)
+        state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)',
+            ('production:'+name+':changed','Production plan changed: '+name+'. Scheduling stopped; review its saved state.'))
+        rt.event(name,None,None,'dispatch_authorization_changed',dict(expected=enabled,actual=current))
+        return False
+    from .production_repairs import dispatch_allowed
+    return dispatch_allowed(state,name)
+
+
+def reconcile_native_layout(state,rt):
+    """Recover a scheduler stopped by a proved, already authorized preset change."""
+    from orchestrator.storage import transaction
+    from orchestrator.corrections import authorized_layout
+    rows=state.db.execute("""SELECT q.* FROM production_plans q JOIN relay_pipeline_steps s
+        ON s.target=q.id AND s.target_kind='plan_production' JOIN relay_pipelines p ON p.id=s.pipeline
+        JOIN completion_recovery_grants g ON g.pipeline=p.id
+        WHERE q.status='started' AND s.status='running' AND p.status='active' AND q.channel=p.channel""").fetchall()
+    for row in rows:
+        name=row['run']
+        if state.get('production-enabled:'+name) or state.get('production-control-epoch:'+name,0):continue
+        with transaction(state.db):
+            if state.get('production-enabled:'+name) or state.get('production-control-epoch:'+name,0):continue
+            from orchestrator.contracts import digest as frozen_digest
+            if (frozen_digest(json.loads(row['context']))!=row['context_hash']
+                    or frozen_digest(json.loads(row['plan']))!=row['plan_hash']):continue
+            run=rt.db.execute('SELECT status,plan FROM production_runs WHERE id=?',(name,)).fetchone()
+            if not run or run['status']!='active' or run['plan']!=row['plan']:continue
+            owner=state.db.execute("""SELECT p.status,s.status,q.status FROM relay_pipelines p
+                JOIN relay_pipeline_steps s ON s.pipeline=p.id JOIN production_plans q ON q.id=s.target
+                WHERE q.id=? AND s.target_kind='plan_production'""",(row['id'],)).fetchone()
+            if not owner or tuple(owner)!=('active','running','started'):continue
+            if rt.db.execute("SELECT 1 FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')",(name,)).fetchone():continue
+            tasks=[rt.spec(t) for t in rt.db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY id',(name,))]
+            original={t['id']:t for t in json.loads(run['plan'])['tasks']}
+            if {t['id'] for t in tasks}!=set(original):continue
+            if not any(authorized_layout(rt.db,name,t,original[t['id']]) for t in tasks):continue
+            expected=[]
+            for ident in sorted(original):
+                t={k:v for k,v in original[ident].items() if k!='revision'}
+                t['inputs']=[i for i in t['inputs'] if not i.get('previous_delivery')];expected.append(t)
+            digest=hashlib.sha256(json.dumps([run['plan'],expected],sort_keys=True).encode()).hexdigest()
+            if runtime_digest(rt,name)!=digest or rt.status(name)['status']!='active':continue
+            state.put('production-enabled:'+name,digest)
+            rt.event(name,None,None,'native_correction_scheduling_resumed',dict(contract_digest=digest,
+                authority='Frozen local correction policy and exact review receipt',attempts_reset=False))
 
 
 def review_resume_digest(state, name, view=None, legacy=False):
@@ -406,10 +494,22 @@ def resume_review_evidence(state, name, request):
     return 'Resumed the approved inspection and review; successful modeling is retained.'
 
 
+def scheduling_groups(state):
+    """Drain live work promptly while periodically reconciling historical unknowns."""
+    current=[];historical=[]
+    for row in state.db.execute('SELECT id FROM production_runs ORDER BY rowid'):
+        name=row[0]
+        active=state.db.execute("SELECT state FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')",(name,)).fetchall()
+        if state.get('production-enabled:'+name) or any(a[0]!='uncertain' for a in active):current.append(name)
+        elif active:historical.append(name)
+    return current,historical
+
+
 class Worker:
     def __init__(self, state, runtime_factory=None, telegram=None):
         self.state, self.runtime, self.runtime_factory, self.cursor = state, None, runtime_factory, 0
         self.telegram = telegram
+        self.historical_cursor=0
 
     def get_runtime(self):
         if self.runtime is None:
@@ -418,6 +518,16 @@ class Worker:
             if self.runtime.db is not self.state.db:
                 raise ValueError('Production workers must share the relay database connection.')
         return self.runtime
+
+    def next_run(self):
+        current,historical=scheduling_groups(self.state)
+        names=historical if historical and (not current or self.cursor%8==7) else current
+        if not names:return None
+        if names is historical:
+            name=names[self.historical_cursor%len(names)];self.historical_cursor+=1
+        else:name=names[(self.cursor-self.historical_cursor)%len(names)]
+        self.cursor+=1
+        return name
 
     def download(self):
         row = self.state.db.execute("SELECT * FROM production_uploads WHERE status='pending' ORDER BY id LIMIT 1").fetchone()
@@ -511,36 +621,32 @@ class Worker:
                 notice(self.state,row['run'],'revision:'+str(row['id']),'Revision could not start: '+str(exc))
 
     def tick(self):
+        from .completion_recovery import advance_standalone_corrections
+        advance_standalone_corrections(self.state)
         self.download()
         from . import attachment_batches
         attachment_batches.finish(self.state)
         from task_relay import production_continuations
         production_continuations.apply(self)
         self.apply_revision()
+        reconcile_native_layout(self.state,self.get_runtime())
         # Always drain existing workers, including paused/cancelled stages and
         # stages whose scheduling authorization was disabled after a change.
-        names = [r[0] for r in self.state.db.execute('SELECT id FROM production_runs')
-                 if self.state.get('production-enabled:'+r[0]) or self.state.db.execute(
-                     "SELECT 1 FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')",(r[0],)).fetchone()]
-        if not names:
+        name=self.next_run()
+        if name is None:
             return
         self.get_runtime()
-        name = names[self.cursor % len(names)]; self.cursor += 1
-        view = next(r for r in inspect(self.state,name) if r['name'] == name)
-        enabled=self.state.get('production-enabled:' + name)
-        if enabled and enabled != view['contract_digest']:
-            with self.state.db:
-                self.state.put('production-enabled:' + name, False)
-                self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)',
-                    ('production:' + name + ':changed', 'Production plan changed: ' + name + '. Scheduling stopped; review its saved state.'))
-            enabled=False
-        from .production_repairs import dispatch_allowed
-        result = self.runtime.tick(name,dispatch=bool(enabled) and dispatch_allowed(self.state,name))
+        result = self.runtime.tick(name,authorize=lambda rt,run:dispatch_authorized(self.state,rt,run))
         current = next(r for r in inspect(self.state,name) if r['name'] == name)
         summary = sorted([[t['id'], t['status'], t['attempts']] for t in result['tasks']])
         previous_status=self.state.get('production-status:'+name,{})
         previous_tasks={t[0]:t[1:] for t in previous_status.get('tasks',[])}
-        with self.state.db:
+        from orchestrator.storage import transaction
+        with transaction(self.state.db):
+            enabled=self.state.get('production-enabled:'+name)
+            # A later committed graph/state must not lose its grant because this
+            # tick's terminal snapshot has become stale.
+            if self.runtime.status(name)['status']!=result['status']:return
             for task in current['tasks']:
                 if task['status']=='running' and previous_tasks.get(task['id'])!=['running',task['attempts']]:
                     from .production_activity import lines as activity_lines
@@ -548,7 +654,8 @@ class Worker:
                            'Production: '+name+'\n'+task['id']+': Running\n'+'\n'.join(activity_lines(task)))
             self.state.put('production-status:' + name, {'status': result['status'], 'tasks': summary})
             if result['status']=='paused':return
-            if result['status'] != 'active':
+            independent_progress=(result['status']=='uncertain' and result.get('uncertainty_progress',{}).get('can_continue'))
+            if result['status'] != 'active' and not independent_progress:
                 if result['status']=='awaiting_user' and enabled==current['contract_digest']:
                     self.state.put('production-review-grant:'+name,{'digest':enabled,
                         'epoch':self.state.get('production-control-epoch:'+name,0)})
@@ -559,7 +666,8 @@ class Worker:
                 status = 'Ready for your review' if result['status'] == 'awaiting_user' else result['status']
                 if current['deferred_operations'] and result['status'] in ('awaiting_user','completed'):
                     status = 'Preparation ready; execution pending'
-                if any(a['state'] in ('launching','running','cancelling','uncertain') for a in result['attempts']):return
+                if any(a['state'] in ('launching','running','cancelling') for a in result['attempts']):return
+                if any(a['state']=='uncertain' for a in result['attempts']) and not result.get('delivery'):return
                 version = hashlib.sha256(json.dumps([result['status'],summary]).encode()).hexdigest()[:16]
                 event = 'production:' + name + ':result:' + version
                 details = []
@@ -586,6 +694,12 @@ class Worker:
                 if correction:
                     details.insert(0,correction)
                     ending='\nExisting files remain available as unapproved candidates. Use Plan correction above.'
+                delivery=result.get('delivery')
+                if delivery:
+                    from orchestrator.partial_delivery import lines as delivery_lines
+                    status='Partial delivery — unresolved issues require attention'
+                    details=delivery_lines(delivery)
+                    ending='Available exact files follow with their review status. Further work requires continuation; no completion or acceptance is inferred.'
                 self.state.db.execute('INSERT OR IGNORE INTO outbox(id,text) VALUES (?,?)', (event, f'Production: {name}\n{status}\n\n' +
                     '\n\n'.join(details) + pending_execution_text(current,workflow) + '\n'+ending))
                 current_outputs = {t['id'] for t in current['tasks'] if t['output_is_current']}
@@ -595,12 +709,14 @@ class Worker:
                     for a in result['artifacts']:
                         if not a['attempt'] or a['attempt'] != task['latest'] or a['task'] != task['id']:
                             continue
+                        candidate=next((c for c in delivery['candidates'] if c['artifact']==a['id']),None) if delivery else None
+                        if delivery and candidate is None:continue
                         artifact = self.runtime.artifact(a['id'])
                         filename=artifact_filename(self.state,artifact)
                         queue_artifact_preview(self.state,event,artifact,filename,name)
                         self.state.db.execute('INSERT OR IGNORE INTO media_outbox(id,event_id,path,filename,kind,caption) VALUES (?,?,?,?,?,?)',
                             ('production-output:' + a['id'], event, artifact['blob'],
-                             filename, 'original', name + '\n' + task['id'] + ' · attempt ' + str(task['attempts']) + '\n' + filename + '\n' + a['purpose']))
+                             filename, 'original', name + '\n' + task['id'] + ' · attempt ' + str(task['attempts']) + '\n' + filename + '\n' + a['purpose'] + ('\nReview status: '+candidate['review_status'] if candidate else '')))
 
     def close(self):
         if self.runtime is not None:

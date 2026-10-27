@@ -90,6 +90,9 @@ def record_claude(db,job,info,result):
 
 def collect_relay(db,source_path):
     """Use per-call receipts in preference to aggregate copies of those receipts."""
+    if db.in_transaction:raise ValueError('Index usage after the caller commits')
+    pending=[]
+    def stage(*args):pending.append(args)
     source_path=Path(source_path)
     if not source_path.is_file():return
     src=sqlite3.connect(source_path.as_uri()+'?mode=ro',uri=True);src.row_factory=sqlite3.Row
@@ -97,62 +100,73 @@ def collect_relay(db,source_path):
     tables={r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     def rows(query,required):return src.execute(query).fetchall() if set(required)<=tables else []
     try:
-        with db:
-            for job in rows('SELECT j.*,t.backend,t.model,t.cwd,t.session_id FROM backend_jobs j JOIN backend_tasks t ON t.id=j.thread_id',('backend_jobs','backend_tasks')):
-                usages=[];model='unknown'
-                if job['backend']=='claude':
-                    # New Claude SDK receipts are recorded directly, with this
-                    # same identity; historical cost-only jobs stay unmeasured.
-                    ident='claude-job:'+job['id']
-                    if db.execute('SELECT 1 FROM usage_events WHERE id=? OR substr(id,1,?)=?',(ident,len(ident+':model:'),ident+':model:')).fetchone():continue
-                    usages=[(ident,{})]
+        for job in rows('SELECT j.*,t.backend,t.model,t.cwd,t.session_id FROM backend_jobs j JOIN backend_tasks t ON t.id=j.thread_id',('backend_jobs','backend_tasks')):
+            usages=[];model='unknown'
+            if job['backend']=='claude':
+                # New Claude SDK receipts are recorded directly, with this
+                # same identity; historical cost-only jobs stay unmeasured.
+                ident='claude-job:'+job['id']
+                if db.execute('SELECT 1 FROM usage_events WHERE id=? OR substr(id,1,?)=?',(ident,len(ident+':model:'),ident+':model:')).fetchone():continue
+                usages=[(ident,{})]
+            else:
+                table='gemini_runs' if job['backend']=='gemini' else 'api_runs'
+                run=src.execute('SELECT model,usage_json FROM '+table+' WHERE job_id=?',(job['id'],)).fetchone() if table in tables else None
+                if run:model=run['model']
+                steps=src.execute('SELECT step,usage_json FROM api_steps WHERE job_id=?',(job['id'],)).fetchall() if 'api_steps' in tables else []
+                if steps:usages=[(prefix+'api:'+job['id']+':'+str(s['step']),unpack(s['usage_json'],{})) for s in steps]
                 else:
-                    table='gemini_runs' if job['backend']=='gemini' else 'api_runs'
-                    run=src.execute('SELECT model,usage_json FROM '+table+' WHERE job_id=?',(job['id'],)).fetchone() if table in tables else None
-                    if run:model=run['model']
-                    steps=src.execute('SELECT step,usage_json FROM api_steps WHERE job_id=?',(job['id'],)).fetchall() if 'api_steps' in tables else []
-                    if steps:usages=[(prefix+'api:'+job['id']+':'+str(s['step']),unpack(s['usage_json'],{})) for s in steps]
-                    else:
-                        u=unpack(run['usage_json'],{}) if run else {}
-                        if not isinstance(u,dict):u={}
-                        usages=[(prefix+'api:'+job['id']+':'+str(n),v) for n,v in enumerate(u.get('steps') or [u])]
-                for ident,u in usages:
+                    u=unpack(run['usage_json'],{}) if run else {}
                     if not isinstance(u,dict):u={}
-                    record(db,ident,'relay_api',job['backend'],model,job['cwd'],job['session_id'],
-                           job['started_at'] or job['created_at'],u,job['cost_usd'] if job['backend']=='claude' else u.get('cost') if job['backend']=='openrouter' else None,
-                           'sdk_usage_value' if job['backend']=='claude' else 'provider_reported')
-            for row in rows('SELECT c.*,p.provider,p.model,p.options FROM production_plan_calls c JOIN production_plans p ON p.id=c.plan_id',('production_plan_calls','production_plans')):
-                record(db,prefix+'planner:'+row['plan_id']+':'+str(row['number']),'relay_planner',row['provider'],row['model'],unpack(row['options'],{}).get('project'),None,row['created'],unpack(row['usage'],{}))
-            for row in rows('SELECT * FROM production_attempts',('production_attempts',)):
-                frozen=unpack(row['frozen'],{});receipt=unpack(row['receipt'],{})
-                backend=frozen.get('backend',{});execution=frozen.get('execution',{})
-                if execution.get('kind')=='procedure' or execution.get('capability')=='text.bundle':continue
-                operation=execution.get('capability','')
-                from orchestrator.executors import API_TYPES,provider_for
-                provider=(operation.split('.')[0] if operation in ('openrouter.image','openai.image','gemini.text','gemini.image')
-                          else provider_for(backend) if backend.get('type') in API_TYPES else 'codex')
-                from orchestrator.cloud_media import KINDS as CLOUD_MEDIA
-                if operation in CLOUD_MEDIA: provider=operation.split('.')[0]
-                usage=receipt.get('usage') or [{}]
-                if isinstance(usage,dict):usage=[usage]
-                for n,u in enumerate(usage):
-                    record(db,prefix+'worker:'+row['id']+':'+str(n),'relay_worker',provider,execution.get('parameters',{}).get('model') or backend.get('model'),
-                           frozen.get('run'),receipt.get('thread_id'),receipt.get('started') or receipt.get('finished'),u)
-            for job in rows('SELECT id,provider,model,created,focus FROM orchestrator_chats',('orchestrator_chats',)):
-                path=source_path.parent/'orchestrator-reads'/(hashlib.sha256(str(job['id']).encode()).hexdigest()+'.json')
-                journal=[]
-                if path.is_file() and not path.is_symlink() and path.stat().st_size<=16000000:journal=unpack(path.read_text(),[])
-                if not isinstance(journal,list):journal=[]
-                for step in journal or [{'step':0}]:
-                    response=step.get('response',{})
-                    record(db,prefix+'chat:'+str(job['id'])+':'+str(step['step']),'relay_chat',job['provider'],job['model'],job['focus'],None,
-                           step.get('submitted_at',job['created']),response.get('usageMetadata',response.get('usage',{})))
-                for path in path.with_suffix('').glob('search-*.json'):
-                    if path.is_symlink() or path.stat().st_size>16000000:continue
-                    search=unpack(path.read_text(),{});response=search.get('response',{})
-                    record(db,prefix+'search:'+str(job['id'])+':'+path.stem,'relay_search','gemini',search.get('model'),job['focus'],None,search.get('submitted_at'),response.get('usageMetadata',{}))
-            health(db,str(source_path),{'status':'read','scope':'recorded Relay calls; missing receipts remain unknown'})
+                    usages=[(prefix+'api:'+job['id']+':'+str(n),v) for n,v in enumerate(u.get('steps') or [u])]
+            for ident,u in usages:
+                if not isinstance(u,dict):u={}
+                stage(ident,'relay_api',job['backend'],model,job['cwd'],job['session_id'],
+                       job['started_at'] or job['created_at'],u,job['cost_usd'] if job['backend']=='claude' else u.get('cost') if job['backend']=='openrouter' else None,
+                       'sdk_usage_value' if job['backend']=='claude' else 'provider_reported')
+        for row in rows('SELECT c.*,p.provider,p.model,p.options FROM production_plan_calls c JOIN production_plans p ON p.id=c.plan_id',('production_plan_calls','production_plans')):
+            stage(prefix+'planner:'+row['plan_id']+':'+str(row['number']),'relay_planner',row['provider'],row['model'],unpack(row['options'],{}).get('project'),None,row['created'],unpack(row['usage'],{}))
+        for row in rows('SELECT * FROM production_attempts',('production_attempts',)):
+            frozen=unpack(row['frozen'],{});receipt=unpack(row['receipt'],{})
+            backend=frozen.get('backend',{});execution=frozen.get('execution',{})
+            if execution.get('kind')=='procedure' or execution.get('capability')=='text.bundle':continue
+            operation=execution.get('capability','')
+            from orchestrator.executors import API_TYPES,provider_for
+            provider=(operation.split('.')[0] if operation in ('openrouter.image','openai.image','gemini.text','gemini.image')
+                      else provider_for(backend) if backend.get('type') in API_TYPES else 'codex')
+            from orchestrator.cloud_media import KINDS as CLOUD_MEDIA
+            if operation in CLOUD_MEDIA: provider=operation.split('.')[0]
+            usage=receipt.get('usage') or [{}]
+            if isinstance(usage,dict):usage=[usage]
+            for n,u in enumerate(usage):
+                stage(prefix+'worker:'+row['id']+':'+str(n),'relay_worker',provider,execution.get('parameters',{}).get('model') or backend.get('model'),
+                       frozen.get('run'),receipt.get('thread_id'),receipt.get('started') or receipt.get('finished'),u)
+        for job in rows('SELECT id,provider,model,created,focus FROM orchestrator_chats',('orchestrator_chats',)):
+            path=source_path.parent/'orchestrator-reads'/(hashlib.sha256(str(job['id']).encode()).hexdigest()+'.json')
+            journal=[]
+            if path.is_file() and not path.is_symlink() and path.stat().st_size<=16000000:journal=unpack(path.read_text(),[])
+            if not isinstance(journal,list):journal=[]
+            for step in journal or [{'step':0}]:
+                response=step.get('response',{})
+                stage(prefix+'chat:'+str(job['id'])+':'+str(step['step']),'relay_chat',job['provider'],job['model'],job['focus'],None,
+                       step.get('submitted_at',job['created']),response.get('usageMetadata',response.get('usage',{})))
+            for path in path.with_suffix('').glob('search-*.json'):
+                if path.is_symlink() or path.stat().st_size>16000000:continue
+                search=unpack(path.read_text(),{});response=search.get('response',{})
+                stage(prefix+'search:'+str(job['id'])+':'+path.stem,'relay_search','gemini',search.get('model'),job['focus'],None,search.get('submitted_at'),response.get('usageMetadata',{}))
     finally:src.close()
+
+    # Journal reads and parsing must not retain the live database writer lock.
+    # Publish the derived ledger and its health marker together, after collection.
+    from orchestrator.storage import transaction
+    with transaction(db):
+        for args in pending:
+            # A provider may have recorded a richer Claude receipt during I/O.
+            ident=args[0]
+            if ident.startswith('claude-job:') and db.execute(
+                    'SELECT 1 FROM usage_events WHERE id=? OR substr(id,1,?)=?',
+                    (ident,len(ident+':model:'),ident+':model:')).fetchone():continue
+            record(db,*args)
+        health(db,str(source_path),{'status':'read','scope':'recorded Relay calls; missing receipts remain unknown'})
 
 
 def report(db,days=7,group='provider',now=None):

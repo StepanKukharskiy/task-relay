@@ -1,9 +1,9 @@
 # Task Relay companion (macOS Apple Silicon pilot)
 
-Task Relay runs on your computer; everyday work stays in your messenger. The
-packaged app is a small menu-bar companion for setup, connection status, settings
-and local decisions. Closing the window hides it; the menu reopens it. Quit
-companion exits the interface and leaves independently supervised services running.
+Task Relay runs on your computer. The desktop app appears in the Dock and also
+keeps its menu-bar controls. Closing the window hides it; clicking the Dock icon
+reopens the same canvas. Quit exits the interface and leaves independently
+supervised services running.
 Only one companion instance is allowed. It does not yet install itself as a login
 item; the existing service definitions retain their own login behavior.
 
@@ -19,9 +19,22 @@ After setup the window shows connection status, Open Telegram and the available
 service control. Channels contains Telegram and optional Apple Messages connection
 settings and delivery controls. Settings contains AI connections, working folder,
 on-demand Relay usage/storage, updates and troubleshooting.
-Task browsing, conversation composition, workflow libraries and tool catalogs are
-not part of the companion. Their existing runtime records and operations remain
-intact. Startup does not fetch task conversations or recursively scan storage.
+The workspace uses one canvas-first shell. Jobs opens as a searchable, pannable
+board of saved jobs with a List alternative. Cards navigate existing records;
+unrelated jobs have no wires. Historical pipelines use the same canvas renderer
+for ordered stages, with task-graph drilldown and a return link. Stage-order
+wires are explicitly distinguished from exact task file bindings. Saved proposals
+and conversation workflows share Canvas, Results and History tabs.
+Saved run graphs open on a pan/zoom canvas with draggable cards, declared file
+ports and exact input/result inspection. Solid wires are recorded file bindings;
+dashed wires are prerequisites. Results and History remain separate views.
+The node editor supports adding steps, changing named connections, editing prompts
+and saving new executions. Jobs → Templates creates a fresh editable copy of a
+bundled workflow, including Cellular aggregation · from Chat. Browsing and copying
+a template never starts work; Run reviews execution and required connections.
+The node picker uses the shared operation definitions with searchable named ports. Historical duplicates are absent from this picker; saved workflows retain
+their original registered definitions. Browsing does not execute operations or
+rewrite saved workflows; catalog entries do not establish execution permission.
 
 A focused local decision view retains exact Codex/Claude review text and the
 existing one-shot approval checks. Allow requires opening the complete review;
@@ -263,3 +276,16 @@ imports the PDF/image/browser/PPTX dependencies and compares runtime/app version
 It uses temporary data and does not contact providers, open a browser or change
 the installed app. Release snapshots must include approved runtime changes and
 their dependencies together; Git commit state is not an approval boundary.
+# Guarded maintenance of unresolved deliveries
+
+The existing local installer accepts `--hold-uncertain-deliveries` during
+preparation. It binds the exact submitting delivery rows; it does not declare
+them sent or permit a retry. Apply backs up the database, pauses the existing
+channel controls, unloads owned services, and verifies that sender processes have
+stopped before atomically moving those rows to `uncertain`. Original row values
+and maintenance phases remain in `relay_install_maintenance` in the same database.
+Other active work still blocks installation. Healthy startup restores prior
+channel preferences and intake cursors; unresolved deliveries remain non-replayable.
+An interrupted install retains its journal and pause for inspection, and the same
+installation receipt cannot be blindly replayed. Database rollback is never used
+after a service restart. Run the composed offline gate before applying this path.

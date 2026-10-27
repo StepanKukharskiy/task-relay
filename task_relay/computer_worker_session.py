@@ -9,9 +9,12 @@ from .browser_journal import UncertainAction
 
 
 class Session:
-    def __init__(self,db,ident,driver,control,label):
+    def __init__(self,db,ident,driver,control,label,*,cancel_control=None):
         self.db,self.ident,self.driver=db,ident,driver
         self.control=Path(control);self.label=label[:160]
+        # A composed host operation keeps per-read evidence separately, but its
+        # supervisor still owns cancellation at the enclosing attempt boundary.
+        self.cancel_control=Path(cancel_control) if cancel_control is not None else self.control
         self.event=self.control/'computer-owner-event.json'
         self.token=None;self.failed=False;self.scroll_available=True;self.failure=None
         row=journal.get(db,ident);self.spec=json.loads(row['spec'])
@@ -30,7 +33,7 @@ class Session:
                     journal.decision(self.db,row,'owner_'+event['kind'],'local Safari owner','Visible session ownership control',event)
                     self.db.execute('UPDATE relay_computer_assignments SET state=? WHERE id=?',('paused' if event['kind']=='pause' else 'cancelled',self.ident))
         row=journal.get(self.db,self.ident)
-        if (self.control/'cancel.json').exists() and row['state']=='running':
+        if any((p/'cancel.json').exists() for p in (self.control,self.cancel_control)) and row['state']=='running':
             journal.control(self.db,self.ident,'cancel',actor='worker supervisor',note='Production attempt cancelled.')
             row=journal.get(self.db,self.ident)
         if self.failed or row['state']!='running':raise ValueError('Safari session stopped; explicit recovery required.')
@@ -63,7 +66,8 @@ class Session:
             if key in args:request[key]=args[key]
         if operation in ('bind','launch'):
             request.update(allow_refresh=True,allowed_urls=self.spec['allowed_urls'],max_seconds=max(1,int(row['deadline']-time.time())),
-                           ownership={'label':self.label,'event_path':str(self.event),'cancel_path':str(self.control/'cancel.json')})
+                           ownership={'label':self.label,'event_path':str(self.event),'cancel_path':str(self.cancel_control/'cancel.json')})
+        if self.spec.get('navigation_policy'):request['navigation_policy']=self.spec['navigation_policy']
         action=journal._claim(self.db,self.ident,request,None)
         response=None;phase='native_dispatch'
         try:
@@ -98,6 +102,32 @@ class Session:
             # Preserve only a bounded machine error code, never native diagnostic
             # text that could contain page contents or credentials.
             from .host_computer import NativeSessionError
+            # Only a complete helper rejection with exact request/target identity
+            # is confirmed. Lost, malformed or uncorrelated replies remain unknown.
+            rejected=getattr(exc,'response',None)
+            proof=rejected.get('observation_failure') if isinstance(rejected,dict) else None
+            if (isinstance(proof,dict) and phase=='native_dispatch' and operation=='observe'
+                    and rejected.get('protocol')==native.PROTOCOL and rejected.get('ok') is False
+                    and proof.get('version')==1 and proof.get('terminal') is True
+                    and proof.get('operation')==operation and proof.get('requested_url')==expected
+                    and proof.get('target')==self.target and proof.get('token')==self.token
+                    and isinstance(self.token,str) and proof.get('action_executed') is False
+                    and rejected.get('error') in ('selected_document_url_changed_or_unavailable','visible_text_unavailable',
+                        'document_changed_during_observation','document_geometry_changed_during_observation','active_web_document_not_unique')):
+                try:
+                    save_rejection(self.db,row,action,request,rejected,'Observation unavailable; confirmed no action')
+                except (ValueError,KeyError,TypeError,OSError):pass
+                else:raise ValueError('Native observation unavailable; confirmed failure, no page accepted or replay') from exc
+            proof=rejected.get('navigation_failure') if isinstance(rejected,dict) else None
+            if isinstance(proof,dict) and proof.get('version')==1 and proof.get('terminal') is True and proof.get('operation')==operation and proof.get('requested_url')==expected and proof.get('action_executed') is True:
+                try:
+                    native.target(proof['target'])
+                    if operation!='launch' and proof['target']!=self.target:raise ValueError('Wrong target')
+                    native.url(proof['observed_url'],self.spec['local_fixture'])
+                    if rejected.get('error')!='unexpected_navigation_destination':raise ValueError('Unsupported terminal proof')
+                    save_rejection(self.db,row,action,request,rejected,'Navigation destination rejected; no page accepted')
+                except (ValueError,KeyError,TypeError,OSError):pass
+                else:raise ValueError('Native navigation destination rejected; confirmed failure, no page accepted or replay') from exc
             code=exc.code if isinstance(exc,NativeSessionError) else response.get('error') if isinstance(response,dict) else None
             code=code if isinstance(code,str) and re.fullmatch(r'[a-z][a-z0-9_-]{0,159}',code) else None
             self.failure={'operation':operation,'phase':phase,'code':code or 'diagnostic_unavailable'}
@@ -114,6 +144,19 @@ class Session:
         except ValueError:pass
         with transaction(self.db):
             self.db.execute("UPDATE relay_computer_assignments SET state=? WHERE id=? AND state='running'",('completed' if completed and not self.pending() else 'blocked',self.ident))
+
+
+def save_rejection(db,row,action,request,rejected,reason):
+    """Retain exact confirmed failures with the same hash-bound receipt format."""
+    import hashlib
+    folder=Path(row['output_root'])/row['id']/action
+    if any(p.is_symlink() for p in (folder,*folder.parents)):raise ValueError('Unsafe receipt path')
+    folder.mkdir(parents=True,exist_ok=False)
+    journal.write_new(folder/'request.json',request);journal.write_new(folder/'rejection.json',rejected)
+    receipt=dict(folder=str(folder),files={n:dict(bytes=(folder/n).stat().st_size,sha256=hashlib.sha256((folder/n).read_bytes()).hexdigest()) for n in ('request.json','rejection.json')})
+    with transaction(db):
+        db.execute("UPDATE relay_computer_actions SET state='failed',receipt=?,error=? WHERE id=? AND state='claimed'",(journal.encoded(receipt),reason,action))
+        db.execute("UPDATE relay_computer_assignments SET state='blocked' WHERE id=?",(row['id'],))
 
 
 def action_gaps(history):

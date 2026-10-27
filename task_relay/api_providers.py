@@ -125,8 +125,12 @@ class Client:
             return result
         except urllib.error.HTTPError as exc:
             code = exc.code
-            exc.close()
-            raise gemini.ProviderError(code, uncertain=data is not None and code >= 500) from None
+            try:
+                detail=gemini.error_detail(exc,self.key)
+                delay=gemini.retry_after(exc.headers)
+                if delay is not None:detail['retry_after_seconds']=delay
+            finally:exc.close()
+            raise gemini.ProviderError(code, uncertain=data is not None and code >= 500,detail=detail) from None
         except (OSError, ValueError):
             raise gemini.ProviderError('connection-or-response', uncertain=data is not None) from None
 
