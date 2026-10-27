@@ -73,11 +73,15 @@ class ContractTests(unittest.TestCase):
         value=assignment('images.collect',dict(subjects=[dict(id='desk',label='Desk',query='desk')]))
         value['outputs'][0]['path']='photos.zip'
         execution.validate(value)
-        for name in ('rhino.run_python','rhino3dm.run_python','sketchup.run_ruby'):
+        for name in ('rhino.run_python','rhino3dm.run_python','sketchup.run_ruby','blender.run_python'):
             parameter_contracts.validate(dict(scene_sha256=None,script_sha256='b'*64,checks_sha256='c'*64,
                 permissions='unrestricted_host'),execution.parameter_schema(name))
+        # Blender can create a fresh scene and bind future path references;
+        # empty references remain invalid and execution checks declared files.
+        parameter_contracts.validate(dict(scene_sha256=None,script_sha256='inputs/script.py',
+            checks_sha256='inputs/checks.json',permissions='unrestricted_host'),execution.parameter_schema('blender.run_python'))
         with self.assertRaises(ValueError):
-            parameter_contracts.validate(dict(scene_sha256=None,script_sha256='b'*64,checks_sha256='c'*64,
+            parameter_contracts.validate(dict(scene_sha256=None,script_sha256='',checks_sha256='inputs/checks.json',
                 permissions='unrestricted_host'),execution.parameter_schema('blender.run_python'))
 
     def test_schema_constraints_are_enforced_and_unsupported_keywords_fail_closed(self):
