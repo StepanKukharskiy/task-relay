@@ -1,38 +1,32 @@
 {
-  "tag_name": "v0.13.26",
+  "tag_name": "v0.13.155",
   "draft": false,
   "prerelease": true,
-  "published_at": "2026-09-15T14:20:15Z",
+  "published_at": "2026-10-03T13:45:15Z",
   "assets": [
     {
-      "name": "Task-Relay-0.13.26-arm64.dmg",
+      "name": "Task-Relay-0.13.155-arm64.dmg",
       "state": "uploaded",
-      "size": 155582439,
-      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-arm64.dmg"
+      "size": 164336077,
+      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.155/Task-Relay-0.13.155-arm64.dmg"
     },
     {
-      "name": "Task-Relay-0.13.26-arm64.dmg.sha256",
+      "name": "Task-Relay-0.13.155-arm64.dmg.sha256",
       "state": "uploaded",
-      "size": 95,
-      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-arm64.dmg.sha256"
+      "size": 96,
+      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.155/Task-Relay-0.13.155-arm64.dmg.sha256"
     },
     {
-      "name": "Task-Relay-0.13.26-source.tar.gz",
+      "name": "Task-Relay-0.13.155-source.tar.gz",
       "state": "uploaded",
-      "size": 8731604,
-      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-source.tar.gz"
+      "size": 11553992,
+      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.155/Task-Relay-0.13.155-source.tar.gz"
     },
     {
-      "name": "Task-Relay-0.13.26-source.tar.gz.sha256",
+      "name": "Task-Relay-0.13.155-source.tar.gz.sha256",
       "state": "uploaded",
-      "size": 99,
-      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/Task-Relay-0.13.26-source.tar.gz.sha256"
-    },
-    {
-      "name": "task_relay-0.13.26.tar.gz",
-      "state": "uploaded",
-      "size": 3325747,
-      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.26/task_relay-0.13.26.tar.gz"
+      "size": 100,
+      "browser_download_url": "https://github.com/StepanKukharskiy/task-relay/releases/download/v0.13.155/Task-Relay-0.13.155-source.tar.gz.sha256"
     }
   ]
 }

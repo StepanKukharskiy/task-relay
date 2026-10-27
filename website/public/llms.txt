@@ -37,7 +37,7 @@ Capabilities and boundaries:
 - Text/code workers can save Markdown, TXT, CSV, JSON, Python, JavaScript, HTML and CSS. DOCX, XLSX, PDF and SVG require a capable worker with suitable libraries or export tools; they are not dedicated Relay converters.
 - Browser use supports a dedicated Chrome profile and a Perplexity Search worker. Other websites require a supported browser executor. Login and verification may require the user.
 - Telegram is the main task and file-delivery channel. Apple Messages is a separate macOS text pilot. macOS is the primary execution host; Windows task execution is not supported. Linux has partial CLI/service support.
-- Grasshopper `.gh`/`.ghx` and native Keynote output are unsupported. General CAD/mesh conversion is not a built-in route; Meshy's GLB generation does not imply arbitrary GLB import/export support.
+- Grasshopper authoring creates new native `.gh` and `.ghx` definitions through Rhino 7/8 on macOS, with independent reopen/solve checks. Existing-definition editing and native Keynote output are unsupported. General CAD/mesh conversion is not a built-in route; Meshy's GLB generation does not imply arbitrary GLB import/export support.
 
 Five workflow starters cover research-to-report, architecture-to-presentation,
 native-model revision, carousel-to-reel, and data-to-presentation. Starters are

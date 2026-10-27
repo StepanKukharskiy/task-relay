@@ -13,9 +13,9 @@ test('download routes support complete files, HEAD and resume without exposing a
   try{
     const text=await new Promise((resolve,reject)=>{child.stdout.once('data',b=>resolve(b.toString()));child.once('error',reject);child.once('exit',c=>reject(Error('server exit '+c)));});
     const base='http://127.0.0.1:'+text.match(/port (\d+)/)[1], url=base+'/downloads/'+names[0];
-    const page=await (await fetch(base)).text(); assert.match(page,/Beta 0\.13\.26/);
+    const page=await (await fetch(base)).text(); assert.match(page,/Beta 0\.13\.155/);
     assert.match(page,/href="\/guides\/"/);
-    const latest=await fetch(base+'/api/release');const release=await latest.json();assert.equal(release.version,'0.13.26');
+    const latest=await fetch(base+'/api/release');const release=await latest.json();assert.equal(release.version,'0.13.155');
     const redirect=await fetch(base+'/downloads/latest/arm64.dmg',{redirect:'manual'});assert.equal(redirect.status,302);assert.equal(redirect.headers.get('location'),release.assets.dmg.url);assert.equal(redirect.headers.get('cache-control'),'no-store');
     assert.ok(page.includes('href="'+release.assets.dmg.url+'"'));assert.ok(!page.includes('{{'));
     const guidePaths=['/guides/','/guides/architectural-site-analysis','/guides/rhino-model-revisions','/guides/rhino-named-view-renders','/guides/blender-asset-handoff','/guides/design-review-presentation'];
