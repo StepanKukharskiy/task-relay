@@ -6,9 +6,11 @@ using the existing workflow validator and save path. Selection does not dispatch
 work, inherit historical results or grant native/paid execution. Desktop and Python
 packages include node icons, schemas, request limits and bundled template data.
 
-Status: implementation complete; focused UI/contract, packaging, updater and full
-public-release lifecycle qualification pending. Publication and downloadable app
-assets will be recorded only after successful release checks.
+Focused template/canvas, packaging and updater checks passed. Release CI exposed
+a named preparation alias regression after Blender adopted path references; the
+shared compiler now normalizes both path and hash references without assuming
+equal bytes for future outputs. Public-release lifecycle qualification and
+publication remain pending. Windows native execution remains unqualified.
 
 ## Animation render budget (2026-10-26)
 

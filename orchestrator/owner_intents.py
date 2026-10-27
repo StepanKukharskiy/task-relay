@@ -485,23 +485,30 @@ def compile(session,args):
             refs=value if kind=='paths' else [value];bound=[add(task,r) for r in refs]
             if kind=='sha256':
                 params[key]=completed_artifact(bound[0],key)['sha256']
-                execution.adapter(cap).bind_reference_media(key,bound[0])
+            else:
+                params[key]=[b['path'] for b in bound] if kind=='paths' else bound[0]['path']
+            if kind in ('sha256','path'):
+                # Saved artifacts may use historical text media; future output
+                # declarations stay immutable and are checked at graph admission.
+                source=bound[0]
+                execution.adapter(cap).bind_reference_media(key,source if 'artifact' in source else copy.deepcopy(source))
                 from .producer_binding import requirements
                 for port in requirements(cap):
                     if port.get('reference_parameter')!=key:continue
-                    selected=bound[0]
+                    selected=source
                     if selected.get('media_type')!='application/json':raise ValueError(key+' requires its registered JSON preparation')
+                    def identity(value):
+                        return tuple(value.get(k) for k in ('artifact','from_task','output'))
                     for other in task['inputs']:
                         if other is selected or other.get('media_type')!='application/json':continue
-                        if completed_artifact(other,key)['sha256']!=params[key]:
+                        if identity(other)==identity(selected):continue
+                        # Distinct saved aliases may have identical bytes. Future
+                        # outputs cannot be treated as equal before collection.
+                        try:equal=completed_artifact(other,key)['sha256']==completed_artifact(selected,key)['sha256']
+                        except ValueError:equal=False
+                        if not equal:
                             raise ValueError('JSON data conflicts with named preparation '+key+'; supply only its exact reference, keeping context on the author/reviewer')
-                    # Multiple aliases of identical bytes are one named port.
-                    # The raw proposal stays journaled; execution binds the
-                    # exact parameter reference, never an arbitrary JSON file.
                     task['inputs']=[i for i in task['inputs'] if i is selected or i.get('media_type')!='application/json']
-            else:
-                if kind=='path':execution.adapter(cap).bind_reference_media(key,copy.deepcopy(bound[0]))
-                params[key]=[b['path'] for b in bound] if kind=='paths' else bound[0]['path']
         return params
 
     for item,task in zip(raw,batch):

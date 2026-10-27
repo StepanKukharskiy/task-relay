@@ -308,7 +308,8 @@ class Tests(unittest.TestCase):
                 c.assignment(batch[0])
                 selected=[i for i in batch[0]['inputs'] if i['media_type']=='application/json']
                 self.assertEqual([i['artifact'] for i in selected],[checks['artifact']])
-                self.assertEqual(batch[0]['execution']['parameters']['checks_sha256'],self.rt.artifact(checks['artifact'])['sha256'])
+                expected=(selected[0]['path'] if execution.adapter(cap).references['checks_sha256']=='path' else self.rt.artifact(checks['artifact'])['sha256'])
+                self.assertEqual(batch[0]['execution']['parameters']['checks_sha256'],expected)
                 self.assertEqual(args,original)
                 selected_script=next(i for i in batch[0]['inputs'] if i['artifact']==(ruby if cap=='sketchup.run_ruby' else script)['artifact'])
                 self.assertEqual(selected_script['media_type'],native_apps.profile(cap).script_media)
@@ -318,6 +319,22 @@ class Tests(unittest.TestCase):
                 bad=copy.deepcopy(args);bad['tasks'][0]['data']=ref(conflict)
                 with self.assertRaisesRegex(ValueError,'conflicts with named preparation'):intents.compile(session,bad)
         self.assertEqual(self.rt.status('job'),before);self.assertEqual(self.factory.calls,calls)
+
+    def test_named_path_preparation_keeps_future_identity_without_assuming_equal_bytes(self):
+        self.grant.update(delegation_version=4,operations=['blender.run_python'])
+        self.create();self.rt.tick('job');session=self.session()
+        prepare=dict(id='prepare',objective='Prepare exact future inputs',outputs=[output('script','text/x-python'),output('checks','application/json'),output('other','application/json')])
+        ref=lambda name:dict(task='prepare',output=name)
+        item=native('build','blender.run_python',parameters=dict(scene_sha256=None,
+            script_sha256=ref('script'),checks_sha256=ref('checks'),permissions='unrestricted_host'))
+        item['data']=ref('checks');args=dict(request_id='future',tasks=[prepare,item]);original=copy.deepcopy(args)
+        batch=intents.compile(session,args)
+        selected=[i for i in batch[1]['inputs'] if i['media_type']=='application/json']
+        self.assertEqual(len(selected),1);self.assertEqual(selected[0]['from_task'],'prepare')
+        self.assertEqual(batch[1]['execution']['parameters']['checks_sha256'],selected[0]['path'])
+        self.assertEqual(args,original)
+        args['tasks'][1]['data']=ref('other')
+        with self.assertRaisesRegex(ValueError,'conflicts with named preparation'):intents.compile(session,args)
 
     def test_completed_named_hash_ports_bind_saved_outputs_after_restart_without_dispatch(self):
         from orchestrator import producer_binding,execution

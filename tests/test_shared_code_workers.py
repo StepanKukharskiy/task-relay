@@ -89,6 +89,7 @@ class Tests(unittest.TestCase):
         self.frozen['backend']=self.backend('qwen',True)
         return CodeFiles(self.frozen,self.control)
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_visual_requirement_transports_selected_png_without_a_model_transport_flag(self):
         from tests.test_browser_screenshots import png
         from orchestrator import worker_capabilities
@@ -106,6 +107,7 @@ class Tests(unittest.TestCase):
         parts=transport.requests[0][1]['contents'][0]['parts']
         self.assertEqual([base64.b64decode(p['inlineData']['data']) for p in parts if 'inlineData' in p],[raw])
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_code_worker_receives_exact_declared_visual_pixels(self):
         from tests.test_browser_screenshots import png
         import base64
@@ -118,10 +120,12 @@ class Tests(unittest.TestCase):
         parts=transport.requests[0][1]['contents'][0]['parts']
         self.assertEqual([base64.b64decode(p['inlineData']['data']) for p in parts if 'inlineData' in p],[raw])
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_render_archive_pixels_reach_reviewer_and_traversal_is_rejected(self):
         from tests.test_browser_screenshots import png
         self.render_archive_observation(png())
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_large_render_preview_reaches_model_and_exact_review_without_extra_call(self):
         from tests.test_visual_review_observation import Tests
         self.render_archive_observation(Tests.large_image(self))
@@ -212,6 +216,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(files.run({'code':'corrected','seconds':5})['returncode'],0)
         self.assertEqual(len(list(self.control.glob('code-*/outcome.json'))),2)
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_working_files_persist_without_becoming_deliverables(self):
         import os
         def host(runtime,folder,code,*args):
@@ -235,6 +240,7 @@ class Tests(unittest.TestCase):
             latest,manifest=files.workspace();(latest/'build.py').write_text('tampered')
             with self.assertRaisesRegex(ValueError,'workspace changed'):files.run(dict(code='pass',seconds=5))
 
+    @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_scratch_files_obey_the_same_quota_and_link_boundaries(self):
         for mode in ('large','symlink','directory_link'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory(dir=self.root) as temporary:
