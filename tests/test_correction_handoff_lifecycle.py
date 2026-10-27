@@ -16,6 +16,7 @@ from task_relay.external_evidence import recorded_sources
 class Fixtures:
     source=owner.Tests.source;session=owner.Tests.session;invoke=owner.Tests.invoke;run_worker=owner.Tests.run_worker
     def setUp(self):
+        life.bind_unexecuted_renderer(self)
         from task_relay.bridge import State
         from task_relay import production_control
         from tests.test_orchestrator import FakeFactory

@@ -54,15 +54,33 @@ jobs:
       - name: Install declared local fixture dependencies
         run: python -m pip install -e '.[presentations,images]'
       - name: Require correction through exact or partial delivery
+        id: lifecycle
         run: python -B scripts/qualify_lifecycle.py --output outputs/lifecycle-release
       - name: Require receipt to match the source being released
         run: python -B scripts/qualify_lifecycle.py --verify outputs/lifecycle-release/report.json
+      - name: Show failed scenario diagnostics
+        if: failure()
+        run: |
+          python - <<'PYTHON'
+          import json
+          from pathlib import Path
+          root=Path('outputs/lifecycle-release')
+          for path in sorted(root.glob('*/result.json')):
+              result=json.loads(path.read_text())
+              if not result.get('passed'):
+                  print(path.parent.name, flush=True)
+                  print((path.parent/'tests.log').read_text()[-16000:], flush=True)
+          PYTHON
+      - name: Archive original journals and failed scenarios losslessly
+        if: always() && steps.lifecycle.outcome != 'skipped'
+        run: tar -cJf outputs/lifecycle-release.tar.xz -C outputs lifecycle-release
       - name: Retain original journals and failed scenarios
-        if: always()
+        if: always() && steps.lifecycle.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: shared-lifecycle-qualification
-          path: outputs/lifecycle-release/
+          path: outputs/lifecycle-release.tar.xz
+          compression-level: 0
           if-no-files-found: error
           retention-days: 14
   checks:

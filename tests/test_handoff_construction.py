@@ -9,7 +9,10 @@ from tests.test_browser_fallback_lifecycle import retain_evidence
 
 class References(unittest.TestCase):
     create=scope.Routing.create;source=scope.Routing.source;session=scope.Routing.session
-    setUp=scope.Routing.setUp;start=scope.Routing.start;doc=scope.Routing.doc;request=scope.Routing.request
+    start=scope.Routing.start;doc=scope.Routing.doc;request=scope.Routing.request
+    def setUp(self):
+        from tests.lifecycle_fixture import bind_unexecuted_renderer
+        scope.Routing.setUp(self);bind_unexecuted_renderer(self)
     tearDown=retain_evidence
     def test_outer_reference_compiles_once_retains_original_and_restart(self):
         data=self.source(self.doc(),'saved.json','application/json');session=self.start([data])

@@ -39,6 +39,18 @@ def grant():
         task_attempts=3, task_limits=copy.deepcopy(LIMITS))
 
 
+def bind_unexecuted_renderer(test):
+    """Admit a synthetic renderer whose process must never run in this fixture."""
+    import hashlib, sys
+    executable=Path(sys.executable).resolve()
+    tool=dict(path=str(executable),sha256=hashlib.sha256(executable.read_bytes()).hexdigest())
+    binding=dict(platform=sys.platform,tools=dict(soffice=tool,pdftoppm=tool),
+                 alternatives=[],basis='offline unexecuted renderer fixture')
+    for probe in (patch('task_relay.presentation_host.discover',return_value=binding),
+                  patch('task_relay.presentation_host.invoke',side_effect=AssertionError('Renderer execution is outside this fixture'))):
+        probe.start();test.addCleanup(probe.stop)
+
+
 class Lifecycle:
     source = owner.Tests.source
     invoke = owner.Tests.invoke
