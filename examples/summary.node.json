@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "summary",
+  "operation": "model",
+  "objective": "Summarise https://www.w3.org/Provider/Style/URI.html. Use only content you actually read and disclose any inaccessible portions.",
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "summary",
+      "media_type": "text/markdown",
+      "purpose": "The requested source-grounded summary."
+    }
+  ]
+}

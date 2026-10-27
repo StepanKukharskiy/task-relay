@@ -68,6 +68,24 @@ class PerplexityPage:
                 'ready':main.get_by_role('textbox').count()==1 and
                         main.get_by_role('button',name='Stop response',exact=False).count()==0}
 
+    def sources(self,job):
+        """Bounded links from the same observed answer page; never source visits."""
+        before=self.snapshot()
+        if before['url']!=job['url'] or before['text']!=job['result'] or not before['ready']:
+            raise ValueError('Perplexity answer page changed before source capture; saved answer retained')
+        anchors=self.page.get_by_role('main').locator('a[href]')
+        total=anchors.count();rows=[];seen=set()
+        for i in range(min(total,200)):
+            link=anchors.nth(i);url=urljoin(before['url'],link.get_attribute('href') or '')
+            parsed=urlsplit(url)
+            if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or len(url)>4096:continue
+            if parsed.hostname=='perplexity.ai' or parsed.hostname.endswith('.perplexity.ai'):continue
+            if url in seen:continue
+            seen.add(url);rows.append(dict(url=url,title=link.inner_text(timeout=5000)[:1000],relationship='observed_on_answer_page',verified=False))
+        after=self.snapshot()
+        if fingerprint(before)!=fingerprint(after):raise ValueError('Perplexity answer changed during source capture')
+        return dict(sources=rows,observed_links=total,inspected_links=min(total,200),truncated=total>200)
+
     def check_ready(self,snapshot):
         # Fail closed on logged-out, changed, busy or prefilled UI. Do not operate
         # login forms, CAPTCHAs, billing dialogs, files or Computer workflows.

@@ -12,6 +12,22 @@ from tests.test_orchestrator import FakeFactory,pair,task
 from tests.test_mixed_execution import operation
 
 
+class CorrectionFactory(FakeFactory):
+    def finish(self,aid,**kwargs):
+        super().finish(aid,**kwargs)
+        session=self.sessions[aid]
+        if session['frozen']['id']=='produce':
+            # Valid tiny input for the native PPTX preflight; execution remains
+            # scripted here. Real creation/correction is checked separately.
+            document=dict(version=1,title='Controlled correction',slides=[dict(elements=[dict(type='text',x=1,y=1,w=5,h=1,text='Small correction fixture',font_size=18)])])
+            (session['workspace']/'slides.json').write_text(json.dumps(document))
+        elif session['frozen']['id']=='deck':
+            from orchestrator.pptx_document import create
+            document=json.loads((session['workspace']/'slides.json').read_text())
+            raw,_=create(document)
+            (session['workspace']/'deck.pptx').write_bytes(raw)
+
+
 def graph():
     p=pair();author,review=p['tasks']
     author['outputs']=[dict(path='slides.json',purpose='Slide data',media_type='application/json')]
@@ -29,7 +45,7 @@ class Tests(unittest.TestCase):
     def setUp(self):
         availability=patch.object(execution,'available');availability.start();self.addCleanup(availability.stop)
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
-        self.factory=FakeFactory();self.rt=Runtime(Path(temp.name)/'runtime',self.factory);self.addCleanup(self.rt.close)
+        self.factory=CorrectionFactory();self.rt=Runtime(Path(temp.name)/'runtime',self.factory);self.addCleanup(self.rt.close)
         self.rt.create(graph());self.digest=runtime_digest(self.rt,'demo');self.rt.tick('demo')
 
     def finish(self,tid,decision='delivered',failure=False):
@@ -95,9 +111,27 @@ class Tests(unittest.TestCase):
     def test_frozen_one_attempt_operation_remains_one_attempt(self):
         candidate=graph();deck=candidate['tasks'][2]
         deck.pop('review_correction');deck['max_attempts']=1
-        fresh=Runtime(self.rt.root.parent/'legacy',FakeFactory());self.addCleanup(fresh.close)
+        fresh=Runtime(self.rt.root.parent/'legacy',CorrectionFactory());self.addCleanup(fresh.close)
         fresh.create(candidate);fresh.tick('demo')
         for tid,decision in [('produce','delivered'),('review','accept'),('deck','delivered'),('final','revise')]:
             a=fresh.task('demo',tid)['latest'];fresh.factory.finish(a,decision=decision);fresh.tick('demo')
         self.assertEqual(fresh.task('demo','deck')['status'],'blocked')
         self.assertEqual(fresh.task('demo','deck')['attempts'],1)
+
+class DefectRoutingTests(unittest.TestCase):
+    setUp=Tests.setUp
+    finish=Tests.finish
+    to_deck=Tests.to_deck
+    # Exercise an actionable defect in the native collect path, preserving the
+    # original category instead of turning it into an acceptance or user gate.
+    def test_integrity_revise_reaches_existing_correction_grant(self):
+        self.to_deck();candidate=self.finish('deck')
+        aid=self.rt.task('demo','final')['latest'];self.factory.finish(aid,decision='revise')
+        path=self.factory.sessions[aid]['workspace']/'.relay/result.json'
+        report=json.loads(path.read_text());report['findings']=[dict(category='integrity',code='bad_link',message='Wrong candidate link',evidence='Synthetic candidate hyperlink')]
+        path.write_text(json.dumps(report));self.rt.tick('demo')
+        self.assertEqual(self.rt.task('demo','produce')['attempts'],2)
+        self.assertIn(self.rt.task('demo','produce')['status'],('launching','running'))
+        self.assertEqual(self.rt.db.execute('SELECT state FROM production_attempts WHERE id=?',(candidate,)).fetchone()[0],'completed')
+        event=self.rt.db.execute("SELECT data FROM production_events WHERE kind='review_defects_routed_to_correction'").fetchone()
+        self.assertEqual(json.loads(event[0])['findings'][0]['category'],'integrity')

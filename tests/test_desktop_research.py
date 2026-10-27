@@ -41,7 +41,7 @@ class ChoiceTests(unittest.TestCase):
         self.assertEqual(context['research_mode'], 'sources')
         self.assertEqual(context['request_scope'], 'exploration')
         self.assertIn('source-backed answer', context['planner_instructions'])
-        self.assertEqual(context['options']['optional_research_capabilities'], ['web.sources'])
+        self.assertEqual(context['options']['optional_research_capabilities'], ['web.sources','web.sources.prepared'])
         self.assertNotIn('web.sources', context['options'].get('step_capabilities', []))
         self.assertEqual(next(e for e in context['graph_operations'] if e['id']=='web.sources')['configured_model'], 'fixture-search')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0], 0)
@@ -56,7 +56,7 @@ class ChoiceTests(unittest.TestCase):
             context=json.loads(row['context']);mode=context['research_mode']
             self.assertEqual(context.get('research_advice_version')==1,mode=='suggest')
             self.assertEqual('research_advice' in context['response_contract']['schema']['required'],mode=='suggest')
-            self.assertEqual(context['options'].get('optional_research_capabilities',[]),[] if mode=='none' else ['web.sources'])
+            self.assertEqual(context['options'].get('optional_research_capabilities',[]),[] if mode=='none' else ['web.sources','web.sources.prepared'])
             self.assertEqual(row['request'],'Any ideas for an old controller?')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plan_calls').fetchone()[0],0)
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_runs').fetchone()[0],0)

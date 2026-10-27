@@ -8,6 +8,7 @@ from .recovery import Evidence, decide
 PHASES = {
     'rhino3dm.run_python': ('before', 'model', 'verify'),
     'rhino.run_python': ('before', 'model', 'verify'),
+    'rhino.document': ('before', 'model', 'verify'),
     'blender.run_python': ('before', 'edit', 'verify'),
     'sketchup.run_ruby': ('before', 'model', 'verify'),
 }
@@ -69,7 +70,7 @@ def require_ready(receipt, capability):
     app = profile(capability).discover()
     if not app.get('available', bool(app.get('executable'))) or not app.get('executable'):
         raise ValueError('The selected native application is unavailable; restore it before recovery.')
-    if capability == 'rhino.run_python':
+    if capability in ('rhino.run_python','rhino.document'):
         from task_relay import rhino_host
         rhino_host.require_recovery_ready(app['executable'], receipt['runs'][-1])
     elif capability == 'sketchup.run_ruby':

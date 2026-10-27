@@ -2,37 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
-  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="vendor/marked.umd.js" defer></script><script src="vendor/purify.min.js" defer></script><script src="rich-text.js" defer></script><script src="companion-setup.js" defer></script><script src="companion-updates.js" defer></script><script src="companion-computer.js" defer></script><script src="companion.js" defer></script><script src="companion-workflow.js" defer></script><script src="companion-workspace.js" defer></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'sha256-msd5wFJtORWa+v7CiHSFtPfWcBMQKntWpk0O3Lp6ftw='; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'">
+  <title>Task Relay</title><link rel="stylesheet" href="companion.css"><script src="vendor/marked.umd.js" defer></script><script src="vendor/purify.min.js" defer></script><script src="rich-text.js" defer></script><script src="companion-setup.js" defer></script><script src="companion-updates.js" defer></script><script src="companion-computer.js" defer></script><script src="companion.js" defer></script><script src="companion-workflow.js" defer></script><script src="companion-node-editor.js" defer></script><script src="companion-workspace.js" defer></script>
 </head>
-<body>
+<body class="canvas-app">
   <dialog id="destructive-confirm" aria-labelledby="destructive-confirm-title" aria-describedby="destructive-confirm-detail">
     <h2 id="destructive-confirm-title">Confirm deletion</h2>
     <p id="destructive-confirm-detail"></p>
     <div class="actions"><button id="destructive-cancel" type="button">Cancel</button><button id="destructive-apply" class="danger" type="button">Delete permanently</button></div>
   </dialog>
   <div class="workspace-frame">
-    <aside class="sidebar">
-      <div class="brand"><img src="messages-icon.png" width="28" height="28" alt=""><strong>Task Relay</strong></div>
-      <nav aria-label="Main navigation">
-        <button type="button" data-destination="jobs" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span>Jobs</button>
-        <button type="button" data-destination="reviews"><span class="nav-icon" aria-hidden="true">✓</span>Review<span id="workspace-review-count" class="badge" hidden></span></button>
-        <button type="button" data-destination="connections"><span class="nav-icon" aria-hidden="true">⇄</span>Connections</button>
-        <button type="button" data-destination="settings"><span class="nav-icon" aria-hidden="true">⚙</span>Settings</button>
-      </nav>
-      <div class="sidebar-bottom"><p class="hint workspace-service" role="status"><span id="workspace-status-dot" class="dot" aria-hidden="true"></span><span id="workspace-status">Connecting…</span></p>
-    <footer><span id="version"></span><button id="app-update-notice" class="quiet" hidden>Update available</button><span>Runs on this computer</span></footer>
-      </div>
-    </aside>
-    <div class="workspace-content">
-      <header class="workspace-header"><span id="workspace-breadcrumb">Jobs</span><button id="refresh" class="quiet" type="button" aria-label="Refresh status">Refresh</button></header>
+    <div id="workspace-content" class="workspace-content">
+      <header class="workspace-header"><button id="workspace-jobs-toggle" class="quiet" type="button" aria-label="Jobs">Jobs</button><span id="workspace-breadcrumb">Jobs</span><button id="refresh" class="quiet" type="button" aria-label="Refresh status" hidden>Refresh</button></header>
       <main>
         <p id="feedback" class="feedback" role="status" hidden></p>
         <button id="grant-data-access" hidden>Grant folder access…</button>
         <section id="workspace-jobs" class="workspace-view" aria-labelledby="workspace-jobs-title">
-          <div class="page-heading"><div><h1 id="workspace-jobs-title" tabindex="-1">Jobs</h1><p class="muted">Work started here and in your messengers, together.</p></div><button id="workspace-new" class="primary" type="button">New task</button></div>
-          <div class="jobs-toolbar"><label class="search-label" for="workspace-search">Find a job</label><input id="workspace-search" type="search" placeholder="Search loaded jobs…" autocomplete="off"><button id="saved-work" type="button" class="quiet">Saved records</button><button id="computer-sessions-open" class="quiet" type="button" hidden>Safari sessions</button></div>
-          <label class="revision-confirm"><input id="workspace-show-removed" type="checkbox">Show removed jobs</label>
+          <div class="page-heading"><div><h1 id="workspace-jobs-title" tabindex="-1">Jobs</h1></div><button id="workspace-new" class="primary" type="button">New job</button></div>
+          <div class="jobs-toolbar"><label class="search-label" for="workspace-search">Find a job</label><input id="workspace-search" type="search" placeholder="Search loaded jobs…" autocomplete="off"></div>
+
           <p id="workspace-jobs-count" class="hint" role="status"></p><div id="workspace-delete-recovery" class="actions"></div><div id="workspace-job-list" class="job-list"></div><button id="workspace-jobs-more" type="button" hidden>Show more</button>
         </section>
         <section id="workspace-compose" class="workspace-view" hidden aria-labelledby="workspace-compose-title">
@@ -48,7 +36,7 @@
             </details>
             <p id="workspace-compose-feedback" class="hint" role="status"></p>
             <div class="actions"><button id="workspace-create" class="primary" type="submit">Send to orchestrator</button></div>
-            <p class="hint">Relay proposes a workflow using your connected AI provider. Review its tools, scope and limits before Start. Selecting a project folder does not create a Codex conversation.</p>
+            <p class="hint">New text tasks run within the displayed node scope. Saved historical plans keep their original Start controls. Selecting a project folder does not create a Codex conversation.</p>
           </form>
         </section>
         <section id="workspace-detail" class="workspace-view" hidden aria-labelledby="workspace-detail-title">
@@ -95,7 +83,7 @@
     </section>
 
         <section id="workspace-connections" class="workspace-view" hidden aria-labelledby="workspace-connections-title">
-          <div class="page-heading"><div><h1 id="workspace-connections-title" tabindex="-1">Connections</h1><p class="muted">Local service and messenger delivery.</p></div></div>
+          <div class="page-heading"><button id="connections-back-canvas" class="quiet" type="button">← Back to canvas</button><div><h1 id="workspace-connections-title" tabindex="-1">Connections</h1><p class="muted">Local service and messenger delivery.</p></div></div>
     <section id="home" aria-labelledby="status-title">
       <div class="status-line"><span id="status-dot" class="dot"></span><h1 id="status-title">Connecting…</h1></div>
       <p id="status-detail" class="muted">Reading this computer’s Relay connection.</p>
@@ -114,7 +102,7 @@
 
     <details id="channels-settings" open>
       <summary>Channels <span id="channels-summary" class="muted"></span></summary>
-      <p class="hint">Replies stay in the conversation where you asked. Turning a channel off stops new requests and holds replies; existing work continues.</p>
+      <p class="hint">Replies stay in the conversation where you asked. Telegram sends only new results after you start or re-enable it; earlier results remain in Relay. Turning a channel off stops new requests; existing work continues.</p>
       <button id="messaging-pause" type="button" disabled>Pause all messaging</button>
       <p class="hint" id="channel-enforcement"></p>
       <div class="channel-card">
@@ -139,8 +127,19 @@
     </details>
 
         </section>
+        <section id="workspace-catalog" class="workspace-view" hidden aria-labelledby="workspace-catalog-title">
+          <div class="page-heading"><div><h1 id="workspace-catalog-title" tabindex="-1">Node catalog</h1><p class="muted">Registered operations and their named inputs and outputs. Browsing does not run anything.</p></div></div>
+          <label for="workspace-catalog-search">Find a node</label>
+          <input id="workspace-catalog-search" type="search" placeholder="Search names, families or ports">
+          <p id="workspace-catalog-status" role="status"></p>
+          <div id="workspace-catalog-list"></div>
+        </section>
         <section id="workspace-settings" class="workspace-view" hidden aria-labelledby="workspace-settings-title">
-          <div class="page-heading"><div><h1 id="workspace-settings-title" tabindex="-1">Settings</h1><p class="muted">Models, tools and this installation.</p></div></div>
+          <div class="page-heading"><button id="settings-back-canvas" class="quiet" type="button">← Back to canvas</button><div><h1 id="workspace-settings-title" tabindex="-1">Settings</h1><p class="muted">App preferences and saved connections. Configure individual nodes in their inspector.</p></div></div>
+          <div class="app-settings-status"><p class="hint workspace-service" role="status"><span id="workspace-status-dot" class="dot" aria-hidden="true"></span><span id="workspace-status">Connecting…</span></p><span id="version" class="hint"></span><button id="app-update-notice" class="quiet" hidden>Update available</button></div>
+          <details class="app-history-settings"><summary>History &amp; diagnostics</summary><button type="button" class="quiet" data-destination="reviews">Review saved decisions <span id="workspace-review-count" class="badge" hidden></span></button><button id="saved-work" type="button" class="quiet">Saved records</button><button id="computer-sessions-open" class="quiet" type="button" hidden>Safari sessions</button></details>
+          <input id="workspace-show-removed" type="checkbox" hidden>
+
     <details id="settings" open>
       <summary>Settings</summary>
       <details id="provider-settings"><summary><span>AI connection</span><span id="provider-summary" class="muted">Checking…</span></summary>

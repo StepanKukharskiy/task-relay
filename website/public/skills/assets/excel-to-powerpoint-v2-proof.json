@@ -1,0 +1,89 @@
+{
+  "schema_version": "excel-to-powerpoint-public-proof.v2",
+  "experiment_date": "2026-10-05",
+  "execution": "Installed Task Relay production runtime via local CLI, with configured Codex CLI producer and separate independent reviewer",
+  "attempts": {
+    "producer": 1,
+    "independent_reviewer": 1
+  },
+  "execution_corrections_or_retries": 0,
+  "review_decision": "accept within the prepared six-slide report trial",
+  "human_acceptance_inferred": false,
+  "template_origin": "Our own prepared six-slide January template; not a company/customer presentation",
+  "mapping_origin": "Prepared source-cell/object mapping supplied before dispatch",
+  "numeric_validation": {
+    "expected_values": 31,
+    "correct_values": 31,
+    "expected_charts": 3,
+    "correct_charts": 3,
+    "expected_period_labels": 8,
+    "correct_period_labels": 8,
+    "broken_layouts": 0,
+    "unsupported_claims": 0,
+    "unsupported_claims_scope": "No new static claims or invented causal explanation; not external fact verification",
+    "unresolved_exceptions": 1,
+    "passed": true
+  },
+  "chart_scope": "Complete native chart caches, categories and embedded XLSX snapshot ranges; not OCR of every axis tick",
+  "source_row_validation": {
+    "passed": true,
+    "source_sha256": "43465a06f2ccf7c8b5bd2892bc7defb52f97487934fe93b16ae4c3936424676d",
+    "original_rows_read": 541909,
+    "selected_rows_compared_field_by_field": 105335,
+    "extra_or_missing_selected_rows": 0,
+    "method": "Independent read of original XLSX against CSV row IDs, all original eight fields and date-range completeness; no authoring API."
+  },
+  "native_application_check": {
+    "application": "Apple Keynote",
+    "slides_observed": 6,
+    "visible_clipping_or_overflow": false,
+    "warning": "Transient missing-font warning; affected font not identified",
+    "import_differences": "Chart scale/number formatting and thin table borders differ in Keynote",
+    "powerpoint_tested": false,
+    "pixel_identity_claim": false
+  },
+  "timing_scope": "No measured manual baseline or time-saving claim",
+  "limitations": [
+    "Historical public UK retail transactions, December 2010 through February 2011",
+    "Codex reference adapter depends on host-provided artifact-tool and presentation validation tools",
+    "No claim of arbitrary-template, cross-host or customer validation",
+    "One unsupplied causal explanation remains marked for human input"
+  ],
+  "source": "Chen, D. (2015). Online Retail, UCI. https://doi.org/10.24432/C5BW33",
+  "source_license": "CC BY 4.0",
+  "artifact_sha256": {
+    "january.xlsx": "6c0784433dab4b16b6c188dc49db9de06742108946393c9e588e49ad72cbce2f",
+    "february.xlsx": "a26ea8a8c6a16a9dbd344abfa5f12ec8de9ab1db3c5a533b251fd55887598944",
+    "report-template.pptx": "8dbb88aeb9586ec92a9b7936d6440a530e2f09538361fd79caa052af007bc4ec",
+    "report-mapping.json": "34b3172aa15cc36a10b581c41caff4a2b59d25a07f5bcbd6064a1b8e327da4f6",
+    "february-report.pptx": "a3f2af0e698da2043e8bc24f26217495dec39041a09d152b5d3bb2408628db4b"
+  },
+  "bundle_version": "v2",
+  "direct_codex_check": {
+    "date": "2026-10-05",
+    "tested_bundle": "Downloaded public v1 example ZIP, SHA-256 1a2453e02438da24bda53ef4613c78a38304c37658ca6b564c87fddfd2b8f75a",
+    "mode": "Codex desktop assistant followed extracted Skill and executed the unchanged adapter with host-provided document tools",
+    "relay_runtime_used": false,
+    "adapter_modified": false,
+    "dependencies_installed": false,
+    "input_files_changed": false,
+    "automatic_discovery_tested": false,
+    "saved_output_sha256": "c4d462a255e8f98250e94951991f60c51f6fbd7eaacb154a9d7b2d2e87b8d0f0",
+    "saved_file_validation": {
+      "expected_values": 31,
+      "correct_values": 31,
+      "expected_charts": 3,
+      "correct_charts": 3,
+      "expected_period_labels": 8,
+      "correct_period_labels": 8,
+      "broken_layouts": 0,
+      "unsupported_claims": 0,
+      "unsupported_claims_scope": "No new static claims or invented causal explanation; not external fact verification",
+      "unresolved_exceptions": 1,
+      "passed": true
+    },
+    "previews_inspected": 6,
+    "native_application_check": "Not repeated for this direct output; original Relay output had the separately documented Keynote check",
+    "limits": "Supplied template/mapping and Codex desktop bundled tools; other Agent Skills hosts and vanilla CLI without document tools untested"
+  }
+}

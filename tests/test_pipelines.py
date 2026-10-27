@@ -410,12 +410,12 @@ class Tests(unittest.TestCase):
         with transaction(self.state.db),self.assertRaises(ValueError):pipe.control(self.state,p['id'],'recover_planning')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],2)
 
-    def rejected_planning_fixture(self):
+    def rejected_planning_fixture(self,status=429):
         from task_relay.gemini import ProviderError
         caps=['rhino.startup','rhino.run_python','rhino.inspect']
         p=self.create([self.stage('model','production','selection',caps),self.stage('finish')])
         self.answer(dict(kind='plan_production',template='custom',project=None,reference_pack_id=None,research_ids=[],planning_only=False,step_capabilities=caps,deliverables={'model':'Exact model output'}))
-        def reject(*_):raise ProviderError(429)
+        def reject(*_):raise ProviderError(status,detail={'message':'Prepayment depleted; billing changed'} if status==402 else None)
         planning.Worker(self.state,reject).tick()
         pipe.tick(self.state)
         row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(self.step(p,'model')['target'],)).fetchone()
@@ -473,12 +473,17 @@ class Tests(unittest.TestCase):
             pipe.control(self.state,p['id'],'retry_planning',request='Continue')
         self.assertEqual(self.state.db.execute('SELECT count(*) FROM production_plans').fetchone()[0],1)
 
-    def test_old_recovery_error_explains_control_failure_without_rephrasing(self):
+    def test_historical_model_recovery_verb_resolves_from_current_receipts(self):
         p,old=self.rejected_planning_fixture()
         self.request(dict(kind='pipeline_control',pipeline_id=p['id'],verb='recover_planning'),'Continue',804)
         result=self.state.db.execute('SELECT answer FROM orchestrator_chats WHERE id=804').fetchone()[0]
-        self.assertIn('No saved proposal currently validates',result)
+        self.assertIn('continue recorded',result)
         self.assertNotIn('Could not interpret',result)
+        successor=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(self.step(p,'model')['target'],)).fetchone()
+        self.assertNotEqual(successor['id'],old['id'])
+        self.assertEqual(successor['status'],'queued')
+        self.assertEqual(successor['context'],old['context'])
+        self.assertEqual(self.factory.calls,[])
 
     def test_retry_button_is_tied_to_the_rejected_plan(self):
         from types import SimpleNamespace
@@ -598,6 +603,79 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'scope'):pipe.guard(self.state,job,{'kind':'generate_image'})
         with self.assertRaisesRegex(ValueError,'deliverables'):pipe.guard(self.state,job,dict(kind='plan_production',step_capabilities=[],deliverables={}))
         with self.assertRaisesRegex(ValueError,'nested'):pipe.validate(json.loads(p['spec']),{'pipeline_step':{'stage':1}})
+
+    def test_reuse_only_scope_rejects_lookup_before_start(self):
+        stage=self.stage('report','production');stage['research_mode']='none'
+        p=self.create([stage,self.stage('summary')]);pipe.tick(self.state)
+        step=self.step(p,'report')
+        job=self.state.db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(step['request_id'],)).fetchone()
+        action=dict(kind='plan_production',planning_only=False,step_capabilities=[],deliverables=stage['deliverables'])
+        with self.assertRaisesRegex(ValueError,'research mode'):pipe.guard(self.state,job,action)
+        action['research_mode']='none';pipe.guard(self.state,job,action)
+        for effect in ({'browser':{'domains':['example.com']}},{'execution':{'capability':'web.sources'}},{'computer':{'application':'Browser'}}):
+            row={'plan':json.dumps({'tasks':[effect]})}
+            with self.assertRaisesRegex(ValueError,'Reuse-only'):pipe.check_plan(self.state,p,step,row)
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipeline_steps SET target='scope-plan',status='running' WHERE pipeline=? AND id='report'",(p['id'],))
+        row={'id':'scope-plan','status':'ready','plan':json.dumps({'tasks':[{'browser':{'domains':['example.com']}}]})}
+        with self.assertRaisesRegex(ValueError,'Reuse-only'):pipe.verify_start(self.state,row)
+        self.assertEqual(self.factory.calls,[])
+
+    def test_desktop_native_stage_starts_and_reviews_without_outbox_flush(self):
+        stage_spec=self.stage('report','production');stage_spec['research_mode']='none'
+        p=self.create([stage_spec,self.stage('summary')])
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipelines SET channel='desktop' WHERE id=?",(p['id'],))
+        action=dict(kind='plan_production',template='custom',project=None,reference_pack_id=None,research_ids=[],artifact_ids=[],planning_only=False,research_mode='none',step_capabilities=[],deliverables={'report':'Exact report output'})
+        self.answer(action);stage=self.step(p,'report')
+        response=self.response();response['deliverable_map']={'report':{'task':'produce','output':'output.txt'}}
+        for task in response['plan']['tasks']:task.pop('user_gate',None)
+        planning.Worker(self.state,lambda *_:(json.dumps(response),{})).tick()
+        row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(stage['target'],)).fetchone()
+        self.assertEqual(row['status'],'ready',row['error'])
+        pipe.tick(self.state)
+        row=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(stage['target'],)).fetchone()
+        self.assertEqual(row['status'],'started',dict(self.step(p,'report')))
+        self.assertEqual(self.state.db.execute('SELECT sent FROM outbox WHERE id=?',(row['event_id'],)).fetchone()[0],0)
+        worker=pc.Worker(self.state,lambda _:self.rt);worker.tick()
+        self.factory.finish(self.rt.task(row['run'],'produce')['latest']);worker.tick()
+        self.factory.finish(self.rt.task(row['run'],'review')['latest'],decision='accept');worker.tick()
+        pipe.tick(self.state);pipe.tick(self.state)
+        self.assertEqual(self.step(p,'report')['status'],'completed')
+        self.assertIsNotNone(self.step(p,'summary')['request_id'])
+        self.assertEqual(len(self.factory.calls),2)
+
+        intake=dict(mode='existing_work',reason='Complete this saved summary stage.',outcomes=[dict(id='summary',description='Exact summary output',kind='result',count=1,format='',checks=[],validation=[])])
+        reply=dict(answer='Independent stage review complete; no user acceptance inferred.',action=None,work_status='respond',request_contract=intake)
+        chat.Worker(self.state,lambda *_:json.dumps(reply)).tick()
+        self.assertEqual(self.step(p,'summary')['status'],'completed')
+        pipe.tick(self.state)
+        self.assertEqual(self.state.db.execute('SELECT status FROM relay_pipelines WHERE id=?',(p['id'],)).fetchone()[0],'completed')
+        self.assertEqual(len(self.factory.calls),2)
+
+    def test_desktop_auto_start_does_not_falsify_notification_delivery(self):
+        p=self.create([self.stage('report','production'),self.stage('summary')])
+        with transaction(self.state.db):
+            self.state.db.execute("UPDATE relay_pipelines SET channel='desktop' WHERE id=?",(p['id'],))
+        p=self.state.db.execute('SELECT * FROM relay_pipelines WHERE id=?',(p['id'],)).fetchone()
+        row={'status':'ready','event_id':'undelivered-plan','token':'reviewed-token'}
+        step={'target_kind':'plan_production','target':'fixture','position':0}
+        self.state.db.execute("INSERT INTO outbox(id,text,sent) VALUES ('undelivered-plan','preview',0)")
+        # Supply a reviewed plan through the same boundary; no provider/worker dispatch.
+        class DB:
+            def execute(inner,*args):
+                if args[0].startswith('SELECT * FROM production_plans'):return type('Cursor',(),{'fetchone':lambda _:row})()
+                return self.state.db.execute(*args)
+        proxy=type('State',(),{'db':DB()})()
+        with patch.object(pipe,'check_plan',return_value=True),patch.object(planning,'apply') as start:
+            pipe.advance_running(proxy,p,step)
+            start.assert_called_once_with(proxy,'reviewed-token','start',pipeline_grant=p['id'])
+        self.assertEqual(self.state.db.execute("SELECT sent FROM outbox WHERE id='undelivered-plan'").fetchone()[0],0)
+        with patch.object(pipe,'check_plan',return_value=False),patch.object(planning,'apply') as start:
+            pipe.advance_running(proxy,p,step);start.assert_not_called()
+        remote=dict(p);remote['channel']='telegram'
+        with patch.object(pipe,'check_plan',return_value=True),patch.object(planning,'apply') as start:
+            pipe.advance_running(proxy,remote,step);start.assert_not_called()
 
     def test_production_selection_queues_next_stage_and_freezes_selected_bytes(self):
         p=self.create([self.stage('report','production','selection'),self.stage('summary')])

@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Task Relay",
-  "version": "0.1.10",
-  "description": "Keep useful web work as evidence, reusable know-how and work you can continue. You choose what to keep. No cloud account required.",
+  "name": "Task Relay – Web & ChatGPT to Skills",
+  "version": "0.1.24",
+  "description": "Turn selected text from webpages and ChatGPT into reusable Agent Skills or saved work. Review, edit and download named files.",
   "minimum_chrome_version": "116",
   "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
   "optional_permissions": ["nativeMessaging"],
+  "optional_host_permissions": ["https://chatgpt.com/*"],
   "background": {"service_worker": "worker.js", "type": "module"},
-  "action": {"default_title": "Keep with Task Relay", "default_icon": {"128": "logo.png"}},
-  "icons": {"128": "logo.png"},
+  "action": {"default_title": "Keep with Task Relay", "default_icon": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png"}},
+  "icons": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
   "side_panel": {"default_path": "panel.html"},
   "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"}
 }

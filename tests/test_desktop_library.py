@@ -25,6 +25,21 @@ class DesktopLibraryTests(unittest.TestCase):
         self.addCleanup(state.db.close)
         return state
 
+    def test_pipeline_projection_includes_current_tasks_errors_and_whole_workflow_usage(self):
+        state=self.state()
+        with state.db:
+            state.db.execute("INSERT INTO relay_pipelines(id,request_id,request,title,spec,channel,provider,model,status,created) VALUES ('job',1,'Exact request','Fixture','{}','desktop','fixture','fixture','active',1)")
+            state.db.execute("INSERT INTO production_runs VALUES ('run','{}','active')")
+            state.db.execute("INSERT INTO relay_pipeline_steps(pipeline,position,id,status,target_kind,target,error) VALUES ('job',0,'deck','running','production_run','run','Visible diagnostic')")
+            state.db.execute("INSERT INTO production_tasks(run,id,assignment,status,attempts,latest) VALUES ('run','render','assignment','completed',1,'attempt')")
+        before=state.db.total_changes
+        item=workflows('pipelines',paths=self.paths)['items'][0]
+        self.assertEqual(item['steps'][0]['tasks'][0]['id'],'render')
+        self.assertEqual(item['steps'][0]['error'],'Visible diagnostic')
+        self.assertEqual(item['usage']['status'],'active')
+        self.assertIn('total_tokens',item['usage']['totals'])
+        self.assertEqual(state.db.total_changes,before)
+
     def test_empty_library_does_not_create_database(self):
         self.assertEqual(workflows(paths=self.paths)['items'], [])
         self.assertEqual(inbox(self.paths)['items'], [])

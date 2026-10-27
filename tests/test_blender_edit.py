@@ -55,6 +55,7 @@ class Tests(unittest.TestCase):
         else:
             (out/'checks.json').write_text(json.dumps({'before':{},'after':{},'passed':True}))
             (out/'after.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture')
+            (out/'geometry.json').write_text('{}')
         return subprocess.CompletedProcess(argv,0,('RELAY_EDIT_'+mode.upper()+'_OK').encode(),b'')
 
     def test_no_approval_means_no_attempt_or_dispatch(self):
@@ -97,7 +98,7 @@ class Tests(unittest.TestCase):
         a=copy.deepcopy(self.op);a['inputs'][1].pop('artifact');a['inputs'][1].update(from_task='produce',output='edit.py');a['dependencies']=['produce']
         with self.assertRaisesRegex(ValueError,'already registered'):c.assignment(a)
         a=copy.deepcopy(self.op);a['execution']['parameters']['permissions']='workspace_only'
-        with self.assertRaisesRegex(ValueError,'no isolation'):c.assignment(a)
+        with self.assertRaises(ValueError):c.assignment(a) # Registered schema and native policy both reject fake isolation.
 
     def test_missing_or_changed_frozen_authorization_stops_before_host(self):
         frozen,control=self.frozen();frozen['limits']['seconds']-=1

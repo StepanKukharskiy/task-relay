@@ -70,6 +70,7 @@ def consume(db,provider,event,meta):
 
 def collect_local(db,roots,max_bytes=32000000):
     if not 1<=max_bytes<=2000000000:raise ValueError('Refresh byte budget must be 1..2,000,000,000.')
+    if db.in_transaction:raise ValueError('Index usage after the caller commits')
     remaining=max_bytes
     for provider,root in roots:
         root=Path(root).expanduser()
@@ -86,7 +87,8 @@ def collect_local(db,roots,max_bytes=32000000):
                 if old and (old['identity']!=identity or st.st_size<offset or (st.st_size==offset and st.st_mtime!=old['modified'])):
                     offset=0;meta={};warnings.add('rotated_or_rewritten')
                 if remaining<=0:pending+=max(0,st.st_size-offset);continue
-                with path.open('rb') as stream,db:
+                events=[]
+                with path.open('rb') as stream:
                     stream.seek(offset);budget=min(remaining,8000000)
                     while budget>0:
                         start=stream.tell();line=stream.readline(min(1000000,max(0,st.st_size-start)))
@@ -101,9 +103,19 @@ def collect_local(db,roots,max_bytes=32000000):
                         if not any(tag in line for tag in (b'"token_count"',b'"session_meta"',b'"turn_context"',b'"usage"')):continue
                         try:
                             event=json.loads(line)
-                            if isinstance(event,dict):consume(db,provider,event,meta)
+                            if isinstance(event,dict):events.append(event)
                         except (ValueError,TypeError,KeyError,AttributeError):errors+=1
                     offset=stream.tell()
+                # Keep bounded file I/O and JSON parsing outside the writer lock.
+                # Events and their exact cursor still commit or roll back together.
+                from orchestrator.storage import transaction
+                with transaction(db):
+                    current=db.execute('SELECT * FROM usage_cursors WHERE path=?',(str(path),)).fetchone()
+                    if (tuple(current) if current else None)!=(tuple(old) if old else None):
+                        raise ValueError('Usage cursor changed during collection; no records committed')
+                    for event in events:
+                        try:consume(db,provider,event,meta)
+                        except (ValueError,TypeError,KeyError,AttributeError):errors+=1
                     db.execute('INSERT OR REPLACE INTO usage_cursors VALUES (?,?,?,?,?,?)',
                         (str(path),identity,offset,json.dumps(meta),st.st_size,st.st_mtime))
                 pending+=max(0,st.st_size-offset)

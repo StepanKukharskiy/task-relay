@@ -33,10 +33,16 @@ are inferred. capabilities lists registered graph operation IDs only; use [] for
 ordinary writing, editing and review. files.text is implicit in agent workers,
 not an operation. Other worker abilities are resolved during stage planning.
 Format selection is a deliverable requirement, not proof of installed
-format tooling. Legacy stages remain readable; use this builder for new proposals.'''
+format tooling. For verbatim delivery of a reviewed production text output, the final ungated conversation stage may declare report_source:{stage:earlier_stage_id,output:output_id}, with one matching text output and an explicit context use of that source. Relay reads the reviewed artifact without a model summary; keep the file within 10000 characters and 40000 bytes. Legacy stages remain readable; use this builder for new proposals.'''
 INSTRUCTIONS=INSTRUCTIONS.replace('FORMAT_NAMES',', '.join(FORMATS))
+from .delivery_completion import INSTRUCTIONS as DELIVERY_INSTRUCTIONS
+INSTRUCTIONS+='\n'+DELIVERY_INSTRUCTIONS
 from .research_campaign import INSTRUCTIONS as CAMPAIGN_INSTRUCTIONS
 INSTRUCTIONS+='\n'+CAMPAIGN_INSTRUCTIONS
+INSTRUCTIONS+='\nFor new source-backed sourcing catalogs, declare content_contract:{id:"sourcing.options",version:1} on the JSON catalog output. This binds typed item checkpoints and an independent sourcing.review worker; it is not an arbitrary JSON writing task. Preserve separate pixel-level visual inspection where requested. Source-derived fields and the catalog/schedule are assembled by code.'
+INSTRUCTIONS+='\nFor subject-neutral saved-source collection use collection.options version 1 and task.records with configurable field definitions and exact subject/source ports. collection.review provides independent version-bound judgments, records.merge composes reviewed partitions, images.catalog fetches observed page images, and collection.slides projects exact records into presentation data. These operations share their engine and adapters with historical sourcing contracts; plants, products and other entity schemas are data configurations. Original count/source/provider policies remain binding.'
+INSTRUCTIONS+='\nFor new visual room inventory, declare content_contract:{id:"sourcing.inventory",version:1}; workers submit visual fragments and code assigns IDs, normalized boxes and file structure. For PPTX delivery, sourcing.slides is a local companion to pptx.create: it assembles a typed inventory/catalog with exact saved sources, original PNG and optional photo ZIP into slide JSON. Bind the same image/photo versions to pptx.create and retain specification/final visual reviews. Automatic workflows use no invented selection gate. Historical untyped stages retain their original contracts.'
+INSTRUCTIONS+='\nPrefer registered code connectors for already observed data. images.products extracts literal photo references from the exact typed catalog and product-page source pack; use browser image discovery only when recorded references are missing. Its inputs are inventory/catalog/source-pack JSON, and its count_policy target allows honest partial or empty photo coverage. For PPTX review the compiler adds pptx.render under the registered companion contract; choose a code-capable final reviewer and reserve space for that helper. Registered parameter_schema and output ports are authoritative; the model chooses compatible stages and supplies semantic fragments, not schema serialization or mechanical URL/hash checks.'
 
 
 def schema(operation_ids=None):
@@ -46,7 +52,9 @@ def schema(operation_ids=None):
         operation_ids=list(REGISTRY)
     text={'type':'string'}
     capability={'type':'string','enum':list(operation_ids)}
-    content=obj({'id':{'type':'string','enum':['research.candidates','research.batch','research.audit','geometry.specification']},'version':{'type':'integer','enum':[1]}},('id','version'))
+    from orchestrator.operation_contracts import REGISTRY as CONTENT_CONTRACTS
+    content={'anyOf':[obj({'id':{'type':'string','enum':[ident]},'version':{'type':'integer','enum':[version]}},('id','version'))
+                      for ident,version in CONTENT_CONTRACTS]}
     extra={'content_contract':content,'description':text,'max_bytes':{'anyOf':[{'type':'integer'},{'type':'null'}]},
            'slides':{'anyOf':[{'type':'integer'},{'type':'null'}]},'together':text}
     output={'anyOf':[obj({**extra,'format':{'type':'string','enum':list(FORMATS)}},('description','format')),
@@ -55,10 +63,13 @@ def schema(operation_ids=None):
         'gate':{'type':'string','enum':['none','choice','selection']},'capabilities':array(capability),
         'visual_intent':{'type':'string','enum':['reference','synthetic']},'outputs':obj({},additional=output),
         'design_intent':{'type':'boolean'},
+        'report_source':obj({'stage':text,'output':text},('stage','output')),
+        'research_mode':{'type':'string','enum':['suggest','none','sources']},
         'uses':array(obj({'stage':text,'output':text,'consumer':text,'content_contract':content},('stage','output','consumer')))},
         ('id','instruction','route','gate','capabilities','outputs','uses'))
     from .research_campaign import schema as campaign_schema
-    return obj({'kind':{'type':'string','enum':['plan_pipeline']},'title':text,'planning_only':{'type':'boolean'},'research_campaign':campaign_schema(),
+    from .delivery_completion import schema as completion_schema
+    return obj({'kind':{'type':'string','enum':['plan_pipeline']},'title':text,'planning_only':{'type':'boolean'},'research_campaign':campaign_schema(),'completion':completion_schema(),
                 'stage_details':array(detail)},('kind','title','planning_only','stage_details'))
 
 
@@ -93,11 +104,20 @@ def build(action,snapshot):
                 raise ContractError('invalid_worker_requirement','The implicit text worker ability applies only to production stages.')
             stage['capabilities'].remove('files.text')
             implicit.append({'stage':stage['id'],'capability':'files.text','reason':'baseline_agent_ability'})
-        for cap in stage['capabilities']:selected_operation(cap)
+        for cap in stage['capabilities']:
+            selected=selected_operation(cap)
+            for companion in selected.get('companions',{}):
+                if companion not in saved:continue  # Legacy captured catalogs keep their original readiness scope.
+                ready=selected_operation(companion)
+                if not saved[companion].get('available'):
+                    raise ContractError('unavailable_companion','Required review companion is unavailable before dispatch: '+companion)
         outputs={};groups={}
         for ident,item in detail['outputs'].items():
             if 'operation' in item:
                 cap=item['operation']
+                if cap not in stage['capabilities'] and cap in saved:
+                    selected_operation(cap);stage['capabilities'].append(cap)
+                    implicit.append(dict(stage=stage['id'],capability=cap,reason='explicit_output_operation'))
                 if cap not in stage['capabilities'] or cap not in saved:
                     raise ContractError('missing_producer','Output operation must be captured and selected in this stage.')
                 spec=selected_operation(cap)
@@ -124,7 +144,14 @@ def build(action,snapshot):
     compile_workflow(stages,catalog,True)
     value={k:copy.deepcopy(v) for k,v in action.items() if k!='stage_details'}
     value.update(contract_version=1,stages=stages)
+    derived_completion=False
+    if 'completion' not in value and stages[-1]['route']=='production' and all(s['gate']=='none' for s in stages):
+        pptx=[ident for ident,output in stages[-1]['handoff']['outputs'].items() if output['media_type']==FORMATS['pptx']]
+        if len(pptx)==1:
+            value['completion']=dict(version=1,stage=stages[-1]['id'],output=pptx[0])
+            derived_completion=True
     receipt=dict(version=1,request=copy.deepcopy(action),compiled_sha256=c.digest(value),
                  operation_sha256={k:c.digest(v) for k,v in operations.items()})
+    if derived_completion:receipt['derived_completion']=copy.deepcopy(value['completion'])
     if implicit:receipt['implicit_worker_abilities']=implicit
     return value,receipt

@@ -16,6 +16,12 @@ chrome.action.onClicked.addListener(tab => {
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('panel.html') || sender.tab) return false;
   (async () => {
+    if(message.type==='open-chatgpt') {
+      // Only open/activate the explicit destination. No capture, composer read,
+      // draft insertion or Send occurs; activeTab still needs a toolbar click.
+      const tab=message.tabId==null?await chrome.tabs.create({url:'https://chatgpt.com/'}):await chrome.tabs.update(message.tabId,{active:true});
+      return {tabId:tab.id};
+    }
     if (message.type === 'capture') {
       const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
       if (!tab || !tab.url) throw new Error('Click the Task Relay toolbar icon on this webpage, then try Make reusable again.');
@@ -29,15 +35,56 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       return {capture: value};
     }
     if (['chatgpt-inspect', 'chatgpt-insert', 'chatgpt-response', 'chatgpt-recover'].includes(message.type)) {
+      if(message.type==='chatgpt-insert'&&message.waitForReady===true){
+        if(!await chrome.permissions.contains({origins:['https://chatgpt.com/*']}))throw Object.assign(Error('Enable ChatGPT autofill in Options, or click the Relay toolbar icon in ChatGPT and use Place request.'),{code:'page_access_required'});
+        // A bounded wait belongs only to this explicit retained handoff. No
+        // navigation listener, startup probe, background capture or Send.
+        let ready=false;
+        for(let attempt=0;attempt<40;attempt++){
+          const destination=await chrome.tabs.get(message.handoff?.tabId);
+          const [active]=await chrome.tabs.query({active:true,currentWindow:true});
+          if(active?.id!==destination.id)throw Error('Return to the ChatGPT tab and choose Place request in Options. Your request is kept.');
+          const onChatGPT=/^https:\/\/chatgpt\.com\//.test(destination.url||'');
+          if(destination.url&&destination.url!=='about:blank'&&!onChatGPT)throw Error('The destination changed. Your request is kept in Options; nothing was inserted.');
+          if(destination.status==='complete'&&onChatGPT){
+            const probe=(await chrome.scripting.executeScript({target:{tabId:destination.id},func:chatgptHandoff,args:['inspect',{}]}))[0]?.result;
+            if(probe?.adapter==='chatgpt'){ready=true;break;}
+            if(probe?.handoffError&&!/message box was not recognized|message box is unavailable/.test(probe.handoffError))throw Error(probe.handoffError);
+          }
+          await new Promise(resolve=>setTimeout(resolve,500));
+        }
+        if(!ready)throw Error('ChatGPT isn’t ready. Sign in or wait, then choose Place request in Options. Your request is kept.');
+      }
       const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-      if (!tab || !/^https:\/\/chatgpt\.com\//.test(tab.url || '')) throw Error('Open ChatGPT and click the Relay toolbar icon there. Copy/import is available for other AI sites.');
+      if (!tab?.url) throw Object.assign(Error('Chrome needs access to this tab. Click the Task Relay toolbar icon once, then download here.'),{code:'page_access_required'});
+      if (!/^https:\/\/chatgpt\.com\//.test(tab.url)) throw Error('Return to your ChatGPT reply, then download here.');
       const action = message.type.slice('chatgpt-'.length);
       if (!['inspect', 'recover'].includes(action) && tab.id !== message.handoff?.tabId) throw Error('Return to the ChatGPT tab where you prepared this request.');
-      const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: chatgptHandoff, args: [action, message.handoff || {}]});
-      const value = results[0]?.result;
-      const [current] = await chrome.tabs.query({active: true, currentWindow: true});
-      if (current?.id !== tab.id || (value?.url && current.url !== value.url)) throw Error('The tab changed during the handoff. Check ChatGPT before retrying; nothing was sent by Relay.');
-      if (!value) throw Error('ChatGPT did not return a handoff result. Check the chat before retrying; Relay did not send anything.');
+      // The panel cannot enable attachment matching on an unrelated tab.
+      const ticket={...message.handoff,allowAttachmentResponse:action==='response' && message.handoff?.attachmentTabId===tab.id};
+      async function readTicket(nextTicket) {
+        const [before] = await chrome.tabs.query({active:true,currentWindow:true});
+        if(before?.id!==tab.id||before.url!==tab.url)throw Error('The tab changed during the handoff. Return to the original ChatGPT reply, then download again.');
+        let results;
+        try {results=await chrome.scripting.executeScript({target: {tabId: tab.id}, func: chatgptHandoff, args: [action, nextTicket]});}
+        catch(error){if(/Cannot access contents of url|Missing host permission/i.test(error.message||''))throw Object.assign(Error('Chrome needs access to this tab. Click the Task Relay toolbar icon once, then download here.'),{code:'page_access_required'});throw error;}
+        const value=results[0]?.result;
+        const [current] = await chrome.tabs.query({active: true, currentWindow: true});
+        if (current?.id !== tab.id || (value?.url && current.url !== value.url)) throw Error('The tab changed during the handoff. Check ChatGPT before retrying; nothing was sent by Relay.');
+        if (!value) throw Error('ChatGPT did not return a handoff result. Check the chat before retrying; Relay did not send anything.');
+        return value;
+      }
+      let value = await readTicket(ticket);
+      // React applies Show more after the injected read returns. Wait only for
+      // that explicit display change, with one click and a bounded reread. Lost
+      // injection replies are never retried; no request is inserted or sent.
+      if(['response','recover'].includes(action)&&value.handoffCode==='request_expanded'){
+        for(let attempt=0;attempt<10;attempt++){
+          await new Promise(resolve=>setTimeout(resolve,100));
+          value=await readTicket({...ticket,expansionAttempted:true});
+          if(value.handoffCode!=='request_expanding')break;
+        }
+      }
       if (value.handoffError) throw Object.assign(Error(value.handoffError),{code:value.handoffCode});
       return {...value, tabId: tab.id};
     }

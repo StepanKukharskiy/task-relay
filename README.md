@@ -2,7 +2,7 @@
 
 **Coordinate agents, tools and project work from one inbox.**
 
-[Website](https://task-relay-website-production.up.railway.app)
+[Website](https://task-relay-website-production.up.railway.app) · [Get the Chrome extension](https://chromewebstore.google.com/detail/task-relay/alicbjedflapdighdmadgbopahfhbgbd?utm_source=github&utm_medium=referral&utm_campaign=chrome_extension)
 
 Task Relay is a self-hosted execution service with desktop and messenger interfaces. Send a
 request, choose the references and review a bounded plan. Relay coordinates the
@@ -54,9 +54,10 @@ AI chat can structure the capture; Relay copies the prepared request and imports
 the response for independent review. No account, cloud or Desktop is required.
 On supported ChatGPT conversations, Relay inserts a prepared draft and retrieves
 its matching reply on explicit clicks; the user sends it and reviews the result.
-Turn into Relay job separately exports a portable work brief. The panel uses
+**Turn into Skill** extracts a reusable method with inputs. **Save work**
+keeps findings, evidence and next actions for the particular task. The panel uses
 Chrome’s existing branding, with recovery and setup under ⋯. Other sites retain
-copy/import. Source 0.1.10 is a development package; broader live Chrome/AI-site checks and store
+copy/import. Source 0.1.11 is a development package; broader live Chrome/AI-site checks and store
 publication remain open. Advanced users can optionally connect Relay Desktop
 for a persistent local library, granting native-app access only when they choose
 **Connect Relay Desktop**.

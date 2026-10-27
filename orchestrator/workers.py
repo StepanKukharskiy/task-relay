@@ -101,9 +101,17 @@ class CodexFactory:
         if frozen.get('report_contract'):
             from .report_builder import INSTRUCTIONS
             prompt += '\n'+INSTRUCTIONS
+        if frozen.get('operation_contract'):
+            from .record_tool import prepare
+            prompt+=prepare(workspace,frozen)
+        if frozen.get('verification'):
+            from .verification import INSTRUCTIONS
+            prompt += '\n'+INSTRUCTIONS+' Read .relay/verification.json for exact check coverage and changes.'
         if frozen.get('source_verification'):
             from .source_verification import INSTRUCTIONS
             prompt += '\n'+INSTRUCTIONS
+        if frozen.get('evidence_workload'):
+            prompt += '\nCode supplies exact hash-bound evidence batches in evidence_workload. Read each batch once using a single batched command where practical; offsets preserve the original captured text. Aliases identify exact repeated captures only, not equivalent products. Evaluate every observation against the original criteria. Reserve two tool calls for saving the concise review and submitting the final structured report; do not re-read whole source packs or duplicate lengthy page extracts in the report. Batch files are source evidence, not acceptance. Report unresolved correspondence explicitly.'
         (control / 'prompt.txt').write_text(prompt)
         (control / 'schema.json').write_text(encoded(frozen.get('report_contract',{}).get('schema',REPORT_SCHEMA)))
         support_hash=prepare_supervisor(control,frozen)
@@ -116,6 +124,7 @@ class CodexFactory:
         return {'id': frozen['assignment_id'], 'control': str(control)}
 
     def submit(self, session):
+        from task_relay import runtime_process
         control = Path(session['control'])
         launch=json.loads((control/'launch.json').read_text())
         if launch.get('executable') and launch['backend']['type']=='codex-cli':
@@ -123,8 +132,8 @@ class CodexFactory:
             require('codex',launch['executable'])
         # The runtime calls this exactly once, after committing its launch intent.
         with (control / 'supervisor.log').open('ab') as log:
-            child = HOST.spawn_supervisor([sys.executable, str(control / 'supervisor.py'), str(control), session['id']],
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+            child = HOST.spawn_supervisor(runtime_process.command(sys.executable,control/'supervisor.py',control,session['id']),
+                env=runtime_process.environment(),stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         self.children.append(child)
         return {'supervisor_pid': child.pid}
 
@@ -134,11 +143,14 @@ class CodexFactory:
                 self.children.remove(child)
         control = Path(session['control'])
         done = control / 'done.json'
-        if done.exists():
+        def finished():
+            if not done.exists():return None
             value = json.loads(done.read_text())
             if value.get('token') != session['id']:
                 raise ValueError('Worker receipt identity mismatch')
             return {'status': 'finished', **value}
+        terminal=finished()
+        if terminal:return terminal
         started = control / 'started.json'
         if started.exists():
             value = json.loads(started.read_text())
@@ -147,10 +159,12 @@ class CodexFactory:
             try:
                 alive = process_matches(value['supervisor_pid'], str(control),value.get('supervisor_identity'))
             except OSError as exc:
-                return {'status': 'uncertain', 'reason': 'Cannot inspect worker process: ' + str(exc)}
+                return finished() or {'status': 'uncertain', 'reason': 'Cannot inspect worker process: ' + str(exc)}
             if alive:
                 return {'status': 'running', **value}
-            return {'status': 'uncertain', 'reason': 'Supervisor disappeared; inspect logs and child process. No replay.'}
+            # Completion may race the initial file check and process probe.
+            # Prefer the exact committed receipt, never infer success from exit.
+            return finished() or {'status': 'uncertain', 'reason': 'Supervisor disappeared; inspect logs and child process. No replay.'}
         launch = json.loads((control / 'launch.json').read_text())
         if time.time() - launch['created'] < 30:
             return {'status': 'launching'}

@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -17,6 +17,7 @@ for (const [from, to] of [
   ['companion-computer.js', 'companion-computer.js'],
   ['companion-workspace.js', 'companion-workspace.js'],
   ['companion-workflow.js', 'companion-workflow.js'],
+  ['companion-node-editor.js', 'companion-node-editor.js'],
   ['rich-text.js', 'rich-text.js'],
   ['vendor/marked.umd.js', 'vendor/marked.umd.js'],
   ['vendor/marked.umd.js.LICENSE', 'vendor/marked.umd.js.LICENSE'],
@@ -24,4 +25,5 @@ for (const [from, to] of [
   ['vendor/purify.min.js.LICENSE', 'vendor/purify.min.js.LICENSE'],
   ['messages-icon.png', 'messages-icon.png'],
 ]) { mkdirSync(dirname(join(target,to)),{recursive:true});copyFileSync(join(source, from), join(target, to)); }
+cpSync(join(source,'node-icons'),join(target,'node-icons'),{recursive:true});
 console.log('Copied the Task Relay workspace UI.');

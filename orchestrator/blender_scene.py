@@ -35,9 +35,21 @@ def main():
         camera=bpy.context.object;camera.name='RelayCamera'
         camera.rotation_euler=(Vector(data['camera']['target'])-camera.location).to_track_quat('-Z','Y').to_euler()
         camera.data.type='ORTHO';camera.data.ortho_scale=data['camera']['scale'];bpy.context.scene.camera=camera
+        bpy.context.view_layer.update()
+        corners=[obj.matrix_world@Vector(p) for obj in bpy.data.objects if obj.type=='MESH' for p in obj.bound_box]
+        camera.data.clip_end=max(1000,max((p-camera.location).length for p in corners)*2,camera.data.ortho_scale*2)
+        camera.data.clip_start=min(.01,max(1e-6,camera.data.ortho_scale*.00001))
         bpy.ops.object.light_add(type='SUN',location=(20,-30,60));bpy.context.object.rotation_euler=(0.4,-0.6,-0.5)
         bpy.context.object.data.energy=3
         scene=bpy.context.scene;scene.world.color=(0.3,0.3,0.3)
+        spatial=data.get('spatial')
+        if spatial:
+            scene.unit_settings.system='IMPERIAL' if spatial['units'] in ('Feet','Inches') else 'METRIC'
+            scene.unit_settings.scale_length=METERS_PER_UNIT[spatial['units']]
+            scene.unit_settings.length_unit={'Meters':'METERS','Millimeters':'MILLIMETERS','Centimeters':'CENTIMETERS','Feet':'FEET','Inches':'INCHES'}[spatial['units']]
+            scene['TaskRelay.Spatial']=json.dumps(spatial,sort_keys=True,ensure_ascii=True)
+        else:scene.unit_settings.system='NONE'
+
         scene.render.engine='CYCLES';scene.cycles.device='CPU';scene.cycles.samples=data['samples']
         scene.render.resolution_x=data['resolution'][0];scene.render.resolution_y=data['resolution'][1];scene.render.resolution_percentage=100
         scene.render.image_settings.file_format='PNG';scene.render.filepath=str(out/'preview.png')
@@ -60,6 +72,17 @@ def main():
                 assert [list(p.vertices) for p in obj.data.polygons]==expected['faces'], 'Mesh topology differs'
                 for vertex,coordinate in zip(obj.data.vertices,expected['vertices']):
                     assert all(abs(a-b)<=max(1e-5,abs(b)*2e-7) for a,b in zip(vertex.co,coordinate)), 'Mesh coordinates differ'
+        spatial=data.get('spatial');scene=bpy.context.scene
+        if spatial:
+            assert scene.get('TaskRelay.Spatial')==json.dumps(spatial,sort_keys=True,ensure_ascii=True),'Spatial disclosure changed'
+            expected_system='IMPERIAL' if spatial['units'] in ('Feet','Inches') else 'METRIC'
+            assert scene.unit_settings.system==expected_system,'Native unit system changed'
+            assert abs(scene.unit_settings.scale_length-METERS_PER_UNIT[spatial['units']])<=METERS_PER_UNIT[spatial['units']]*1e-6,'Native physical scale changed'
+            assert scene.unit_settings.length_unit=={'Meters':'METERS','Millimeters':'MILLIMETERS','Centimeters':'CENTIMETERS','Feet':'FEET','Inches':'INCHES'}[spatial['units']],'Native length unit changed'
+        else:assert scene.unit_settings.system=='NONE','Legacy scene acquired an inferred unit system'
+        world=[obj.matrix_world@vertex.co for obj in meshes for vertex in obj.data.vertices]
+        bounds=[[min(p[i] for p in world) for i in range(3)],[max(p[i] for p in world) for i in range(3)]]
+        print('RELAY_SPATIAL_VERIFIED',json.dumps(spatial_receipt(spatial,bounds)),flush=True)
         print('RELAY_GEOMETRY_CHECKED',json.dumps({'objects':len(meshes),
             'vertices':sum(len(o.data.vertices) for o in meshes),'faces':sum(len(o.data.polygons) for o in meshes)}),flush=True)
         bpy.context.scene.cycles.device='CPU'

@@ -2,6 +2,9 @@
 import json
 from pathlib import Path
 import sys
+# Blender's embedded Python otherwise writes cache files beside this signed
+# bundled module, invalidating the app seal after a successful native run.
+sys.dont_write_bytecode=True
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from blender_snapshot import snapshot,compare,dimension_warnings
 
@@ -40,13 +43,23 @@ def main():
     import bpy
     mode,source,script,contract,out=sys.argv[sys.argv.index('--')+1:]
     out=Path(out);checks=json.loads(Path(contract).read_text())
-    open_scene(out/'candidate.blend' if mode=='verify' else source)
+    creating=checks.get('mode')=='create'
+    if creating and mode!='verify':
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.context.scene.unit_settings.system='METRIC'
+        bpy.context.scene.unit_settings.scale_length=1.0
+    else:open_scene(out/'candidate.blend' if mode=='verify' else source)
     self_contained()
     if mode=='before':
         before=snapshot()
-        if set(checks['changed_objects'])-before['objects'].keys():raise ValueError('Requested object missing')
+        if not creating and set(checks['changed_objects'])-before['objects'].keys():raise ValueError('Requested object missing')
         (out/'checks.json').write_text(json.dumps({'before':before,'passed':False,'phase':'before'},allow_nan=False))
-        render(out/'before.png',checks['preview'])
+        if creating:
+            # Empty baseline evidence; no invented before-model photograph.
+            image=bpy.data.images.new('Empty baseline',width=64,height=64)
+            image.filepath_raw=str(out/'before.png');image.file_format='PNG';image.save()
+            bpy.data.images.remove(image)
+        else:render(out/'before.png',checks['preview'])
     elif mode=='edit':
         code=Path(script).read_text()
         exec(compile(code,script,'exec'),{'__name__':'__main__','__file__':script,'bpy':bpy})
@@ -55,7 +68,13 @@ def main():
         bpy.ops.wm.save_as_mainfile(filepath=str(out/'candidate.blend'),check_existing=False)
     elif mode=='verify':
         evidence=json.loads((out/'checks.json').read_text());after=snapshot()
-        errors=compare(evidence['before'],after,checks)
+        if creating:
+            errors=[]
+            if set(after['objects'])!=set(checks['objects']):errors.append('Created objects differ from declared names')
+            if bpy.context.scene.unit_settings.system!='METRIC' or bpy.context.scene.unit_settings.scale_length!=1.0:errors.append('Created scene units changed')
+            for name in checks['expected_dimensions']:
+                if name not in after['dimensions']:errors.append('Missing created geometry: '+name)
+        else:errors=compare(evidence['before'],after,checks)
         evidence.update(after=after,passed=not errors,errors=errors,warnings=dimension_warnings(after,checks),phase='verified',
             scope='Object names, collection membership, active frame, mesh vertices/topology/UVs, transforms, modifier/constraint scalar settings, camera scalar properties, material/node/socket properties. Not full Blender semantic equivalence.')
         (out/'checks.json').write_text(json.dumps(evidence,allow_nan=False))

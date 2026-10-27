@@ -11,6 +11,19 @@ from task_relay import production_control as pc
 
 
 class Tests(unittest.TestCase):
+    def test_exact_inspection_skips_unrelated_history_and_never_falls_back(self):
+        other=pair(gate='creative selection');other['id']='unrelated'
+        self.rt.create(other)
+        statements=[];self.state.db.set_trace_callback(statements.append)
+        try:
+            focused=pc.inspect(self.state,'demo',exact=True)
+            self.assertEqual([v['name'] for v in focused],['demo'])
+            self.assertFalse(any("run='unrelated'" in s for s in statements))
+            self.assertEqual(pc.inspect(self.state,'missing',exact=True),[])
+            with self.assertRaises(ValueError):pc.inspect(self.state,exact=True)
+        finally:self.state.db.set_trace_callback(None)
+        self.assertEqual({v['name'] for v in pc.inspect(self.state,'demo')},{'demo','unrelated'})
+
     def blocked_revision(self):
         self.finish_stage()
         previous_review = self.rt.task('demo','review')['latest']

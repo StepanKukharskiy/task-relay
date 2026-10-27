@@ -87,7 +87,9 @@ class Host:
                 raise UnsupportedHost('Windows process ownership cannot use a substituted process launcher')
             return self.windows().spawn(command,**kwargs)
         self.require_posix('Worker process-tree ownership')
-        return (popen or subprocess.Popen)(command, start_new_session=True, **kwargs)
+        process=(popen or subprocess.Popen)(command, start_new_session=True, **kwargs)
+        process._relay_group_owner=(os.getpid(),process.pid)
+        return process
 
     def signal_tree(self, process, force=False):
         if self.platform=='win32':
@@ -95,8 +97,29 @@ class Host:
             if not isinstance(process,adapter.Process):raise UnsupportedHost('Only an owned Windows job can be cancelled')
             process.terminate();return
         self.require_posix('Worker process-tree cancellation')
+        if getattr(process,'_relay_group_owner',None)!=(os.getpid(),process.pid):
+            raise UnsupportedHost('Only the spawning process may cancel its owned process group')
+        try:
+            if os.getpgid(process.pid)!=process.pid:
+                raise UnsupportedHost('Child no longer belongs to its owned process group')
+        except ProcessLookupError:pass # The leader may exit before its descendants.
         try:os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
         except ProcessLookupError:pass
+        except PermissionError:
+            # Some hosts deny a signal to an already vanished group. Only an
+            # independent complete process-table observation may resolve that.
+            if self.group_alive(process.pid):raise
+
+    def group_alive(self,group):
+        self.require_posix('Worker process-group observation')
+        try:os.killpg(group,0);return True
+        except ProcessLookupError:return False
+        except PermissionError:
+            result=subprocess.run(['ps','-ax','-o','pgid='],capture_output=True,text=True,timeout=5)
+            values=result.stdout.split()
+            if result.returncode or result.stderr.strip() or not values or any(not v.isdecimal() for v in values):
+                raise PermissionError('Cannot confirm process-group absence')
+            return group in {int(v) for v in values}
 
     def stop_tree(self, process, timeout=5):
         if self.platform=='win32':
@@ -107,11 +130,15 @@ class Host:
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:
             process.poll()  # reap the group leader; descendants may still exist
-            try:os.killpg(process.pid,0)
-            except ProcessLookupError:break
+            if not self.group_alive(process.pid):return
             time.sleep(.02)
         self.signal_tree(process,force=True)
         process.wait(timeout=max(timeout,1))
+        deadline=time.monotonic()+max(timeout,1)
+        while time.monotonic()<deadline:
+            if not self.group_alive(process.pid):return
+            time.sleep(.02)
+        raise TimeoutError('Owned process group cleanup could not be confirmed')
 
     def process_matches(self, pid, token, identity=None):
         if self.platform=='win32':return self.windows().matches(pid,identity)
@@ -161,6 +188,19 @@ class Host:
         if not hasattr(socket,'AF_UNIX'):
             raise UnsupportedHost('Codex desktop Unix IPC is unavailable on this host')
         return socket.socket(socket.AF_UNIX)
+
+    def open_result(self, application, path):
+        self.require_macos('Native result opening')
+        if application!='Blender' or Path(path).suffix!='.blend':
+            raise ValueError('Unsupported native result')
+        app=Path('/Applications/Blender.app')
+        if not app.is_dir():raise ValueError('Blender is not installed in /Applications')
+        # A fresh process ensures startup arguments are honored. Never enable
+        # scripts embedded in a generated file or pass a shell command.
+        result=subprocess.run(['/usr/bin/open','-n','-a',str(app),'--args',
+                               '--disable-autoexec',str(Path(path).resolve())],
+                              capture_output=True,timeout=10)
+        if result.returncode:raise ValueError('macOS could not open the saved Blender model')
 
     def open_codex(self, task_id, error):
         self.require_macos('Codex desktop task opening')

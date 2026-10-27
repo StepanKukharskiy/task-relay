@@ -30,8 +30,9 @@ def discover():
 
 
 def run_phase(request,path,timeout,workspace):
+    from task_relay import runtime_process
     atomic(path,request)
-    command=[sys.executable,'-I',str(Path(__file__).with_name('rhino3dm_script_worker.py')),str(path)]
+    command=runtime_process.command(sys.executable,Path(__file__).with_name('rhino3dm_script_worker.py'),path,isolated=True)
     stdout=path.with_suffix('.stdout');stderr=path.with_suffix('.stderr')
     run=dict(mode=request['mode'],command=command,passed=False,timeout=False,returncode=None)
     # Inherit the supervisor's process tree; OS-specific cancellation stays there.

@@ -14,3 +14,10 @@ include task_relay/assets/macos/*.swift
 include orchestrator/*.py
 include orchestrator/*.rb
 global-exclude *.pyc
+
+include task_relay/assets/desktop-request-limits.json
+include task_relay/assets/node-icons/*.svg
+include task_relay/assets/job-templates/*.json
+include orchestrator/*.schema.json
+include task_relay/assets/node-icons/*.png
+include task_relay/assets/node-icons/*.md

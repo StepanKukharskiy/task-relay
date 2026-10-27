@@ -42,6 +42,38 @@ def pptx_step(inputs, **kwargs):
 
 
 class DocumentTests(unittest.TestCase):
+    def test_long_objective_compiles_to_renderable_metadata_without_changing_request(self):
+        from orchestrator import layout_contract,slide_templates
+        task=dict(objective='Long exact requested workflow. '*40)
+        original=copy.deepcopy(task)
+        params=layout_contract.producer_defaults(task,1)
+        layout_contract.parameters(params)
+        records=[dict(kind='page',slot=1,layout='text',content=dict(title='Evidence',body='Preserved evidence.'),notes=''),dict(kind='end',count=1)]
+        source=layout_contract.document(records,params)
+        raw,evidence=pptx_document.create(source)
+        self.assertTrue(evidence['reopened']);self.assertEqual(task,original)
+        from pptx import Presentation
+        self.assertEqual(Presentation(io.BytesIO(raw)).core_properties.title,params['title'])
+        invalid=copy.deepcopy(source);invalid['title']='x'*256
+        for validate in (pptx_document.validate,slide_templates.expand):
+            with self.assertRaises(ValueError):validate(invalid)
+        namespace={'__name__':'frozen_validator'};exec(pptx_document.validator_source(),namespace)
+        namespace['validate'](source)
+        with self.assertRaises(ValueError):namespace['validate'](invalid)
+
+    def test_multidigit_diagram_markers_stay_editable_without_line_wrapping(self):
+        from pptx import Presentation
+        markers=[dict(type='shape',shape='ellipse',x=n,y=1,w=.3,h=.3,text=label,font_size=10,align='center') for n,label in enumerate(('1','10','80'),1)]
+        prose=dict(type='shape',shape='ellipse',x=4,y=1,w=2,h=2,text='A longer explanatory label')
+        value=dict(version=1,title='Numbered diagram fixture',slides=[dict(elements=markers+[prose])])
+        raw,_=pptx_document.create(value);shapes=Presentation(io.BytesIO(raw)).slides[0].shapes
+        for shape,label in zip(shapes,('1','10','80')):
+            self.assertEqual(shape.text,label)
+            self.assertFalse(shape.text_frame.word_wrap)
+            self.assertEqual(shape.width,shapes[0].width)
+            self.assertEqual(shape.text_frame.margin_left+shape.text_frame.margin_right,0)
+        self.assertTrue(shapes[-1].text_frame.word_wrap)
+
     def test_frozen_validator_runs_without_relay_or_presentation_libraries(self):
         namespace={'__name__':'frozen_validator'}
         exec(pptx_document.validator_source(),namespace)
@@ -207,7 +239,8 @@ class GraphTests(unittest.TestCase):
         self.rt.tick('demo'); self.rt.tick('demo')
         self.rt.close(); self.rt = Runtime(self.root / 'runtime', self.factory); self.rt.tick('demo')
         self.assertEqual(self.rt.status('demo')['status'], 'blocked')
-        self.assertEqual(len(self.ops.calls), 1)
+        self.assertEqual(len(self.ops.calls), 0)
+        self.assertEqual(self.rt.task('demo','deck')['attempts'],0)
         with self.assertRaisesRegex(ValueError, 'Missing upstream artifact'):
             self.rt.output('demo', 'deck', 'candidate.pptx')
 
@@ -226,13 +259,14 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(self.rt.status('demo')['status'], 'blocked')
         self.rt.tick('demo')
         self.assertEqual(len(self.ops.calls), 1)
+        self.assertEqual(self.rt.task('demo','deck')['attempts'],1)
         with self.assertRaisesRegex(ValueError, 'Missing upstream artifact'):
             self.rt.output('demo', 'deck', 'candidate.pptx')
 
     def test_implementation_drift_blocks_before_creation(self):
         from orchestrator.runtime import file_hash
         self.rt.create(plan([pptx_step([self.source_input()])]))
-        with patch('orchestrator.step_runner.file_hash', side_effect=lambda p: '0' * 64 if Path(p).name == 'pptx_document.py' else file_hash(p)):
+        with patch('orchestrator.operation_execution.file_hash', side_effect=lambda p: '0' * 64 if Path(p).name == 'pptx_document.py' else file_hash(p)):
             self.rt.tick('demo'); self.rt.tick('demo')
         self.assertEqual(self.rt.status('demo')['status'], 'blocked')
         with self.assertRaisesRegex(ValueError, 'Missing upstream artifact'):
@@ -282,7 +316,7 @@ class PlanningTests(unittest.TestCase):
     def test_review_recovery_reuses_completed_research_without_replay(self):
         self.check_exhausted_review_recovery(completed_sources=True)
 
-    def test_review_recovery_refreshes_registered_pptx_criteria(self):
+    def test_review_recovery_rejects_changed_registered_pptx_contract(self):
         self.check_exhausted_review_recovery(criteria_update=True)
 
     def check_exhausted_review_recovery(self,completed_sources=False,criteria_update=False):
@@ -316,20 +350,27 @@ class PlanningTests(unittest.TestCase):
             for tid,decision in [('source-produce','delivered'),('source-review','accept')]:
                 self.factory.finish(self.rt.task(run,tid)['latest'],decision=decision);self.rt.tick(run)
         first=self.rt.task(run,'produce')['latest']
-        self.factory.finish(first);self.rt.tick(run)
+        # Exercise the real CLI fragment transport used by this frozen producer.
+        from orchestrator import record_tool
+        frozen=self.factory.sessions[first]['frozen']
+        record_tool.call(frozen,'submit',dict(request_key='fixture',revision=0,records=[dict(kind='page',slot=1,layout='text',content=dict(title='Fixture',body='Synthetic evidence'),notes='')]))
+        record_tool.call(frozen,'submit',dict(request_key='seal',revision=1,records=[dict(kind='end',count=1)]))
+        self.factory.finish(first)
+        record_tool.call(frozen,'export')
+        self.rt.tick(run)
         self.factory.finish(self.rt.task(run,'review')['latest'],decision='revise');self.rt.tick(run)
         before=[dict(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))]
         if criteria_update:
             current=copy.deepcopy(execution.REGISTRY['pptx.create'])
             current['criteria']=['Current registered PPTX file verification.']
             updated=patch.dict(execution.REGISTRY,{'pptx.create':current});updated.start();self.addCleanup(updated.stop)
+            with self.assertRaisesRegex(ValueError,'Connector interface changed'):
+                with transaction(self.state.db):recovery.prepare(self.state,run,'Fix the reviewed draft and continue the saved workflow.')
+            self.assertEqual([dict(r) for r in self.state.db.execute('SELECT * FROM production_attempts WHERE run=?',(run,))],before)
+            return
         with transaction(self.state.db):ident=recovery.prepare(self.state,run,'Fix the reviewed draft and continue the saved workflow.')
         repaired=self.state.db.execute('SELECT * FROM production_plans WHERE id=?',(ident,)).fetchone()
         value=json.loads(repaired['plan']);context=json.loads(repaired['context'])
-        if criteria_update:
-            self.assertEqual(value['tasks'][2]['criteria'],current['criteria'])
-            self.assertEqual(value['tasks'][3]['criteria'],current['criteria'])
-            self.assertEqual(context['registered_criteria_updates'][0]['capability'],'pptx.create')
         self.assertEqual([t['id'] for t in value['tasks']],['produce','review','deck','deck-review'])
         self.assertEqual([t['max_attempts'] for t in value['tasks']],[3,3,2,2])
         self.assertEqual(value['tasks'][2]['execution'],next(t['execution'] for t in plan['tasks'] if t['id']=='deck'))

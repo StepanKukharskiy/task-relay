@@ -9,7 +9,8 @@
         "extensions/chrome/*.js",
         "extensions/chrome/*.html",
         "extensions/chrome/*.css",
-        "extensions/chrome/*.png"
+        "extensions/chrome/*.png",
+        "extensions/chrome/icons/*.png"
       ]
     },
     {
@@ -64,7 +65,20 @@
         "website/fetch-downloads.mjs",
         "website/downloads.json",
         "website/releases.mjs",
-        "website/release-fallback.json"
+        "website/release-fallback.json",
+        "website/funnel.mjs",
+        "website/summarize-funnel.mjs",
+        "website/public/skills/*.html",
+        "website/public/skills/*.css",
+        "website/public/skills/assets/*.png",
+        "website/public/skills/assets/*.json",
+        "website/public/skills/assets/*.md",
+        "website/public/skills/assets/*.zip",
+        "website/public/skills/assets/*.sha256",
+        "website/public/chrome/*.html",
+        "website/public/skills/assets/scripts/update-report.mjs",
+        "website/public/skills/assets/scripts/attach-chart-workbooks.py",
+        "website/public/skills/assets/references/codex-runtime.md"
       ]
     },
     {
@@ -80,7 +94,8 @@
       "patterns": [
         "task_relay/*.py",
         "orchestrator/*.py",
-        "orchestrator/*.rb"
+        "orchestrator/*.rb",
+        "orchestrator/*.schema.json"
       ],
       "exclude": [
         "test_*.py"
@@ -123,11 +138,16 @@
         "task_relay/assets/*.css",
         "task_relay/assets/*.js",
         "task_relay/assets/perplexity-extension.json",
+        "task_relay/assets/desktop-request-limits.json",
         "task_relay/assets/vendor/*.js",
         "task_relay/assets/vendor/*.LICENSE",
         "task_relay/assets/vendor/*.txt",
         "task_relay/assets/*.txt",
-        "task_relay/assets/macos/*.swift"
+        "task_relay/assets/macos/*.swift",
+        "task_relay/assets/node-icons/*.svg",
+        "task_relay/assets/job-templates/*.json",
+        "task_relay/assets/node-icons/*.png",
+        "task_relay/assets/node-icons/*.md"
       ]
     },
     {
@@ -163,6 +183,7 @@
       "release": false,
       "patterns": [
         "scripts/*.py",
+        "runtime-patches/*.patch",
         "install.sh",
         "source_inventory.json",
         ".gitignore",
@@ -234,6 +255,7 @@
         "docs/worker-runtime.md",
         "docs/workflow-observer.md",
         "docs/publication.md",
+        "docs/shared-lifecycle-qualification.md",
         "experiments/proposal_review/README.md",
         "docs/perplexity-browser.md",
         "docs/general-browser.md",
@@ -249,7 +271,53 @@
         "docs/design-intent.md",
         "docs/desktop-ui-system.md",
         "docs/research-campaigns.md",
-        "docs/shared-operation-contracts.md"
+        "docs/shared-operation-contracts.md",
+        "docs/producer-side-binding.md",
+        "docs/architecture-contract.md",
+        "docs/artifact-role-handoffs.md",
+        "docs/browser-source-fallback.md",
+        "docs/chrome-store-publication.md",
+        "docs/codex-architecture-comparison.md",
+        "docs/codex-executor.md",
+        "docs/codex-tool-gate.md",
+        "docs/compiler-intent-and-correction-scope.md",
+        "docs/context-and-search-boundaries.md",
+        "docs/cross-tool-execution-audit.md",
+        "docs/database-lock-boundary.md",
+        "docs/delivery-completion.md",
+        "docs/execution-audits.md",
+        "docs/execution-loop-redesign.md",
+        "docs/execution-review-evidence.md",
+        "docs/handoff-construction.md",
+        "docs/image-candidate-workflow.md",
+        "docs/model-binding-rejections.md",
+        "docs/native-observation-source-admission.md",
+        "docs/node-editor-implementation-gaps.md",
+        "docs/operation-diagnostics.md",
+        "docs/owner-process-review.md",
+        "docs/owner-progress-scheduling.md",
+        "docs/partial-delivery.md",
+        "docs/pavilion-workflow.md",
+        "docs/provider-cooldown.md",
+        "docs/receipts-and-terminal-draining.md",
+        "docs/review-inspection-navigation.md",
+        "docs/review-snapshots-and-settlement.md",
+        "docs/runtime-cache-boundary.md",
+        "docs/runtime-pinning-review-admission.md",
+        "docs/search-outcomes.md",
+        "docs/source-recovery-policy.md",
+        "docs/universal-architecture-decision.md",
+        "docs/universal-interface-consolidation.md",
+        "docs/universal-runtime.md",
+        "docs/worker-operation-tools.md"
+      ]
+    },
+    {
+      "kind": "example",
+      "release": false,
+      "patterns": [
+        "examples/*.node.json",
+        "examples/*.workflow.json"
       ]
     }
   ],

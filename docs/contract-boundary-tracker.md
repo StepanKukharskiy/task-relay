@@ -31,6 +31,16 @@ ignored evidence and are not copied into public source.
 | CB-09 | P1 / partial | Worker requirements, tool declarations, limits and attempt counts already constrained by selected adapters and task inputs. | 0.13.77 compiles missing workers, owns locked executor selection and diagnoses validator/code mismatches. `worker_capabilities.matches` already checks bound validators, binary and visual inputs. Derive mechanically required capabilities and default ceilings once; let the model request extra capabilities or lower budgets explicitly. Missing availability must remain a real blocker, not trigger provider fallback or removal of checks. |
 | CB-10 | P2 / partial | Contract shapes outside the new planner envelope, plus unstructured validation-error text. | `planning_contract` leaves browser policy, operation parameters, geometry basis and output handoff descriptors opaque for their domain validators. Gemini alone receives the native planner schema; other providers receive it in context and are checked locally. Compose domain schemas from their owners, qualify each provider transport separately and emit stable error code/path/phase receipts instead of deriving telemetry from message text. |
 
+The cross-family lifecycle gap is tracked as **CB-11 / P1 / implemented, packaged-runtime
+qualified and installed**. Registered hooks now own
+content interpretation; one record store, collection engine and partition
+compiler own lifecycle policy. Historical sourcing intent translates at the
+boundary, preserving saved identities and scope. The shared harness exercises
+three schemas through native PPTX delivery/correction and recovery composition.
+See [Universal collection interfaces](universal-interface-consolidation.md) for
+ownership, inspection and qualification limits. Live research yield and room
+quality remain separate checks.
+
 ## Code anchors and completion checks
 
 - **CB-01:** [orchestrator_chat.py](../task_relay/orchestrator_chat.py), `generate`,
@@ -114,3 +124,19 @@ For each future fix record: boundary ID, error code/path, schema version, origin
 receipt reference, bounded correction disposition, focused regression and deployed
 version. Keep instance-specific receipts and research in ignored storage; keep
 only generic contract definitions and tests in public source.
+
+## CB-12 — durable execution and recovery closure
+
+**P1 / migration implemented; exact-package/live qualification tracked separately.** Worker protocol
+errors and invocation capacity must become structured operation outcomes handled
+by one durable session transition. They must not require error-message-specific
+controller branches or whole-stage replanning while compatible original capacity
+remains. Qualification must traverse the actual worker tool loop and fault
+sequences through final delivery. The existing directly completed agent fixtures
+remain useful for orchestration, with their limits stated explicitly.
+
+Contract, migration order and removal criteria: [execution-loop redesign](execution-loop-redesign.md).
+This supersedes any inference that CB-11's collection consolidation completed
+overall execution/recovery reliability; its narrower implementation remains valid.
+
+CB-12 implementation: durable API text-review checkpoints, structured local outcomes, one local continuation owner, immutable cycle allocation and scoped planner-field correction are implemented. Actual-tool-loop to native-PPTX delivery sequences pass with scripted provider judgments; standalone-script launch and startup-slot recovery are qualified. The saved live run reached provider execution and is held by a confirmed HTTP 402 billing rejection; broader adapter migration and uninterrupted live quality qualification remain open. See the implementation status in execution-loop-redesign.md and outputs/.

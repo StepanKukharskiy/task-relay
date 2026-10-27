@@ -72,6 +72,42 @@ def accepting(db, channel, created=None):
                                  created >= value['accept_after'][channel])))
 
 
+def begin_telegram_delivery_window(db, now=None):
+    """Start fresh, retaining old queue entries and every transport receipt.
+
+    Caller owns the transaction. A hold is not a successful send or a resolved
+    uncertainty. Bind event IDs (not reusable SQLite rowids), including events
+    whose text was sent but whose attachments are still pending.
+    """
+    now = time.time() if now is None else now
+    db.execute('''CREATE TABLE IF NOT EXISTS relay_delivery_holds(
+        channel TEXT NOT NULL,event_id TEXT NOT NULL,reason TEXT NOT NULL,
+        created REAL NOT NULL,PRIMARY KEY(channel,event_id))''')
+    db.execute("INSERT OR REPLACE INTO kv VALUES ('telegram:delivery_since',?)", (json.dumps(now),))
+    db.execute('''INSERT OR IGNORE INTO relay_delivery_holds
+        SELECT 'telegram',id,'predates_activation',? FROM outbox''', (now,))
+
+
+def hold_historical_telegram(db, event_id, occurred):
+    """Late-discovered source history must not become a fresh notification."""
+    row = db.execute("SELECT value FROM kv WHERE key='telegram:delivery_since'").fetchone()
+    if not row:
+        return
+    since = json.loads(row[0])
+    if occurred is None or occurred < since:
+        db.execute('INSERT OR IGNORE INTO relay_delivery_holds VALUES (?,?,?,?)',
+                   ('telegram', event_id, 'source_predates_activation' if occurred is not None else 'source_time_unknown', since))
+
+
+def event_allowed(db, channel, event_id):
+    if channel != 'telegram':
+        return True
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='relay_delivery_holds'").fetchone():
+        return True
+    return not db.execute('SELECT 1 FROM relay_delivery_holds WHERE channel=? AND event_id=?',
+                          (channel, event_id)).fetchone()
+
+
 def update(value, paths=PATHS, clock=time.time):
     if not isinstance(value, dict) or set(value) - {'revision', 'channel', 'enabled', 'paused', 'proactive'}:
         raise ValueError('Choose an exact channel setting.')
@@ -91,12 +127,15 @@ def update(value, paths=PATHS, clock=time.time):
                     raise ValueError('This channel is unavailable.')
                 if value['enabled'] and not current['enabled'][channel]:
                     current['accept_after'][channel] = clock()
+                    if channel == 'telegram':
+                        begin_telegram_delivery_window(db, current['accept_after'][channel])
                 current['enabled'][channel] = value['enabled']
             if 'paused' in value:
                 if type(value['paused']) is not bool:
                     raise ValueError('Choose pause or resume.')
                 if current['paused'] and not value['paused']:
                     current['accept_after'] = {c: clock() for c in CHANNELS}
+                    begin_telegram_delivery_window(db, current['accept_after']['telegram'])
                 current['paused'] = value['paused']
             if 'proactive' in value:
                 if value['proactive'] not in (*CHANNELS, 'none'):
@@ -108,7 +147,7 @@ def update(value, paths=PATHS, clock=time.time):
             raw = json.dumps(current, sort_keys=True)
             db.execute('INSERT OR REPLACE INTO relay_channel_settings VALUES (1,?)', (raw,))
             db.execute('INSERT INTO relay_channel_changes VALUES (?,?,?)', (current['revision'], clock(), raw))
-    return {'policy': current, 'message': 'Saved. Existing work continues; held replies keep their original destination.'}
+    return {'policy': current, 'message': 'Saved. Telegram sends only new results after activation; earlier results remain in Relay. Existing work continues.'}
 
 
 def heartbeat(state, channel, role):

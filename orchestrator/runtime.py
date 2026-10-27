@@ -42,11 +42,18 @@ def failure_detail(db,attempt):
     if correction:
         detail=json.loads(correction['data'])
         return 'Review requested corrections: '+detail['summary'][:900]+'\nRequested correction: '+detail['instruction'][:1500]
-    if attempt['state']!='blocked':return original
     receipt=json.loads(attempt['receipt'] or '{}')
     operation=receipt.get('operation') or {}
+    if (attempt['state']=='uncertain' and isinstance(operation,dict) and operation.get('outcome')=='uncertain'
+        and isinstance(operation.get('reason'),str) and operation['reason'].strip()):
+        detail=operation['reason'][:1800]
+        category={'connection':'Connection failed','timeout':'Request timed out',
+                  'invalid-response':'Invalid response'}.get(operation.get('failure_kind'))
+        if category:detail=category+': '+detail
+        return detail+'\nOutcome remains unknown. No automatic retry.'
+    if attempt['state']!='blocked':return original
     if (original=='Worker failed' and receipt.get('status')=='finished' and isinstance(operation,dict)
-        and operation.get('outcome')=='failed' and isinstance(operation.get('reason'),str) and operation['reason'].strip()):
+        and operation.get('outcome') in ('failed','rejected') and isinstance(operation.get('reason'),str) and operation['reason'].strip()):
         return 'Registered operation failed: '+operation['reason'][:1800]
     if original and not original.startswith(('Missing, linked, or non-regular artifact:',
             'Declared output byte limit exceeded','Input copy changed:')):return original
@@ -68,24 +75,64 @@ def failure_detail(db,attempt):
 def dependencies_ready(spec, tasks, specs=()):
     states = {t['id']: t['status'] for t in tasks}
     evidence = c.review_evidence_dependencies(specs).get(spec['id'], set())
-    return all(states.get(dep) == 'awaiting_review' if dep == spec.get('review_of')
+    return all(states.get(dep) == 'awaiting_review' if dep == spec.get('review_of') and not spec.get('review_snapshot')
                else states.get(dep) == 'completed' or (dep in evidence and states.get(dep) == 'awaiting_review')
                for dep in spec['dependencies'])
 
 
-def run_status(stored_status, tasks, specs):
+def uncertainty_progress(tasks, specs, attempts, concurrency, locked_resources=()):
+    """Describe independent progress without releasing unknown provider calls."""
+    roots = {t['id'] for t in tasks if t['status'] == 'uncertain'}
+    held = set(roots)
+    while True:
+        expanded = held | {s['id'] for s in specs if
+            (set(s.get('dependencies', ())) | {s.get('review_of')} |
+             {i.get('from_task') for i in s.get('inputs', ())}).intersection(held)}
+        if expanded == held: break
+        held = expanded
+    occupied = sum(a['state'] in ACTIVE for a in attempts)
+    active = [t['id'] for t in tasks if t['id'] not in held and t['status'] in ('launching', 'running')]
+    ready = [t['id'] for t, s in zip(tasks, specs) if t['id'] not in held
+             and t['status'] == 'queued' and t['attempts'] < s['max_attempts']
+             and dependencies_ready(s, tasks, specs)
+             and not (s.get('resource') and s['resource'] in locked_resources)]
+    runnable = ready if occupied < concurrency else []
+    return {'uncertain_tasks': sorted(roots), 'held_dependents': sorted(held - roots),
+            'active_independent': active, 'runnable_independent': runnable,
+            'can_continue': bool(active or runnable)}
+
+
+def stop_status(stored_status, tasks, specs):
     """Shared read-only status derivation for scheduler and conversation snapshots."""
+    from .job_owner import state as owner_state
+    owned=owner_state(stored_status,tasks,specs)
+    if owned is not None:return owned
     if stored_status != 'active':
         return stored_status
     states = {t['status'] for t in tasks}
     if 'uncertain' in states:
         return 'uncertain'
+    if 'awaiting_user' in states:
+        return 'awaiting_user'
     if states == {'completed'}:
         return 'completed'
     runnable = any(t['status'] == 'queued' and dependencies_ready(a, tasks, specs) for t, a in zip(tasks, specs))
     if not states.intersection(ACTIVE) and not runnable:
         return 'awaiting_user' if 'awaiting_user' in states else 'blocked'
     return 'active'
+
+
+def settlement(stored_status,tasks,specs):
+    """Every stop reason shares one collection-only lifetime."""
+    terminal=stop_status(stored_status,tasks,specs)
+    pending=[t['id'] for t in tasks if t['status'] in ('launching','running','cancelling')]
+    if terminal!='active' and pending:
+        return dict(terminal_outcome=terminal,dispatch_allowed=False,pending=pending)
+    return None
+
+
+def run_status(stored_status,tasks,specs):
+    return 'active' if settlement(stored_status,tasks,specs) else stop_status(stored_status,tasks,specs)
 
 
 def uid():
@@ -229,7 +276,53 @@ class Runtime:
             raise ValueError('Unknown task')
         return dict(row)
 
-    def new_assignment(self, run, spec):
+    def continue_attempt(self, run, tid, parent, *, kind, allocation=None):
+        """One atomic checkpoint/review continuation; dispatch stays in tick."""
+        from .connector_protocol import receipt as normalize_receipt
+        from .continuations import proposal
+        from .operation_session import transition
+        with self.transaction():
+            task=self.task(run,tid)
+            attempt=self.db.execute('SELECT * FROM production_attempts WHERE id=?',(parent,)).fetchone()
+            if (not attempt or attempt['run']!=run or attempt['task']!=tid
+                    or task['latest']!=parent or task['assignment']!=attempt['assignment']
+                    or task['status']!='blocked' or attempt['state']!='blocked'
+                    or self.db.execute('SELECT status FROM production_runs WHERE id=?',(run,)).fetchone()[0]!='active'):
+                return False
+            receipt=json.loads(attempt['receipt'] or '{}')
+            normalized=normalize_receipt(receipt)
+            if normalized['status']!='finished' or receipt.get('cleanup_error'):return False
+            if self.db.execute("SELECT 1 FROM production_events WHERE attempt=? AND kind='continuation_committed'",(parent,)).fetchone():return False
+            prepared=proposal(self,task,attempt,kind,allocation)
+            if not prepared:return False
+            action=transition(prepared['outcome'],remaining_attempts=prepared['remaining_attempts'],confirmed=True,unchanged=True)
+            if action!='continue_local':return False
+            previous=self.spec(task);spec=prepared['spec']
+            aid=task['assignment'] if spec==previous else self.new_assignment(run,spec)
+            self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?",(aid,run,tid))
+            detail=dict(version=1,kind=kind,adapter=prepared['adapter'],parent=parent,previous_assignment=task['assignment'],assignment=aid,
+                receipt_sha256=c.digest(receipt),proof=prepared['proof'],outcome=prepared['outcome'],
+                allocation=prepared['allocation'],action=action,attempts_reset=False,acceptance=False,
+                invocation_limits_before=previous['limits'],invocation_limits_after=spec['limits'],
+                task_attempt_limit_before=previous['max_attempts'],task_attempt_limit_after=spec['max_attempts'])
+            self.event(run,tid,parent,'continuation_committed',detail)
+            from .continuation_adapters import definition
+            for event,data in definition(kind).events(prepared,attempt,receipt):
+                self.event(run,tid,parent,event,data)
+            return detail
+
+    def new_assignment(self, run, spec, *, fresh_review=False):
+        from .connector_protocol import bind
+        spec=bind(spec)
+        if fresh_review:
+            if not spec.get('review_of'):raise ValueError('Fresh review requires a candidate owner')
+            # A new candidate starts a new review obligation. Invocation-level
+            # continuation instructions/checkpoints belong to the old candidate
+            # and remain in its immutable assignments, attempts and receipts.
+            current=self.db.execute('SELECT assignment FROM production_tasks WHERE run=? AND id=?',(run,spec['id'])).fetchone()
+            previous=self.spec(current) if current else {}
+            if spec.get('revision')==previous.get('revision'):spec.pop('revision',None)
+            spec.pop('review_checkpoint',None)
         version = self.db.execute('SELECT coalesce(max(version),0)+1 FROM production_assignments WHERE run=? AND task=?', (run, spec['id'])).fetchone()[0]
         aid = uid()
         self.db.execute('INSERT INTO production_assignments VALUES (?,?,?,?,?)', (aid, run, spec['id'], version, c.encoded(spec)))
@@ -238,6 +331,8 @@ class Runtime:
 
     def create(self, value):
         plan = c.plan(value)
+        from .connector_protocol import bind
+        plan['tasks']=[bind(a) for a in plan['tasks']]
         from contextlib import nullcontext
         with (nullcontext() if self.db.in_transaction else self.transaction()):
             for a in plan['tasks']:
@@ -261,7 +356,7 @@ class Runtime:
             plan = json.loads(self.db.execute('SELECT plan FROM production_runs WHERE id=?', (run,)).fetchone()[0])
             plan['tasks'] = [value if t['id'] == value['id'] else self.spec(t)
                              for t in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,))]
-            plan = c.plan(plan)
+            plan = c.plan(plan,bindable_ids={value['id']})
             spec = next(a for a in plan['tasks'] if a['id'] == value['id'])
             # Changing an existing producer cannot silently invalidate its review contract.
             for a in spec['inputs']:
@@ -273,21 +368,56 @@ class Runtime:
 
     def add_future(self, run, value):
         """Append a bounded step without editing any existing assignment."""
+        return self.add_futures(run, [value])
+
+    def add_futures(self, run, values, *, request_id=None):
+        """Admit an owner's delegation batch atomically; the scheduler dispatches later.
+
+        This is the trusted admission interface, not a worker tool or a new
+        authorization grant. Callers must apply their saved scope before admission.
+        A stable request ID makes an interrupted admission safe to repeat.
+        """
+        if not isinstance(values,list) or not values:
+            raise ValueError('Delegation requires a nonempty assignment batch')
+        if request_id is not None:c.label(request_id)
+        proposal=c.digest(values)
         with self.transaction():
             row = self.db.execute('SELECT * FROM production_runs WHERE id=?', (run,)).fetchone()
+            if request_id is not None:
+                previous=self.db.execute("SELECT data FROM production_events WHERE run=? AND kind='future_tasks_added' AND json_extract(data,'$.request_id')=?",(run,request_id)).fetchone()
+                if previous:
+                    receipt=json.loads(previous['data'])
+                    if receipt['proposal_sha256']!=proposal:
+                        raise ValueError('Delegation request ID already belongs to a different batch')
+                    return receipt
             if row is None or row['status'] != 'active':
                 raise ValueError('An active workflow is required')
             plan = json.loads(row['plan'])
-            plan['tasks'] = [self.spec(t) for t in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,))] + [value]
-            plan = c.plan(plan); spec = plan['tasks'][-1]
-            if spec.get('review_of') and self.task(run, spec['review_of'])['attempts']:
-                raise ValueError('A review gate must be defined before its producer starts')
-            for item in spec['inputs']:
-                if 'artifact' in item:
-                    self.artifact(item['artifact'])
-            aid = self.new_assignment(run, spec)
-            self.db.execute('INSERT INTO production_tasks(run,id,assignment,status) VALUES (?,?,?,?)', (run,spec['id'],aid,'queued'))
-            self.event(run, spec['id'], None, 'future_task_added', {'assignment': aid})
+            existing={t['id']:t for t in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,))}
+            plan['tasks'] = [self.spec(t) for t in existing.values()] + values
+            plan = c.plan(plan,bindable_ids={v['id'] for v in values})
+            for previous,compiled in zip(existing.values(),plan['tasks']):
+                if self.spec(previous)!=compiled:raise ValueError('Delegation cannot change an existing assignment')
+            from .connector_protocol import bind
+            specs=[bind(spec) for spec in plan['tasks'][len(existing):]]
+            for spec in specs:
+                target=existing.get(spec.get('review_of'))
+                from .review_snapshot import check as check_snapshot
+                if spec.get('review_snapshot') and plan.get('job_owner',{}).get('review_snapshot_version')!=1:raise ValueError('Snapshot reviews require a prospective owner grant')
+                check_snapshot(self,run,spec)
+                if target and target['attempts'] and not spec.get('review_snapshot'):
+                    raise ValueError('A review gate must be defined before its producer starts')
+                for item in spec['inputs']:
+                    if 'artifact' in item:self.artifact(item['artifact'])
+            assignments={}
+            for spec in specs:
+                aid = self.new_assignment(run, spec)
+                self.db.execute('INSERT INTO production_tasks(run,id,assignment,status) VALUES (?,?,?,?)', (run,spec['id'],aid,'queued'))
+                assignments[spec['id']]=aid
+                self.event(run, spec['id'], None, 'future_task_added', {'assignment': aid})
+            receipt=dict(request_id=request_id,proposal_sha256=proposal,assignments=assignments,dispatched=False)
+            self.event(run,None,None,'future_tasks_added',receipt)
+            return receipt
 
     def output(self, run, tid, path):
         task = self.task(run, tid)
@@ -304,6 +434,7 @@ class Runtime:
         """Validate exact late-bound sources before creating or spending an attempt."""
         from . import executors
         from .browser_contract import png_input, png_info
+        if spec.get('execution'):execution.validate_inputs(spec)
         resolved=[]
         for item in spec['inputs']:
             artifact=self.artifact(item['artifact']) if 'artifact' in item else self.output(run,item['from_task'],item['output'])
@@ -312,7 +443,7 @@ class Runtime:
             safe_file(self.root,str(blob.relative_to(self.root)))
             if blob.stat().st_size!=artifact['bytes'] or file_hash(blob)!=artifact['sha256']:
                 raise ValueError('Registered artifact content changed: '+item['path'])
-            resolved.append({**{k:v for k,v in item.items() if k!='native_evidence'},'artifact':artifact['id'],'sha256':artifact['sha256'],
+            resolved.append({**{k:v for k,v in item.items() if k not in ('native_evidence','sourcing_source_receipt')},'artifact':artifact['id'],'sha256':artifact['sha256'],
                              'bytes':artifact['bytes'],'blob':blob})
         from .computer_review_inputs import review_input
         native_input=review_input(self,run,spec)
@@ -320,22 +451,67 @@ class Runtime:
             if native_input['path'] in {i['path'] for i in resolved}|{o['path'] for o in spec['outputs']}:
                 raise ValueError('Raw Safari evidence path conflicts with a declared file.')
             resolved.append(native_input)
+        from .browser_review_inputs import review_input as browser_review_input
+        browser_input=browser_review_input(self,run,spec)
+        if browser_input:
+            if browser_input['path'] in {i['path'] for i in resolved}|{o['path'] for o in spec['outputs']}:
+                raise ValueError('Browser evidence path conflicts with a declared file.')
+            resolved.append(browser_input)
+        from .execution_evidence import inputs as execution_inputs
+        resolved.extend(execution_inputs(self,run,spec,resolved))
         if spec.get('execution'):
             ceiling=execution.REGISTRY[spec['execution']['capability']]['input_bytes']
             if sum(i['bytes'] for i in resolved)>ceiling:
                 raise ValueError(f'Registered operation input byte limit exceeded ({ceiling} bytes).')
+            if spec['execution']['capability']=='pptx.create':
+                from .pptx_document import preflight_inputs
+                preflight_inputs(resolved)
+            if execution.REGISTRY[spec['execution']['capability']].get('native_adapter')=='record-slides':
+                from .sourcing_slides import build
+                by_path={i['path']:i for i in resolved}
+                build({**spec,'inputs':resolved},lambda p:by_path[p]['blob'].read_bytes())
+                from task_relay.external_evidence import recorded_sources
+                source=by_path[spec['execution']['parameters']['source_pack_path']]
+                if not recorded_sources(self,[source],allow_empty=True):raise ValueError('Sourcing assembly needs exact native saved-page provenance')
         elif backend['type'] in executors.API_TYPES:
-            executors.validate_input_sizes(resolved,backend)
-            if backend['type'] not in executors.CODE_TYPES:
+            from .evidence_context import bind as bind_evidence_context
+            bind_evidence_context(self,run,spec,backend,resolved)
+            executors.validate_input_sizes(resolved,backend,spec)
+            if backend['type'] not in executors.CODE_TYPES and not spec.get('job_owner'):
                 for item in resolved:
                     raw=item['blob'].read_bytes()
-                    if backend['type'] in executors.BROWSER_TYPES and png_input(item):png_info(raw)
+                    if (backend['type'] in executors.BROWSER_TYPES or backend['type'] in executors.VISION_FILE_TYPES and item.get('visual_reference')) and png_input(item):png_info(raw)
+                    elif executors.inspection_input(spec,item) or executors.asset_input(spec,item):pass # Exact local bytes; inspection and consumption have separate contracts.
                     else:
                         try:raw.decode('utf-8')
                         except UnicodeError:raise ValueError('API executors require UTF-8 text inputs: '+item['path']) from None
+        from .worker_tools import native_assignment
+        native=native_assignment(spec)
+        if native is not None:
+            native_inputs=self.checked_inputs(run,native,backend)
+            by_path={i['path']:i for i in native_inputs}
+            execution.adapter(native['execution']['capability']).validate_content(native,lambda path:by_path[path]['blob'].read_bytes())
+        from .record_lifecycle import definition
+        hooks=definition(spec['operation_contract']) if spec.get('operation_contract') else None
+        if hooks and hooks.preflight:
+            by_path={i['path']:i for i in resolved}
+            bound={**spec,'inputs':resolved}
+            ctx=hooks.context(bound,lambda p:by_path[p]['blob'].read_bytes())
+            hooks.preflight(bound,ctx)
+            if hooks.review_units:
+                from .review_inputs import interface
+                cost=interface(bound,lambda p:by_path[p]['blob'].read_bytes())
+                if min(executors.request_limit(spec),spec['limits']['tool_calls'])<cost['required_requests']:
+                    raise ValueError('Registered review obligations exceed frozen capacity before dispatch')
+            from task_relay.external_evidence import recorded_sources
+            if hooks.evidence_parameter:
+                page_input=by_path[spec['operation_contract']['parameters'][hooks.evidence_parameter]]
+                proof=recorded_sources(self,[page_input],allow_empty=True)
+                if not proof:raise ValueError('Typed sourcing requires an exact completed native source-pack receipt; supplied JSON cannot assert fetched evidence')
+                page_input['sourcing_source_receipt']=proof[0]
         return resolved
 
-    def claim(self, run):
+    def claim(self, run, authorize=None):
         if self.db.in_transaction:
             raise ValueError('Worker claims require a transaction boundary before transport.')
         with self.transaction():
@@ -344,16 +520,31 @@ class Runtime:
                 raise ValueError('Unknown workflow')
             if row['status'] != 'active':
                 return None
+            # Collection lifetime and dispatch permission are separate.
+            tasks=list(self.db.execute('SELECT * FROM production_tasks WHERE run=?',(run,)))
+            if stop_status(row['status'],tasks,[self.spec(t) for t in tasks])!='active':return None
+            if authorize is not None and not authorize(self,run):return None
             plan = json.loads(row['plan'])
             occupied = self.db.execute("SELECT count(*) FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')", (run,)).fetchone()[0]
             if occupied >= plan['concurrency']:
                 return None
             for task in self.db.execute("SELECT * FROM production_tasks WHERE run=? AND status='queued' ORDER BY rowid", (run,)).fetchall():
                 spec = self.spec(task)
+                try:
+                    from .continuations import validate_dispatch as validate_continuation
+                    validate_continuation(self,task)
+                    from .review_snapshot import check as check_snapshot
+                    check_snapshot(self,run,spec)
+                except (ValueError,OSError,KeyError,TypeError) as exc:
+                    self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                    self.event(run,task['id'],None,'continuation_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                    continue
                 if not self.ready(run, spec):
                     continue
-                if spec.get('resource') and self.db.execute("SELECT 1 FROM production_attempts WHERE resource=? AND state IN ('launching','running','cancelling','uncertain')", (spec['resource'],)).fetchone():
-                    continue
+                from .operation_lifecycle import resources as operation_resources
+                required_resources=operation_resources(spec)
+                active_specs=[json.loads(a['frozen']) for a in self.db.execute("SELECT frozen FROM production_attempts WHERE state IN ('launching','running','cancelling','uncertain')")]
+                if any(required_resources & operation_resources(active) for active in active_specs):continue
                 if task['attempts'] >= spec['max_attempts']:
                     self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?", (run, task['id']))
                     self.event(run, task['id'], None, 'attempt_limit',
@@ -364,12 +555,7 @@ class Runtime:
                     from .execution import available
                     try:
                         available(spec)
-                        if spec['execution']['capability']=='rhino.render':
-                            from .rhino_render import bind_registered
-                            bind_registered(self,spec)
-                        if spec['execution']['capability']=='blender.animate':
-                            from .blender_animation import bind_registered
-                            bind_registered(self,spec)
+                        execution.adapter(spec['execution']['capability']).bind_inputs(self,spec,run=run)
                     except ValueError as exc:
                         self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
                         self.event(run,task['id'],None,'capability_unavailable',{'reason':str(exc)})
@@ -384,23 +570,111 @@ class Runtime:
                         continue
                 from .worker_capabilities import backend_for
                 backend=backend_for(spec,plan['backend'])
-                try:resolved_inputs=self.checked_inputs(run,spec,backend)
+                if spec.get('execution') and plan.get('job_owner'):
+                    from .model_binding import selected
+                    backend=selected(plan['job_owner'],spec['execution']['capability'],backend)
+                try:
+                    resolved_inputs=self.checked_inputs(run,spec,backend)
+                    if spec.get('execution'):
+                        from .operation_inputs import resolved as check_content_inputs
+                        check_content_inputs(spec,resolved_inputs)
+                    if spec.get('review_of'):
+                        from .artifact_structure import inspect_cached as inspect_structure
+                        for item in resolved_inputs:
+                            if item.get('from_task')==spec['review_of']:
+                                inspect_structure(item,item['blob'].read_bytes(),self.root/'structural-checks')
                 except (ValueError,OSError) as exc:
+                    from .evidence_context import admission_failure
                     self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
                     self.event(run,task['id'],None,'input_preflight_blocked',
-                               {'assignment':task['assignment'],'reason':str(exc),'dispatched':False})
+                               {'assignment':task['assignment'],'reason':str(exc),'dispatched':False,'failure':admission_failure(exc)})
                     continue
+                from task_relay.input_preflight_recovery import validate_dispatch as validate_input_recovery
+                if plan.get('origin',{}).get('registered_revision'):
+                    from task_relay.registered_revision import validate_dispatch
+                    try:validate_dispatch(self,plan)
+                    except (ValueError,OSError) as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'registered_revision_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                try:validate_input_recovery(self,task,resolved_inputs)
+                except ValueError as exc:
+                    self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                    self.event(run,task['id'],None,'input_recovery_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                    continue
+                if spec.get('revision',{}).get('kind')=='registered_input_preflight':
+                    from task_relay.native_preflight import validate_dispatch
+                    try:validate_dispatch(self,task,spec,backend,resolved_inputs)
+                    except (ValueError,OSError) as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'native_preflight_continuation_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                resume_parent=None;review_checkpoint=None
+                if spec.get('revision',{}).get('kind')=='local_review_session':
+                    from task_relay.local_review import validate_dispatch
+                    try:review_checkpoint=validate_dispatch(self,task,spec,backend,resolved_inputs)
+                    except (ValueError,OSError) as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'review_session_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                if spec.get('revision',{}).get('kind')=='confirmed_local_revision':
+                    from task_relay.completion_recovery import validate_local_revision
+                    try:validate_local_revision(self,task,spec,backend)
+                    except (ValueError,OSError) as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'local_revision_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                if spec.get('revision',{}).get('kind') in ('confirmed_review_generation','confirmed_review_input'):
+                    from task_relay.review_budget_recovery import validate_generation_parent
+                    try:validate_generation_parent(self,task,spec,backend,resolved_inputs)
+                    except (ValueError,OSError) as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'generation_review_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                if spec.get('revision',{}).get('kind')=='saved_review_budget':
+                    from task_relay.review_budget_recovery import validate_parent
+                    try:validate_parent(self,task,spec,backend,resolved_inputs)
+                    except ValueError as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'review_budget_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                if spec.get('revision',{}).get('kind')=='public_photo_setup_recovery':
+                    from task_relay.public_photo_recovery import validate_parent
+                    try:validate_parent(self,task,spec,backend,resolved_inputs)
+                    except ValueError as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'public_photo_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
+                from .record_recovery import supports
+                if supports(spec,'resumable'):
+                    from .record_recovery import parent_for,validate_parent
+                    try:
+                        resume_parent=parent_for(self,task)
+                        if resume_parent:
+                            preview={**spec,'run':run,'backend':backend,'inputs':resolved_inputs}
+                            if spec.get('review_of'):preview['review_target']=self.task(run,spec['review_of'])['latest']
+                            validate_parent(self,preview,resume_parent)
+                    except ValueError as exc:
+                        self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
+                        self.event(run,task['id'],None,'checkpoint_preflight_blocked',{'reason':str(exc),'dispatched':False})
+                        continue
                 if not spec.get('execution') and hasattr(self.factory,'available'):
                     try:self.factory.available(backend)
                     except ValueError as exc:
+                        from .review_recovery import admission_failure
+                        detail=admission_failure(self,run,task,spec,backend,resolved_inputs,str(exc))
                         self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,task['id']))
-                        self.event(run,task['id'],None,'capability_unavailable',{'reason':str(exc)})
+                        self.event(run,task['id'],None,'capability_unavailable',detail)
                         continue
                 attempt = uid(); workspace = self.root / 'workspaces' / attempt
                 workspace.mkdir(parents=True, mode=0o700)
                 frozen = copy.deepcopy(spec)
                 frozen.pop('computer_review',None)
                 frozen['inputs']=[{k:v for k,v in item.items() if k not in ('blob','bytes','native_evidence')} for item in resolved_inputs]
+                if frozen.get('artifact_roles'):
+                    for item in frozen['inputs']:
+                        if item['path'] not in frozen['artifact_roles']['inputs'] and item['path'].startswith('execution-evidence/'):
+                            frozen['artifact_roles']['inputs'][item['path']]=dict(origin=dict(kind='inherited',via=['execution_receipt']),consumes=[],inspection=dict(tool='file_read',path=item['path']),provenance=dict(artifact=item['artifact']))
                 for item in resolved_inputs:
                     if 'native_evidence' in item:frozen['computer_review']=item['native_evidence']
                 # Never trust a model-supplied authorization field.
@@ -410,6 +684,16 @@ class Runtime:
                     frozen['authorized_assignment_digest']=c.digest(spec)
                 frozen.update(assignment_id=attempt, assignment_version=task['assignment'],
                               run=run, workspace=str(workspace), brief=plan['brief'], backend=backend)
+                from .job_owner import freeze as freeze_owner
+                freeze_owner(self,plan,task,frozen)
+                from .provider_cooldown import freeze as freeze_cooldown
+                freeze_cooldown(self,plan,frozen)
+                frozen.pop('review_checkpoint',None)
+                if review_checkpoint:frozen['review_checkpoint']=review_checkpoint
+                frozen.pop('record_resume',None)
+                if resume_parent:frozen['record_resume']={'parent':resume_parent}
+                from .review_followup import bind as bind_followup
+                bind_followup(self,plan,frozen)
                 if not frozen.get('execution'):
                     from .report_builder import freeze as report_form
                     frozen['report_contract']=report_form(frozen)
@@ -418,26 +702,18 @@ class Runtime:
                 from task_relay.host import support_hashes
                 frozen['host_support'] = support_hashes()
                 frozen['runtime_sources'] = {p.name: file_hash(p) for p in Path(__file__).parent.glob('*.py')}
-                if spec.get('execution',{}).get('capability') in ('media.compose','hyperframes.preview','hyperframes.render'):
-                    from task_relay import media_host
-                    frozen['media_runtime']=media_host.available('project' if spec['execution']['capability'].startswith('hyperframes.') else 'template')
-                    frozen['runtime_sources']['task_relay/media_host.py']=file_hash(Path(media_host.__file__))
-                if spec.get('execution',{}).get('capability','').startswith('sketchup.'):
-                    from .sketchup_execution import application_binding
-                    frozen['sketchup_application']=application_binding()
-                if frozen.get('execution',{}).get('capability') in ('images.collect','images.fetch','web.sources'):
-                    from task_relay import orchestrator_web
-                    frozen['runtime_sources']['task_relay/orchestrator_web.py']=file_hash(Path(orchestrator_web.__file__))
-                if frozen.get('execution',{}).get('capability') in execution.CLOUD_MEDIA:
-                    from task_relay import cloud_providers
-                    frozen['runtime_sources']['task_relay/cloud_providers.py'] = file_hash(Path(cloud_providers.__file__))
-                if spec.get('execution',{}).get('capability','').startswith('rhino.'):
-                    from task_relay import rhino_host,host_apps
-                    frozen['rhino_host_sources']={m.__name__:file_hash(Path(m.__file__)) for m in (rhino_host,host_apps)}
-                    from task_relay.host_evidence import application_signature
-                    rhino_app=host_apps.rhino()
-                    frozen['rhino_application']={'signature':application_signature(rhino_app['executable']),
-                        'major':rhino_app.get('major',8),'version':rhino_app.get('version')}
+                # Pin shared compiler/transport hooks too, including lazy imports.
+                frozen['runtime_sources'].update({'task_relay/'+p.name:file_hash(p)
+                    for p in (Path(__file__).resolve().parents[1]/'task_relay').glob('*.py')})
+                if frozen.get('operation_contract'):
+                    from .record_lifecycle import implementation_sources
+                    frozen['runtime_sources'].update(implementation_sources(frozen['operation_contract']))
+                if frozen.get('execution'):
+                    capability=frozen['execution']['capability']
+                    execution.adapter(capability).freeze(frozen,execution.REGISTRY[capability])
+                if frozen.get('work_tools'):
+                    from .worker_tools import freeze as freeze_work
+                    freeze_work(frozen,self)
                 for item,artifact in zip(frozen['inputs'],resolved_inputs):
                     item.update(artifact=artifact['artifact'], sha256=artifact['sha256'])
                     target = workspace / item['path']; target.parent.mkdir(parents=True, exist_ok=True)
@@ -446,10 +722,30 @@ class Runtime:
                 if spec.get('review_of'):
                     frozen['review_target'] = self.task(run, spec['review_of'])['latest']
                 relay = workspace / '.relay'; relay.mkdir()
+                from task_relay.saved_evidence_revision import stage_helper
+                stage_helper(plan,frozen,relay)
+                from .verification import stage as stage_verification
+                stage_verification(self,plan,frozen,relay)
+                if spec.get('review_of') and backend['type']=='codex-cli':
+                    target=self.task(run,spec['review_of']);target_spec=self.spec(target)
+                    metadata=execution.REGISTRY.get(target_spec.get('execution',{}).get('capability'),{}).get('saved_evidence',{})
+                    if metadata.get('kind')=='pages':
+                        from .evidence_workload import review_batches
+                        packs=[i for i in frozen['inputs'] if i.get('from_task')==target['id'] and i.get('media_type')=='application/json']
+                        if len(packs)==1:
+                            pack=json.loads(safe_file(workspace,packs[0]['path']).read_text())
+                            workload=review_batches(pack,frozen['limits']['tool_calls']);batch_paths=[]
+                            for index,batch in enumerate(workload.pop('batches')):
+                                path=relay/('evidence-batch-'+str(index+1)+'.json');path.write_text(c.encoded(batch)+'\n');path.chmod(0o400)
+                                batch_paths.append(dict(path=str(path.relative_to(workspace)),sha256=file_hash(path)))
+                            frozen['evidence_workload']={**workload,'batches':batch_paths,'source_sha256':packs[0]['sha256']}
                 (relay / 'ASSIGNMENT.json').write_text(c.encoded(frozen) + '\n')
                 session = self.factory.create(self.root / 'workers' / attempt, workspace, frozen, backend)
                 self.db.execute('INSERT INTO production_attempts(id,run,task,assignment,state,resource,frozen,session) VALUES (?,?,?,?,?,?,?,?)',
                     (attempt, run, task['id'], task['assignment'], 'launching', spec.get('resource'), c.encoded(frozen), c.encoded(session)))
+                if resume_parent:
+                    from .record_recovery import seed
+                    seed(self,frozen,resume_parent)
                 self.db.execute("UPDATE production_tasks SET status='launching',attempts=attempts+1,latest=? WHERE run=? AND id=?",
                                 (attempt, run, task['id']))
                 self.event(run, task['id'], attempt, 'dispatch_claimed', {'frozen': frozen, 'session': session})
@@ -462,9 +758,9 @@ class Runtime:
 
     def reviewer(self, run, tid):
         return next((t for t in self.db.execute('SELECT * FROM production_tasks WHERE run=?', (run,)).fetchall()
-                     if self.spec(t).get('review_of') == tid), None)
+                     if self.spec(t).get('review_of') == tid and not self.spec(t).get('review_snapshot')), None)
 
-    def retry_review(self,run,tid,instruction,source='user'):
+    def retry_review(self,run,tid,instruction,source='user',*,additional_inputs=()):
         """Explicit local API review recovery within its existing attempt budget."""
         from . import executors
         with self.transaction():
@@ -477,9 +773,12 @@ class Runtime:
                 raise ValueError('Paused or cancelled work cannot recover here.')
             attempt=self.db.execute('SELECT * FROM production_attempts WHERE id=?',(task['latest'],)).fetchone()
             frozen=json.loads(attempt['frozen']);receipt=json.loads(attempt['receipt'] or '{}')
+            backend=frozen['backend']['type']
+            confirmed=(receipt.get('external_outcome')=='no_pending_response' or
+                       backend=='codex-cli' and receipt.get('exit_code')==0 and receipt.get('external_outcome') is None)
             if (attempt['state']!='blocked' or receipt.get('status')!='finished'
-                or receipt.get('external_outcome')!='no_pending_response' or receipt.get('pending_requests')
-                or frozen['backend']['type'] not in (*executors.FILE_TYPES,*executors.CODE_TYPES)):
+                or not confirmed or receipt.get('pending_requests')
+                or backend not in (*executors.FILE_TYPES,*executors.CODE_TYPES,'codex-cli')):
                 raise ValueError('Confirmed finished API review with no pending response is required; no uncertain replay.')
             target=self.task(run,spec['review_of'])
             if target['status']!='awaiting_review' or target['latest']!=frozen['review_target']:
@@ -487,7 +786,19 @@ class Runtime:
             for other in self.db.execute('SELECT * FROM production_tasks WHERE run=?',(run,)):
                 if other['status'] in ACTIVE or (other['attempts'] and tid in self.spec(other)['dependencies']):
                     raise ValueError('Active or downstream work prevents review recovery.')
+            added=[]
+            if not isinstance(additional_inputs,(list,tuple)) or len(additional_inputs)>4:
+                raise ValueError('Review recovery permits at most four declared text support inputs.')
+            paths={i['path'] for i in spec['inputs']}
+            from .worker_capabilities import TEXT_TYPES
+            for item in additional_inputs:
+                if not isinstance(item,dict) or not item.get('artifact') or item.get('media_type') not in TEXT_TYPES or item.get('path') in paths:
+                    raise ValueError('Review recovery requires distinct immutable text support artifacts.')
+                artifact=self.artifact(item['artifact'])
+                paths.add(item['path']);spec['inputs'].append(dict(item))
+                added.append({'artifact':artifact['id'],'path':item['path'],'sha256':artifact['sha256'],'bytes':artifact['bytes']})
             spec['revision']={'instruction':instruction,'source':source,'previous_attempt':attempt['id']}
+            if added:spec['revision']['added_inputs']=added
             aid=self.new_assignment(run,c.assignment(spec))
             self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?",(aid,run,tid))
             self.event(run,tid,attempt['id'],'review_retry_requested',spec['revision'])
@@ -498,6 +809,12 @@ class Runtime:
 
     def _revise(self, run, tid, instruction, source):
         task = self.task(run, tid); spec = self.spec(task)
+        from .corrections import layout_task, schedule_specification
+        if layout_task(spec):
+            if schedule_specification(self,run,tid,instruction,source):return
+            self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(run,tid))
+            self.event(run,tid,task['latest'],'correction_limit',dict(instruction=instruction,source=source,reason='Native specification has no remaining permitted layout correction; retained findings require different work.'))
+            return
         if spec.get('review_correction'):
             from .corrections import schedule
             if schedule(self,run,tid,instruction,source):return
@@ -514,9 +831,11 @@ class Runtime:
         for downstream in self.db.execute('SELECT * FROM production_tasks WHERE run=?',(run,)):
             if self.spec(downstream).get('review_correction',{}).get('producer')==tid and downstream['attempts']==0:
                 limit=min(limit,2)  # Reserve the third draft for a built-document correction.
-        if task['attempts'] >= limit:
+        review_exhausted=bool(reviewer and reviewer['attempts']>=self.spec(reviewer)['max_attempts'])
+        if task['attempts'] >= limit or review_exhausted:
             self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?", (run, tid))
-            self.event(run, tid, task['latest'], 'revision_limit', {'instruction': instruction, 'source': source})
+            self.event(run, tid, task['latest'], 'revision_limit', {'instruction': instruction, 'source': source,
+                'code':'review_capacity_exhausted' if review_exhausted else 'producer_capacity_exhausted'})
             return
         c.nonempty(instruction, 'revision instruction')
         spec['revision'] = {'instruction': instruction, 'source': source, 'previous_attempt': task['latest']}
@@ -541,7 +860,7 @@ class Runtime:
         aid = self.new_assignment(run, spec)
         self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?", (aid, run, tid))
         if reviewer:
-            aid = self.new_assignment(run, c.assignment(review_spec))
+            aid = self.new_assignment(run, c.assignment(review_spec),fresh_review=True)
             self.db.execute("UPDATE production_tasks SET assignment=?,status='queued' WHERE run=? AND id=?", (aid, run, reviewer['id']))
         self.event(run, tid, task['latest'], 'revision_requested', spec['revision'])
 
@@ -549,7 +868,8 @@ class Runtime:
         """Snapshot declared drafts after a confirmed stop, without advancing state."""
         attempt = self.db.execute('SELECT * FROM production_attempts WHERE id=?', (attempt_id,)).fetchone()
         receipt = json.loads(attempt['receipt'] or '{}') if attempt else {}
-        if not attempt or attempt['state'] not in ('blocked', 'cancelled') or receipt.get('status') != 'finished':
+        stopped=receipt.get('status')=='finished' or (receipt.get('status')=='uncertain' and receipt.get('local_terminal') is True)
+        if not attempt or attempt['state'] not in ('blocked', 'cancelled') or not stopped:
             raise ValueError('Draft recovery requires a terminal attempt and a confirmed stopped worker.')
         old = self.db.execute("SELECT data FROM production_events WHERE attempt=? AND kind='draft_outputs_preserved'", (attempt_id,)).fetchone()
         if old:
@@ -559,6 +879,9 @@ class Runtime:
         total = 0
         for output in frozen['outputs']:
             try:
+                if output==frozen.get('work_tools',{}).get('diagnostics'):
+                    from .operation_diagnostics import verify_projection
+                    verify_projection(frozen,Path(json.loads(attempt['session'])['control']))
                 path = safe_file(workspace, output['path']); total += path.stat().st_size
                 if total > frozen['limits']['output_bytes']:
                     raise ValueError('Declared output byte limit exceeded')
@@ -574,12 +897,21 @@ class Runtime:
 
     def collect(self, attempt, receipt):
         with self.transaction():
+            from .job_owner import collect as collect_owner
+            if collect_owner(self,attempt,receipt):return
             self._collect(attempt, receipt)
+            from .record_recovery import queue as queue_record_resume
+            queue_record_resume(self,attempt,receipt)
             from task_relay.execution_capture import notify
             notify(self.db, 'production_attempt', attempt['id'])
 
     def _collect(self, attempt, receipt):
         frozen = json.loads(attempt['frozen']); workspace = Path(frozen['workspace'])
+        calls=receipt.get('tool_calls')
+        if calls is not None and (type(calls) is not int or calls<0):
+            receipt={**receipt,'reason':receipt.get('reason') or 'invalid_tool_count'}
+        if type(calls) is int and calls > frozen['limits']['tool_calls'] and not receipt.get('reason'):
+            receipt = {**receipt, 'reason':'tool_limit'}
         if not self.db.execute("SELECT 1 FROM production_events WHERE attempt=? AND kind='worker_started'", (attempt['id'],)).fetchone():
             self.event(attempt['run'], attempt['task'], attempt['id'], 'worker_started',
                        {'observed_at_completion': True, 'started': receipt.get('started'), 'thread_id': receipt.get('thread_id')})
@@ -596,6 +928,11 @@ class Runtime:
                     'Correct the saved specification using this local operation failure receipt: '+c.encoded(receipt['operation']),
                     'local_operation_failure:'+attempt['id'])
             return
+        try:
+            from .record_tool import reconcile as reconcile_fragments
+            reconcile_fragments(frozen,self.db)
+        except (ValueError,OSError) as exc:
+            self.set_state(attempt,'blocked',str(exc));return
         artifacts, failures = [], []
         total = 0
         for output in frozen['outputs']:
@@ -611,12 +948,20 @@ class Runtime:
                 failures.append(str(exc))
         self.event(attempt['run'], attempt['task'], attempt['id'], 'output_delivered', {'artifacts': artifacts})
         try:
+            if frozen.get('work_tools'):
+                from .worker_tools import verify_delivery
+                verify_delivery(frozen,Path(json.loads(attempt['session'])['control']),self.db)
             from .browser_contract import validate_captures
             validate_captures(frozen,workspace)
             from .host_script import validate_prepared
             validate_prepared(frozen, workspace)
+            from .artifact_structure import check_outputs as inspect_outputs
+            structure=inspect_outputs(frozen,lambda path:safe_file(workspace,path).read_bytes(),self.root/'structural-checks')
+            if structure:self.event(attempt['run'],attempt['task'],attempt['id'],'artifact_structure_checked',dict(checks=structure,acceptance=False))
             from .deliverable_outputs import check_delivery as check_outputs
             check_outputs(frozen,lambda path:safe_file(workspace,path).read_bytes())
+            from task_relay.registered_revision import check_output as check_revision_output
+            check_revision_output(self,frozen,lambda path:safe_file(workspace,path).read_bytes())
             from .text_outputs import check_delivery
             check_delivery(frozen,lambda path:safe_file(workspace,path).read_bytes())
         except (ValueError, OSError) as exc:
@@ -647,7 +992,9 @@ class Runtime:
                 check_delivery(frozen,lambda p:safe_file(workspace,p).read_bytes(),pack)
             if frozen.get('operation_contract') and result['decision']!='blocked':
                 from .operation_records import Store
-                Store(frozen,self.db).verify_export(lambda p:safe_file(workspace,p).read_bytes())
+                store=Store(frozen,self.db)
+                store.verify_export(lambda p:safe_file(workspace,p).read_bytes())
+                store.verify_result(result)
             if failures and result['decision'] != 'blocked':
                 raise ValueError('; '.join(failures))
         except (ValueError, OSError) as exc:
@@ -662,10 +1009,33 @@ class Runtime:
         from .outcomes import disposition
         findings=result.get('findings',[])
         action=disposition(findings)
+        if frozen.get('review_snapshot'):
+            from .review_snapshot import check as check_snapshot
+            check_snapshot(self,attempt['run'],frozen)
+            self.event(attempt['run'],attempt['task'],attempt['id'],'snapshot_review_recorded',dict(decision=result['decision'],disposition=action,targets=frozen['review_snapshot'],producer_state_changed=False))
+            if action not in ('block','reconcile'):
+                self.set_state(attempt,'blocked' if action=='user_review' else 'completed',
+                    'Snapshot review requires a user decision; producer state is unchanged' if action=='user_review' else None)
+                return
+        if action=='block' and frozen.get('review_of') and result['decision']=='revise':
+            target=self.task(attempt['run'],frozen['review_of'])
+            from .corrections import specification_policy
+            if (target['latest']==frozen.get('review_target') and target['status']=='awaiting_review'
+                    and (self.spec(target).get('review_correction') or specification_policy(self,attempt['run'],target['id']))
+                    and all(f['category'] in ('requirements','execution','integrity','advisory') for f in findings)):
+                # Preserve defect classification. The reviewed candidate stays
+                # unaccepted while its already frozen correction grant is used.
+                self.event(attempt['run'],target['id'],target['latest'],'review_defects_routed_to_correction',
+                    dict(review_attempt=attempt['id'],findings=findings,user_approval=False))
+                action='continue'
         if action in ('block','reconcile'):
             self.set_state(attempt,'uncertain' if action=='reconcile' else 'blocked','; '.join(f['category']+': '+f['message'] for f in findings))
             self.event(attempt['run'],attempt['task'],attempt['id'],'result_recovery_required',{'disposition':action,'findings':findings,'automatic_dispatch':False})
             return
+        advisory=[f for f in findings if f['category']=='advisory']
+        if advisory:
+            self.event(attempt['run'],attempt['task'],attempt['id'],'result_advisories_recorded',
+                {'findings':advisory,'user_approval':False,'review_target':frozen.get('review_target')})
         if action=='user_review':
             target=self.task(attempt['run'],frozen.get('review_of') or attempt['task'])
             if frozen.get('review_of') and (target['latest']!=frozen['review_target'] or target['status']!='awaiting_review'):
@@ -681,7 +1051,15 @@ class Runtime:
                 self.set_state(attempt, 'blocked', 'Stale review target'); return
             if result['decision'] == 'revise' and action!='user_review':
                 target_spec=self.spec(target)
-                if target_spec.get('execution') and not target_spec.get('review_correction'):
+                from .corrections import specification_policy
+                owner_job=json.loads(self.db.execute('SELECT plan FROM production_runs WHERE id=?',(attempt['run'],)).fetchone()[0]).get('job_owner')
+                if owner_job:
+                    # The job owner receives the exact rejected candidate and
+                    # review. Do not also run the legacy per-task correction path,
+                    # which cannot revise after render/inspection helpers started.
+                    self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(attempt['run'],target['id']))
+                    self.event(attempt['run'],target['id'],target['latest'],'owner_correction_required',dict(review_attempt=attempt['id'],summary=result['summary'],instruction=result['instruction']))
+                elif target_spec.get('execution') and not target_spec.get('review_correction') and not specification_policy(self,attempt['run'],target['id']):
                     # A review is complete even when its candidate needs correction.
                     # Native/external work requires a new exact approval, never replay.
                     self.db.execute("UPDATE production_tasks SET status='blocked' WHERE run=? AND id=?",(attempt['run'],target['id']))
@@ -699,7 +1077,7 @@ class Runtime:
             state = 'awaiting_review' if self.reviewer(attempt['run'], attempt['task']) else ('awaiting_user' if self.decision_purpose(self.task(attempt['run'],attempt['task'])) else 'completed')
             self.db.execute('UPDATE production_tasks SET status=? WHERE run=? AND id=?', (state, attempt['run'], attempt['task']))
 
-    def tick(self, run, dispatch=True):
+    def tick(self, run, dispatch=True, authorize=None):
         if self.db.in_transaction:
             raise ValueError('Commit pending database changes before running the scheduler.')
         for attempt in self.db.execute("SELECT * FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling','uncertain')", (run,)).fetchall():
@@ -708,7 +1086,9 @@ class Runtime:
             if attempt['state'] == 'cancelling':
                 # Intent survives a crash before the adapter receives cancellation.
                 self.factory.cancel(json.loads(attempt['session']))
-            receipt = self.factory.inspect(json.loads(attempt['session']))
+            raw_receipt = self.factory.inspect(json.loads(attempt['session']))
+            from .connector_protocol import receipt as normalize_receipt
+            receipt = normalize_receipt(raw_receipt)
             with self.transaction():
                 fresh = self.db.execute('SELECT * FROM production_attempts WHERE id=?', (attempt['id'],)).fetchone()
                 if fresh['state'] not in ACTIVE:
@@ -720,7 +1100,13 @@ class Runtime:
                         self.set_state(fresh, 'blocked', str(exc))
                         self.event(run, fresh['task'], fresh['id'], 'collection_blocked', {'reason':str(exc)})
                 elif receipt['status'] == 'uncertain' and fresh['state'] == 'cancelling':
-                    self.db.execute('UPDATE production_attempts SET error=? WHERE id=?', (receipt['reason'],fresh['id']))
+                    self.db.execute('UPDATE production_attempts SET error=?,receipt=? WHERE id=?', (receipt['reason'],c.encoded(receipt),fresh['id']))
+                    if receipt.get('local_terminal') is True:
+                        # Explicit cancellation ends local work, not the unknown
+                        # remote effect. Never collect or mark that effect confirmed.
+                        self.set_state(fresh,'cancelled',receipt['reason'])
+                        self.event(run,fresh['task'],fresh['id'],'cancelled_with_uncertain_effect',receipt)
+                        self.preserve_stopped_outputs(fresh['id'])
                 elif receipt['status'] == 'uncertain' and fresh['state'] != 'uncertain':
                     self.set_state(fresh, 'uncertain', receipt['reason'])
                     self.db.execute('UPDATE production_attempts SET receipt=? WHERE id=?',(c.encoded(receipt),fresh['id']))
@@ -732,8 +1118,13 @@ class Runtime:
                 if current in ('completed', 'blocked', 'cancelled', 'uncertain'):
                     from task_relay.execution_capture import notify
                     notify(self.db, 'production_attempt', fresh['id'])
+        if dispatch:
+            from .review_recovery import requeue as requeue_review
+            requeue_review(self,run)
+        from .job_owner import wake as wake_owner
+        wake_owner(self,run)
         while dispatch:
-            session = self.claim(run)
+            session = self.claim(run,authorize=authorize)
             if not session:
                 break
             try:
@@ -759,7 +1150,7 @@ class Runtime:
 
     def resume(self, run):
         with self.transaction():
-            if self.status(run)['status'] != 'paused':
+            if self.db.execute('SELECT status FROM production_runs WHERE id=?',(run,)).fetchone()[0] != 'paused':
                 raise ValueError('Only a paused production can be resumed')
             self.db.execute("UPDATE production_runs SET status='active' WHERE id=?", (run,))
             self.event(run,None,None,'production_resumed',{})
@@ -826,7 +1217,22 @@ class Runtime:
         if row is None:
             raise ValueError('Unknown workflow')
         tasks = [dict(t) for t in self.db.execute('SELECT * FROM production_tasks WHERE run=? ORDER BY rowid', (run,))]
-        state = run_status(row['status'], tasks, [self.spec(t) for t in tasks])
-        return {'id': run, 'status': state, 'tasks': tasks,
+        specs = [self.spec(t) for t in tasks]
+        state = run_status(row['status'], tasks, specs)
+        progress = {}
+        drain=settlement(row['status'],tasks,specs)
+        if drain:progress['settlement']=drain
+        if stop_status(row['status'],tasks,specs) == 'uncertain' and row['status'] == 'active':
+            attempts = [dict(a) for a in self.db.execute('SELECT state FROM production_attempts WHERE run=?', (run,))]
+            locked = {a[0] for a in self.db.execute("SELECT resource FROM production_attempts WHERE state IN ('launching','running','cancelling','uncertain')")}
+            uncertainty=uncertainty_progress(tasks,specs,attempts,json.loads(row['plan'])['concurrency'],locked)
+            uncertainty.update(runnable_independent=[],can_continue=bool(uncertainty['active_independent']),dispatch_allowed=False)
+            progress['uncertainty_progress']=uncertainty
+        report = {'id': run, 'status': state, 'tasks': tasks, **progress,
             'attempts': [dict(a) for a in self.db.execute('SELECT id,task,state,error,receipt FROM production_attempts WHERE run=? ORDER BY rowid', (run,))],
             'artifacts': [dict(a) for a in self.db.execute('SELECT id,task,attempt,path,sha256,bytes,purpose FROM production_artifacts WHERE run=? ORDER BY rowid', (run,))]}
+        if state in ('blocked','uncertain'):
+            from .partial_delivery import snapshot
+            delivery=snapshot(self,report)
+            if delivery:report['delivery']=delivery
+        return report

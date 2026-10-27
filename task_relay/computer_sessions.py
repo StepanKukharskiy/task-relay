@@ -177,6 +177,10 @@ def _save(row, action_id, request, response, *, refresh_url=None):
             raise ValueError('Missing new-window ownership receipt.')
         expected = {**expected, 'target': contract.target(response.get('observation', {}).get('target'))}
     if refresh_url is not None:expected={**expected,'expected_url':refresh_url}
+    actual=response.get('observation',{}).get('url')
+    if actual!=expected['expected_url']:
+        contract.navigation_url(expected['expected_url'],actual,json.loads(row['spec']).get('navigation_policy'),expected['local_fixture'])
+        expected={**expected,'expected_url':actual}
     data, png = contract.validate_response(response.get('observation'), expected)
     token = response.get('token')
     if (response.get('ok') is not True or not isinstance(token, str) or

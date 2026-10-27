@@ -130,7 +130,9 @@ def attach(state, payload, parent, stage, pipeline, request):
 
 def compile_proposal(result, payload, request_id):
     if not payload.get('design_intent_policy'):
-        if 'design_intent' in result:raise ValueError('Design intent was not enabled in this frozen scope.')
+        # An empty optional annotation adds no requirements or design scope.
+        # Preserve the raw reply; meaningful unrequested intent still fails.
+        if result.get('design_intent') not in (None,{}):raise ValueError('Design intent was not enabled in this frozen scope.')
         return None
     value=result.get('design_intent')
     if not isinstance(value,dict) or set(value)!={'phase','representation','advance_quote','additions'}:

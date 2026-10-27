@@ -101,12 +101,16 @@ def _snapshot(state, pid):
         artifact_ids = set()
         runs = set()
         plans = set()
+        from .pipeline_lineage import collect as pipeline_members
         for row in state.db.execute('SELECT * FROM relay_pipeline_steps WHERE pipeline=? ORDER BY position', (pid,)):
             stage = dict(row)
             for k in ('choices','sources'):
                 stage[k] = json.loads(stage[k] or '[]')
             stage_plans, stage_runs = set(), set()
+            membership=pipeline_members(state.db,pid,row['id'])
             todo = [('run' if row['target_kind']=='production_run' else 'plan', row['target'])] if row['target_kind'] in ('production_run','plan_production') and row['target'] else []
+            todo.extend(('plan',ident) for ident in membership['plans'])
+            todo.extend(('run',ident) for ident in membership['runs'])
             todo.extend(('run',r[0]) for r in state.db.execute('SELECT preparation FROM production_auto_repairs WHERE pipeline=? AND step=? AND preparation IS NOT NULL',(pid,row['id'])))
             while todo:
                 kind, ident = todo.pop()
@@ -261,6 +265,33 @@ def _name(value):
     return re.sub(r'[^A-Za-z0-9._-]+', '-', str(value)).strip('.-')[:150] or 'artifact'
 
 
+def display_name(artifact):
+    """Name generic document copies from bounded metadata; never alter the blob."""
+    import io,zipfile,xml.etree.ElementTree as ET
+    name=Path(artifact.get('path') or 'artifact').name
+    suffix=Path(name).suffix.lower()
+    if Path(name).stem.lower() not in ('result','pptx','gallery') or suffix not in ('.pptx','.html'):
+        return _name(name)
+    try:
+        path=Path(artifact['blob'])
+        if path.stat().st_size>50000000:return _name(name)
+        raw=path.read_bytes()
+        if hashlib.sha256(raw).hexdigest()!=artifact['sha256']:return _name(name)
+        if suffix=='.pptx':
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                if z.getinfo('docProps/core.xml').file_size>65536:return _name(name)
+                core=ET.fromstring(z.read('docProps/core.xml'))
+            title=core.findtext('{http://purl.org/dc/elements/1.1/}title')
+        else:
+            import html
+            match=re.search(r'<title\b[^>]*>([^<]{1,1000})</title\s*>',raw[:65536].decode('utf-8'),re.I)
+            title=html.unescape(match[1]) if match else None
+        if title and title.strip():return _name(title)[:120]+suffix
+    except (OSError,ValueError,KeyError,UnicodeError,zipfile.BadZipFile,ET.ParseError):
+        pass
+    return _name(name)
+
+
 def _inside(root, relative):
     path = Path(relative)
     if path.is_absolute() or not path.parts or any(p in ('.', '..') for p in path.parts):
@@ -279,6 +310,7 @@ def _layout(report, old):
                             key=lambda item: (item['created'], item['id'])):
         latest_revision_selection[selection['baseline_artifact']] = selection['candidate_artifact']
     selected.update(latest_revision_selection.values())
+    selected.update(v['artifact'] for v in report.get('owner_delivery',{}).get('deliverables',{}).values())
     # Keep the latest decision for each producer/path; old acceptance remains in receipts.
     by_id = {a['id']: a for a in report['artifacts']}
     latest = {}
@@ -354,7 +386,9 @@ def _layout(report, old):
             directory = base+'/reviews/'+task+'/'+version
         else:
             directory = base+'/support/'+task+'/'+version
-        name = _name(Path(a['path'] or 'artifact').name)
+        # Existing published basenames stay stable, including user-edited copies.
+        saved=old.get('paths',{}).get(a['id'])
+        name = _name(Path(saved).name) if saved else display_name(a)
         candidate = directory+'/'+name
         # Exact basename collisions remain distinct and retain their own identities.
         n = 2
@@ -444,7 +478,7 @@ def _sync(state, pid, report):
     saved_job_sqlite = (_inside(root,'.relay/snapshots/'+old['snapshot']+'/job.sqlite')
                         if old.get('snapshot') else None)
     current_job_sqlite = _inside(root,'.relay/job.sqlite')
-    if (old.get('format_version')==2 and old.get('state_signature') == state_signature and not old.get('errors')
+    if (old.get('format_version')==2 and old.get('input_binding_version')==1 and old.get('state_signature') == state_signature and not old.get('errors')
             and saved_job_state and saved_job_state.is_file()
             and hashlib.sha256(saved_job_state.read_bytes()).hexdigest()==old.get('job_state_sha256')
             and saved_job_sqlite and saved_job_sqlite.is_file()
@@ -494,6 +528,20 @@ def _sync(state, pid, report):
             a['copy_status'] = 'unavailable';errors.append({'artifact':a['id'],'error':str(exc)})
     report['copy_errors'] = errors
     for a in report['artifacts']:a.pop('blob')
+    # Export the exact staged input identity; display copies never become authority.
+    from orchestrator.report_builder import artifact_bindings
+    artifacts={a['id']:a for a in report['artifacts']}
+    report['input_binding_version']=1
+    report['input_bindings']=[]
+    for production in report['productions']:
+        for attempt in production['attempts']:
+            for ref,binding in artifact_bindings(attempt['frozen']).items():
+                artifact=artifacts.get(binding['artifact'])
+                available=bool(artifact and artifact['sha256']==binding['sha256'] and artifact.get('copy_status')!='unavailable')
+                report['input_bindings'].append(dict(run=production['run'],attempt=attempt['id'],task=attempt['task'],
+                    input_ref=ref,artifact=binding['artifact'],sha256=binding['sha256'],
+                    workspace_path=binding['path'],workflow_path=artifact['copy_path'] if available else None,
+                    available=available))
     signature = hashlib.sha256(encoded(report)).hexdigest()
     report['snapshot'] = signature
     archive = '.relay/snapshots/'+signature
@@ -516,6 +564,9 @@ def _sync(state, pid, report):
            '- `reviews/` and `support/`: review evidence, scripts, contracts and inputs.',
            '- `.relay/`: workflow history and execution receipts.', '',
            'Editing these files does not change registered inputs or recorded decisions.', '', '## Stages', '']
+    if report.get('delivery'):
+        from orchestrator.partial_delivery import lines as delivery_lines
+        lines[lines.index('## Stages'):lines.index('## Stages')]=['## Available work and unresolved issues','']+delivery_lines(report['delivery'])+['']
     for stage in report['stages']:
         prefix = stage['folder']
         _put(root/archive/'stages'/prefix/'stage.json',encoded(stage))
@@ -559,7 +610,7 @@ def _sync(state, pid, report):
                     raise ValueError('Legacy archive destination already exists; files preserved.')
                 destination.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
                 source.rename(destination)
-    old.update(format_version=2, snapshot=signature, state_signature=state_signature,
+    old.update(format_version=2, input_binding_version=1, snapshot=signature, state_signature=state_signature,
                job_state_sha256=hashlib.sha256(job_state_bytes).hexdigest(),
                job_sqlite_sha256=hashlib.sha256(job_sqlite_bytes).hexdigest(),
                errors=bool(errors or report['missing_artifacts']), versions=versions,

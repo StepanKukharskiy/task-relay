@@ -10,7 +10,7 @@ from types import SimpleNamespace
 if __package__ in (None,''):sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from orchestrator import executors
 from orchestrator.computer_contract import validate
-from orchestrator.gemini_worker import execute,Files
+from orchestrator.agent_loop import execute,Files
 from orchestrator.workers import atomic
 from orchestrator.storage import transaction
 from task_relay import computer_sessions as journal

@@ -70,6 +70,8 @@ def snapshot(root, attempt, spec, backend, now=None):
             'api_requests':None,
             'elapsed_seconds':None,'last_event_at':None,'heartbeat_at':None,
             'activity':None,'tool_calls':None,'usage':usage_totals([]),'usage_final':False}
+    if executor in ('codex-agent','codex-code'):
+        result.update(request_unit='CLI decision exchanges',response_limit=None)
     if not attempt:return result
     aid=attempt['id']
     # Use fixed paths under the runtime; do not follow provider-supplied paths.
@@ -87,6 +89,8 @@ def snapshot(root, attempt, spec, backend, now=None):
         # Stopped/uncertain attempts without a finish receipt have unknown elapsed time.
         if attempt['state'] in ('launching','running','cancelling'):elapsed=now-begun
     result['api_requests']=_number(recorded.get('api_requests'))
+    if executor in ('codex-agent','codex-code'):
+        result['api_requests']=_number(recorded.get('decision_exchanges'))
     result.update(elapsed_seconds=elapsed,tool_calls=_number(recorded.get('tool_calls')),
                   usage=usage_totals(recorded.get('usage',[])),usage_final=final)
     for key in ('last_event_at','heartbeat_at'):
@@ -180,7 +184,8 @@ def lines(task, now=None):
     if activity['ai'] and activity.get('tool_calls') is not None:timing.append(f'Tools used: {int(activity["tool_calls"])}')
     if activity.get('request_limit') is not None:
         used=activity.get('api_requests')
-        timing.append(('Provider requests: '+str(int(used))+'/' if used is not None else 'Provider request limit: ')+str(activity['request_limit']))
+        unit=activity.get('request_unit','Provider requests')
+        timing.append((unit+': '+str(int(used))+'/' if used is not None else unit+' limit: ')+str(activity['request_limit']))
     if timing:text.append(' · '.join(timing))
     if activity.get('response_limit') is not None:text.append(f"Response limit: {activity['response_limit']:,} output tokens per request")
     if task.get('latest_attempt') and activity['ai']:

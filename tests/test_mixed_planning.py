@@ -52,6 +52,18 @@ class Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'unavailable'):
                 planning.validate_action(self.action(step_capabilities=['gemini.text']),snap)
 
+    def test_compiler_carries_captured_interface_and_rejects_definition_drift(self):
+        from orchestrator import execution
+        with patch.object(gemini,'read_config',return_value={'api_key':'fixture','models':{'text':'test-model'}}):
+            row=self.queue(action=self.action(step_capabilities=['text.bundle','gemini.text']))
+            raw=json.dumps(self.mixed_response())
+            _,compiled=planning.validate_result(raw,row)
+            captured={e['id']:e['connector_interface'] for e in json.loads(row['context'])['graph_operations']}
+            for task in compiled['tasks']:
+                if task.get('execution'):self.assertEqual(task['connector_interface'],captured[task['execution']['capability']])
+            with patch.dict(execution.REGISTRY['text.bundle'],permissions='Changed authority after planning capture'):
+                with self.assertRaisesRegex(ValueError,'changed since capture'):planning.validate_result(raw,row)
+
     def test_disconnection_between_plan_and_start_keeps_registration_atomic(self):
         with patch.object(gemini,'read_config',return_value={'api_key':'fixture','models':{'text':'test-model'}}):
             self.queue(action=self.action(step_capabilities=['text.bundle','gemini.text']))

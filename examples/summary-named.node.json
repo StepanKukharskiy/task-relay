@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "id": "summary",
+  "operation": "model",
+  "objective": "Summarise the supplied article. Disclose incomplete source access.",
+  "inputs": {
+    "source_url": {
+      "value": "https://www.w3.org/Provider/Style/URI.html"
+    },
+    "length": {
+      "value": "Three short paragraphs"
+    }
+  },
+  "outputs": [
+    {
+      "name": "summary",
+      "media_type": "text/markdown",
+      "purpose": "Source-grounded summary"
+    }
+  ]
+}

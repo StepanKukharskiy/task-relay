@@ -21,6 +21,7 @@ DEFAULT_MODELS = {'text': 'gemini-3.7-flash', 'speech': 'gemini-3.1-flash-tts-pr
                   'image': 'gemini-3.1-flash-image', 'video': 'veo-3.1-fast-generate-preview'}
 MAX_INPUT = 10_000_000
 MAX_CONTEXT = 16_000_000
+MAX_REQUEST_TIMEOUT = 120
 INPUT_MIMES = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
                '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain',
                '.md': 'text/plain', '.csv': 'text/plain'}
@@ -95,7 +96,21 @@ class ProviderError(Exception):
         self.status, self.uncertain = status, uncertain
         self.detail = detail or {}
         suffix = ': '+self.detail['message'] if self.detail.get('message') else ''
+        if not suffix and self.transport_failure_kind:
+            suffix = ': ' + self.transport_failure_kind
         super().__init__(f'Gemini request failed ({status})'+suffix)
+
+    @property
+    def transport_failure_kind(self):
+        # Only code-owned categories, never raw transport text/URLs/headers.
+        kind = self.detail.get('failure_kind')
+        return kind if kind in ('timeout', 'connection', 'invalid-response') else None
+
+
+class LocalRequestError(ProviderError):
+    """Proven failure preparing a request, before entering the HTTP transport."""
+    def __init__(self, message):
+        super().__init__('local-validation', detail={'message': message})
 
 
 def error_detail(response, key):
@@ -105,7 +120,7 @@ def error_detail(response, key):
         if len(raw)>8192:return {}
         value=json.loads(raw)
         error=value.get('error') if isinstance(value,dict) else None
-        if not isinstance(error,dict) or not isinstance(error.get('message'),str):return {}
+        if not isinstance(error,dict):return {}
         def clean(text, limit=1500):
             # Redact before truncating, including the URL-encoded configured key.
             for secret in sorted({key,urllib.parse.quote(key,safe=''),urllib.parse.quote_plus(key)},key=len,reverse=True):
@@ -113,7 +128,9 @@ def error_detail(response, key):
             text=re.sub(r'https?://[^\s<>"\']+','[redacted URL]',text,flags=re.I)
             text=re.sub(r'(?i)(?:authorization\s*:\s*bearer|bearer|x-goog-api-key|api[_-]?key|access[_-]?token)\s*[:=]?\s*[^\s,;]+','[redacted credential]',text)
             return ' '.join(text.split())[:limit]
-        result={'message':clean(error['message'])}
+        result={'message':clean(error['message'])} if isinstance(error.get('message'),str) else {}
+        code=error.get('code')
+        if isinstance(code,str) and re.fullmatch(r'[a-zA-Z0-9_]{1,100}',code):result['code']=code
         status=error.get('status')
         if isinstance(status,str) and re.fullmatch(r'[A-Z_]{1,64}',status):result['status']=status
         violations=[]
@@ -133,6 +150,18 @@ def error_detail(response, key):
     except (OSError,ValueError,TypeError):return {}
 
 
+def retry_after(headers):
+    """Retain only a parsed server delay, never credentials or raw headers."""
+    from email.utils import parsedate_to_datetime
+    import math
+    value=(headers or {}).get('Retry-After')
+    if not isinstance(value,str):return None
+    try:
+        seconds=float(value) if value.strip().isdigit() else parsedate_to_datetime(value).timestamp()-time.time()
+        return max(0,seconds) if math.isfinite(seconds) else None
+    except (ValueError,TypeError,OverflowError):return None
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -147,14 +176,18 @@ class Client:
         self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), NoRedirect())
 
     def request(self, path, payload=None, *, timeout=None, max_response_bytes=72000000):
-        if timeout is None:timeout=120 if payload is not None else 30
-        if type(timeout) is not int or not 1<=timeout<=120 or type(max_response_bytes) is not int or not 1<=max_response_bytes<=72000000:
-            raise ValueError('Invalid bounded Gemini transport limits')
-        if not re.fullmatch(r'[A-Za-z0-9/_.:?=&%-]+', path) or '..' in path or path.startswith('/'):
-            raise ValueError('Invalid Gemini API path')
-        data = json.dumps(payload).encode() if payload is not None else None
-        req = urllib.request.Request(BASE + path, data=data,
-                                      headers={'x-goog-api-key': self.key, 'Content-Type': 'application/json'})
+        if timeout is None:timeout=MAX_REQUEST_TIMEOUT if payload is not None else 30
+        if type(timeout) is not int or not 1<=timeout<=MAX_REQUEST_TIMEOUT or type(max_response_bytes) is not int or not 1<=max_response_bytes<=72000000:
+            raise LocalRequestError('Invalid bounded Gemini transport limits; no request was sent.')
+        if not isinstance(path,str) or not re.fullmatch(r'[A-Za-z0-9/_.:?=&%-]+', path) or '..' in path or path.startswith('/'):
+            raise LocalRequestError('Invalid Gemini API path; no request was sent.')
+        try:
+            data = json.dumps(payload).encode() if payload is not None else None
+            req = urllib.request.Request(BASE + path, data=data,
+                                          headers={'x-goog-api-key': self.key, 'Content-Type': 'application/json'})
+        except (TypeError, ValueError, UnicodeError):
+            # Preparation exceptions may contain input or credentials.
+            raise LocalRequestError('Invalid Gemini request encoding; no request was sent.') from None
         try:
             with self.opener.open(req, timeout=timeout) as res:
                 raw = res.read(max_response_bytes+1)
@@ -163,11 +196,17 @@ class Client:
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:
             code = exc.code
-            try:detail=error_detail(exc,self.key)
+            try:
+                detail=error_detail(exc,self.key)
+                delay=retry_after(exc.headers)
+                if delay is not None:detail['retry_after_seconds']=delay
             finally:exc.close()
             raise ProviderError(code, uncertain=data is not None and code >= 500,detail=detail) from None
-        except (OSError, ValueError):
-            raise ProviderError('connection-or-response', uncertain=data is not None) from None
+        except (OSError, ValueError) as exc:
+            # Never retain exception messages: transports may embed credentials.
+            kind='invalid-response' if isinstance(exc,ValueError) else 'timeout' if isinstance(exc,TimeoutError) else 'connection'
+            raise ProviderError('connection-or-response', uncertain=data is not None,
+                                detail={'failure_kind':kind,'exception_type':type(exc).__name__}) from None
 
     def download(self, url, destination):
         # Keep the API key on Google's API origin, never on redirected media URLs.

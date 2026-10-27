@@ -22,7 +22,8 @@ usually need no new web research (none/unnecessary, questions=[]). For explorati
 give a short, engaging answer and recommend quick ideas with optional source checks,
 or explain why source-backed work would help. Do not turn an ideas question into
 wiring instructions, firmware, a parts list or an engineering blueprint. Keep an
-exploratory direct answer within 2200 characters, before advice and source disclosure.
+exploratory direct answer around 2200 characters, before advice and source disclosure.
+This is a style target, not an execution or acceptance boundary.
 State implementation unknowns beside the specific claim; avoid blanket UNVERIFIED
 labels and claims that a proposed build is proven feasible. Do not assert current
 product capabilities, prices or compatibility from memory as verified facts.
@@ -73,6 +74,14 @@ ideas over current product lists, exact specifications and detailed architecture
 Check terms against the actual device; distinguish chips from boards and added
 modules, and normal authoring features from engine/plugin extensions. If these
 details have not been sourced, leave them as questions for the chosen job.
+Return answer_basis as supplied_context (saved records, creative work or unresolved
+gaps), proposed_work (future operations and requested validation), or source_findings
+(actual factual web results). This is response DATA, never a verification verdict.
+Words such as verified in a proposed deliverable do not claim completed research.
+For source_findings, list the actual factual claims and their recorded page URLs;
+search synthesis is not a verified guide. Do not label new product facts as saved
+context or proposed work to evade source checks. A proposed workflow is not fulfillment
+of an explicit execution request; prepare its scoped work action when authorized.
 Return claim_sources: zero to eight {statement, source_urls} DATA entries for
 material factual claims. statement must be an exact excerpt from answer and
 source_urls must be URLs observed in this request's successful web reads. Use []
@@ -149,7 +158,7 @@ def render_options(value):
         f'{i}. {item["title"]} — {item["outcome"]}' for i,item in enumerate(value,1)) + '\nNothing starts until you approve a plan.'
 
 
-def response_definition(request, tools):
+def response_definition(request, tools, *, research_mode='suggest'):
     """Compile the response contract from runtime rules and captured tool IDs."""
     ids = [item['id'] for item in tools]
     def string(limit):
@@ -165,11 +174,16 @@ def response_definition(request, tools):
                             'reason':string(800),
                             'questions':{'type':'array','maxItems':4,'items':string(300)}},
               'required':['recommended_mode','requirement','reason','questions']}
-    return {'name':'relay_respond', 'description':'Finish with response data for the runtime-owned v1 contract. This records a response, executes no action and makes no additional provider request.',
+    if research_mode=='sources':
+        advice['properties']['recommended_mode']['enum']=['sources']
+        advice['properties']['requirement']['enum']=['required']
+    return {'name':'relay_respond', 'description':'Finish with response data for the runtime-owned v2 contract. This records a response, executes no action and makes no additional provider request.',
             'parameters':{'type':'object','additionalProperties':False,
-                          'properties':{'answer':{**string(2200 if policy.exploration(request) else MAX_DIRECT_ANSWER_CHARACTERS),
+                          'properties':{'answer':{**string(MAX_DIRECT_ANSWER_CHARACTERS),
                                                   'description':f'Display text. With a non-null action_json, at most {MAX_ACTION_ANSWER_CHARACTERS} characters.'},
                                         'work_status':{'type':'string','enum':['respond','needs_input','blocked']},
+                                        'answer_basis':{'type':'string','enum':['supplied_context','proposed_work','source_findings'],
+                                                        'description':'Basis of this reply, not a verification verdict. Future checks and deliverables are proposed_work; factual web findings are source_findings.'},
                                         'action_json':{'type':['string','null'],'maxLength':MAX_ACTION_DATA_CHARACTERS,
                                                        'description':'Null for a direct answer; otherwise JSON-serialized action data. Relay validates its action kind, fields, scope and authority separately.'},
                                         'research_advice':advice,
@@ -179,7 +193,29 @@ def response_definition(request, tools):
                                                 'type':'array','maxItems':4,'items':string(2000)}},
                                             'required':['statement','source_urls']}},
                                         'next_options':{'type':'array','maxItems':3 if ids else 0,'items':option}},
-                          'required':['answer','action_json','research_advice','next_options','claim_sources','work_status']}}
+                          'required':['answer','action_json','research_advice','next_options','claim_sources','work_status','answer_basis']}}
+
+
+def bind_research_choice(raw, mode):
+    """Explicit user policy owns advisory enums; never change actions or evidence.
+
+    Caller journals the original response and this compilation receipt before
+    downstream validation. This does not assert sources were fetched or accepted.
+    """
+    if mode!='sources':return raw,None
+    from .orchestrator_chat import response_json
+    value=response_json(raw);advice=value.get('research_advice')
+    if not isinstance(advice,dict):return raw,None
+    if advice.get('recommended_mode')=='sources' and advice.get('requirement')=='required':return raw,None
+    bound={**advice,'recommended_mode':'sources','requirement':'required',
+           'reason':'The user explicitly selected source-backed work. Actual source evidence and independent review remain required.',
+           'questions':advice.get('questions') or ['Which requested factual claims are supported by the supplied or collected source evidence?']}
+    policy.advice(bound,{'research_advice_version':1})
+    compiled=json.dumps({**value,'research_advice':bound},ensure_ascii=False)
+    return compiled,dict(version=1,owner='explicit user research choice',mode=mode,
+        original_response_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+        compiled_response_sha256=hashlib.sha256(compiled.encode()).hexdigest(),
+        previous=advice,value=bound,action_changed=False,acceptance=False)
 
 
 def source_summary(advice, evidence):
@@ -257,15 +293,35 @@ def validate(raw, request, tools=None, evidence=None, research_mode='suggest'):
             if value.get('action') is not None and value['next_options']:
                 raise ValueError('Executed actions cannot also advertise unselected next options.')
         declared_need = (value.get('research_advice') or {}).get('requirement') if isinstance(value.get('research_advice'),dict) else None
-        if (evidence is not None and value.get('action') is None
-                and (research_mode == 'sources' or declared_need == 'required' or evidence['sources'])
-                and not any(s['kind'] == 'page' for s in evidence['sources'])
-                and re.search(r'\bverif(?:ied|ication)\b|\bconfirmed\b|\bproduction-tested\b', value.get('answer',''), re.I)):
-            raise ValueError('The source check claimed verification without recorded page reads. Search results alone are insufficient; no verified guide was delivered.')
-        if value.get('action') is None and policy.exploration(request):
-            answer = value.get('answer')
-            if isinstance(answer, str) and policy.promised(answer, policy._EXPANSION):
-                raise ValueError('An exploratory direct answer must stay concise and avoid an unsolicited implementation blueprint.')
+        basis = value.get('answer_basis')
+        if basis is not None and basis not in ('supplied_context','proposed_work','source_findings'):
+            raise ValueError('Invalid answer basis; use the runtime response contract.')
+        if evidence is not None and value.get('action') is None:
+            pages = {s['url'] for s in evidence['sources'] if s['kind'] == 'page'}
+            if basis == 'source_findings':
+                # A declared factual result needs actual retrieval, irrespective
+                # of which adjectives or language its prose uses.
+                if not pages:
+                    raise ValueError('The source check claimed verification without recorded page reads. Search results alone are insufficient; no verified guide was delivered.')
+                claims = value.get('claim_sources', [])
+                if not claims or any(not isinstance(c,dict) or not c.get('source_urls')
+                        or not set(c['source_urls']) <= pages
+                        or c.get('statement') not in value.get('answer','') for c in claims):
+                    raise ValueError('Source findings need exact answer claims linked to recorded page reads.')
+            elif basis is None and (research_mode == 'sources' or declared_need == 'required' or evidence['sources']) and not pages:
+                # Preserve the historical untyped response policy. New response
+                # tools declare scope instead of treating future checks as facts.
+                if re.search(r'\bverif(?:ied|ication)\b|\bconfirmed\b|\bproduction-tested\b', value.get('answer',''), re.I):
+                    raise ValueError('The source check claimed verification without recorded page reads. Search results alone are insufficient; no verified guide was delivered.')
+            elif basis in ('supplied_context','proposed_work'):
+                # Proposals grant no acceptance. Any separately declared source
+                # claims still need their exact observed pages.
+                for claim in value.get('claim_sources', []):
+                    if not isinstance(claim,dict) or not claim.get('source_urls') or not set(claim['source_urls']) <= pages or claim.get('statement') not in value.get('answer',''):
+                        raise ValueError('Declared source claims need exact answer excerpts and recorded page reads.')
+        # Prose style is guidance, not authority. Words such as "bill of
+        # materials" can describe a distribution channel without executing or
+        # proposing a build. Keep action, size and source checks independent.
     except (ValueError, TypeError) as exc:
         raise AdviceError(raw, str(exc)) from None
     return raw

@@ -22,6 +22,22 @@ class NativeTests(unittest.TestCase):
         (self.folder/'inputs/source.txt').write_text('exact source')
         self.runtime=host.identity()
 
+    def test_code_worker_retains_working_files_inside_existing_sandbox(self):
+        from orchestrator.code_worker import CodeFiles
+        from orchestrator import contracts as c
+        from tests.test_shared_code_workers import graph
+        workspace=self.folder/'work';workspace.mkdir();control=self.folder/'control';control.mkdir()
+        frozen=c.assignment(graph()['tasks'][0]);frozen.update(assignment_id='scratch-fixture',workspace=str(workspace),backend=dict(type='gemini-code',model='fixture',runtime='a'*64))
+        with patch.object(code_runtime,'available',return_value=dict(id='a'*64,runtime=self.runtime)):
+            worker=CodeFiles(frozen,control)
+            self.assertEqual(worker.run(dict(seconds=5,code="from pathlib import Path\nPath('build.py').write_text('saved working script')"))['returncode'],0)
+            # A new adapter instance resumes only the last confirmed snapshot.
+            worker=CodeFiles(frozen,control)
+            value=worker.run(dict(seconds=5,code="from __future__ import annotations\nfrom pathlib import Path\nassert Path('build.py').read_text()=='saved working script'\nPath('output.txt').write_text('finished from saved work')"))
+            self.assertEqual(value['returncode'],0,value['log'])
+            self.assertEqual((workspace/'output.txt').read_text(),'finished from saved work')
+            self.assertFalse((workspace/'build.py').exists())
+
     def test_qualification_checks_formats_and_boundaries_without_live_settings(self):
         with patch.object(code_runtime,'path',return_value=self.folder/'settings.json'):
             self.assertTrue(code_runtime.status()['enabled'])

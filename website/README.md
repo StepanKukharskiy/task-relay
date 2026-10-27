@@ -101,3 +101,80 @@ The update ZIP/manifest are published alongside these files for the in-app updat
 Run `node --test tests/website-latest-release.test.cjs tests/website-downloads.test.cjs
 tests/website-release-assets.test.cjs` from the repository root. These checks use
 mock release responses and small download fixtures, without live GitHub calls.
+
+## Excel-to-PowerPoint distribution experiment
+
+Editorial ownership is split from executable assets:
+
+- Canonical experiment: `https://stepankukharskiy.com/ai-work/excel-to-powerpoint-automation`.
+- Personal archive: `https://stepankukharskiy.com/ai-work`.
+- Relay catalog: `/skills`; package page: `/skills/excel-to-powerpoint`.
+- Relay's old `/guides/excel-to-powerpoint` URL returns a 308 redirect to the
+  personal original, retaining only an allowlisted campaign.
+- Medium is a separate distribution draft. Its author must set the personal
+  canonical URL in Medium's editor; the prepared HTML cannot set that option.
+
+The shared generated hero is an editorial illustration. Actual report previews
+remain separate and are also stored locally on the personal site. The experiment
+retains its declared source policy, prepared template, independent Relay review,
+direct Codex check and host/rendering limits. Package v1/v2 bytes remain unchanged;
+active downloads still serve v2. Editorial distribution is versioned v3.
+
+Personal article links carry `personal-excel-to-powerpoint-v3`. Medium's primary
+CTA goes directly to the Relay Skill with:
+
+```text
+https://task-relay-website-production.up.railway.app/skills/excel-to-powerpoint?utm_source=medium&utm_medium=article&utm_campaign=excel-to-powerpoint-v3
+```
+
+Historical Medium/guide v1/v2 labels remain accepted. Campaigns carry through Skill
+and example downloads, optional Relay handoff and release-download requests.
+Personal article counts are emitted by its own server; Relay no longer counts an
+article request for the old redirect. Compare Medium Skill requests to Medium's
+actual views separately after publication. Untagged visits to the personal original
+use the personal label; referrer-based attribution is not inferred.
+
+Events retain only UTC day, fixed Skill, campaign and event labels. They count GET
+requests, not unique readers, completed downloads, installations or executions.
+No visitor IDs, analytics cookies, IPs, user agents, referrers, raw URLs, request
+bodies or work content appear in event JSON. DNT/GPC, known bots and prefetch are
+omitted. No cross-site person-level linking is performed. The downloaded Skill has
+no publisher execution telemetry. Hosting logs are separate.
+
+`TASK_RELAY_FUNNEL_ANALYTICS=off` disables Relay events. The personal site uses
+`PERSONAL_WEBSITE_ANALYTICS=off`; `/ai-work/privacy` documents that scope. Aggregate
+non-overlapping private exports separately by service:
+
+```sh
+node website/summarize-funnel.mjs < PRIVATE_EXPORT.jsonl > PRIVATE_TOTALS.csv
+```
+
+At 1,000 eligible personal article requests or 30 days after distribution starts,
+show raw counts and download requests per 1,000 article requests. This proposed
+checkpoint is not observed demand or linked-person conversion. Hosting retention
+may limit exports, so preserve private checkpoints while available.
+
+Focused checks:
+
+```sh
+node --test tests/website-skill-funnel.test.cjs tests/website-downloads.test.cjs tests/website-latest-release.test.cjs
+```
+
+Seven controlled Relay checks pass. Two private personal request-count checks pass;
+its `npm run check` and `npm run build` pass without diagnostics. Desktop/mobile
+layout checks passed at 1280 and 390 px; no mobile horizontal overflow. A scoped
+heuristic publication scan covers affected source/assets, separate from a staged
+source guard. No Git commit was performed.
+
+Both existing Railway services deployed successfully on 2026-10-05: personal
+`e4c89f1c-6287-475f-af96-5f506ce37efd`, Relay
+`897ce39f-99b6-43e0-8da2-7dbb63656e83`. Thirty-one controlled deployed responses
+verify personal canonical ownership, exact hero/report image bytes, old redirects,
+unchanged v1/v2 archives, v3 attribution, release handoff and the preserved Relay
+homepage. Excluded-agent DNT/GPC HTTP checks emit no reader events. Browser checks
+are controlled page requests and must be excluded from real reader results.
+
+Personal source changes are saved in the requested checkout. GitHub remains at
+its original commit until the local changes are committed/pushed. Medium remains
+unpublished. Reader acquisition, verified installs, Skill-use telemetry and the
+next invoice benchmark remain pending.

@@ -42,6 +42,10 @@ def resolve(reference, *, host=HOST, environ=None):
             name=reference['name']
             if not isinstance(name,str) or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*',name):raise CredentialError('Invalid credential environment reference')
             value=env.get(name)
+        elif kind=='dotenv' and set(reference)=={'source','path','name'}:
+            path=Path(reference['path'])
+            if not path.is_absolute():raise CredentialError('Credential path must be absolute')
+            value=dotenv_values(path).get(reference['name'])
         elif kind=='private-file' and set(reference)=={'source','path','field'}:
             path=Path(reference['path'])
             if not path.is_absolute():raise CredentialError('Credential file reference must be absolute')
@@ -109,3 +113,52 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def dotenv_values(path):
+    """Read literal dotenv values. No expansion, shell execution or secret errors."""
+    import shlex
+    path=Path(path)
+    if path.is_symlink():raise CredentialError('Credential file cannot be a symbolic link')
+    try:
+        grant=Grant(path.parent,'configured credential file',frozenset({path.name}))
+        with FILES.open(grant,path.name) as fd:
+            info=os.fstat(fd)
+            if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077 or info.st_size>1_000_000:
+                raise CredentialError('Credential file must be private (0600) and below 1 MB')
+            with os.fdopen(os.dup(fd),'rb') as stream:data=stream.read(1_000_001)
+        if len(data)>1_000_000:raise CredentialError('Credential file exceeds its size limit')
+        values={}
+        for raw in data.decode().splitlines():
+            line=raw.strip()
+            if not line or line.startswith('#'):continue
+            name,sep,value=line.partition('=')
+            if not sep or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*',name.strip()) or name.strip() in values:
+                raise CredentialError('Credential file has invalid or duplicate variable names')
+            tokens=shlex.split(value,comments=True,posix=True)
+            if len(tokens)!=1:raise CredentialError('Credential file needs one literal value per variable')
+            values[name.strip()]=tokens[0]
+        return values
+    except CredentialError:raise
+    except Exception:raise CredentialError('Credential file is unavailable or invalid') from None
+
+
+def save_dotenv(path, name, value):
+    """Atomic private shared key file; callers serialize through setup_lock."""
+    import shlex
+    path=Path(path)
+    if not path.is_absolute() or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*',name):raise CredentialError('Invalid credential location')
+    if not isinstance(value,str) or not value or len(value)>4000 or any(c in value for c in '\r\n\0'):
+        raise CredentialError('Enter a nonempty single-line API key')
+    if path.is_symlink():raise CredentialError('Credential file cannot be a symbolic link')
+    if path.exists():dotenv_values(path)
+    lines=FILES.read(Grant(path.parent,'configured credential file',frozenset({path.name})),path.name,1_000_000).decode().splitlines() if path.exists() else ['# Relay API keys. Private; never commit or export.']
+    replacement=name+'='+shlex.quote(value)
+    found=False
+    for i,line in enumerate(lines):
+        if line.strip().partition('=')[0].strip()==name:lines[i]=replacement;found=True
+    if not found:lines.append(replacement)
+    root=path.parent
+    while not root.exists() and not root.is_symlink():root=root.parent
+    relative=path.relative_to(root).as_posix()
+    FILES.write(Grant(root,'explicit shared API key update',writes=frozenset({relative})),relative,('\n'.join(lines)+'\n').encode())

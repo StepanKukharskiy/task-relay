@@ -207,7 +207,13 @@ class Tests(unittest.TestCase):
         self.rt.close();self.rt=Runtime(self.root/'runtime')
         self.rt.tick('demo');self.assertEqual(len(self.rt.status('demo')['attempts']),1)
         self.rt.cancel('demo');state=self.rt.tick('demo')
+        # Cancellation is asynchronous even after the provider timeout. Wait
+        # for its local terminal receipt without resolving the remote effect.
+        deadline=time.monotonic()+5
+        while state['tasks'][0]['status']=='cancelling' and time.monotonic()<deadline:
+            time.sleep(.05);state=self.rt.tick('demo')
         self.assertEqual(state['tasks'][0]['status'],'cancelled')
+        self.assertEqual(len(state['attempts']),1)
         self.assertEqual(json.loads(state['attempts'][0]['receipt'])['external_outcome'],'unknown')
 
 

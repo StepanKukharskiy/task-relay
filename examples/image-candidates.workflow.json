@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "kind": "workflow",
+  "inputs": {
+    "queries": {
+      "type": "array",
+      "label": "Product search queries",
+      "required": true
+    }
+  },
+  "tasks": [
+    {
+      "schema_version": 3,
+      "id": "item",
+      "operation": "collection.subjects",
+      "objective": "Describe the one requested product in the reference image. Inspect pixels, record visible form and style, and disclose uncertainty. This is a provisional description for sourcing, not user acceptance.",
+      "inputs": {
+        "source_path": {
+          "artifact": "reference-image"
+        },
+        "parameters": {
+          "value": {
+            "max_records": 1,
+            "fields": [
+              "shape",
+              "color_material",
+              "style"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "sources",
+      "operation": "web.sources.codex",
+      "objective": "Find a broad pool of product alternatives using the supplied queries; preserve all source links.",
+      "inputs": {
+        "queries": {
+          "workflow": "queries"
+        },
+        "domains": {
+          "value": []
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "pages",
+      "operation": "web.sources.rendered",
+      "objective": "Acquire missing product-page image references using direct HTTP or isolated rendering. Reuse completed captures and move to other observed sources after confirmed failures. Stop on uncertainty.",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "task": "sources",
+              "output": "source-pack"
+            }
+          ]
+        },
+        "domains": {
+          "value": []
+        },
+        "max_pages": {
+          "value": 12
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "photos",
+      "operation": "images.products",
+      "objective": "Download a provisional image pool from observed page references before any visual selection; preserve unavailable outcomes.",
+      "inputs": {
+        "inventory_path": {
+          "task": "item",
+          "output": "result"
+        },
+        "catalog_path": {
+          "value": null
+        },
+        "source_pack_path": {
+          "task": "pages",
+          "output": "source-pack"
+        },
+        "count_policy": {
+          "value": "target"
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "recommendations",
+      "operation": "model",
+      "objective": "Provide advisory comparisons of the acquired images with the requested product in the reference. Inspect actual pixels before visual claims; image_view automatically resizes large images. Aim to recommend three distinct product designs, but the user decides fit. Keep every acquired candidate available, including lower-ranked and possible duplicate listings; do not filter or rewrite the photo ZIP. Explain differences and group likely duplicates in the report. If fewer than three designs are available, disclose the gap and finish the useful report. Unknown price, dimensions, stock, delivery and image rights stay unknown. Uninspectable images remain visible and marked unassessed. Write one concise Markdown report with source links and image member references. Do not create a selection approval, review task, deck or new research.",
+      "inputs": {
+        "room": {
+          "artifact": "reference-image"
+        },
+        "item": {
+          "task": "item",
+          "output": "result"
+        },
+        "sources": {
+          "task": "pages",
+          "output": "source-pack"
+        },
+        "photos": {
+          "task": "photos",
+          "output": "result"
+        }
+      },
+      "input_definitions": {
+        "room": {
+          "type": "artifact",
+          "label": "room",
+          "required": true,
+          "media_type": "image/png"
+        },
+        "item": {
+          "type": "artifact",
+          "label": "item",
+          "required": true,
+          "media_type": "application/json"
+        },
+        "sources": {
+          "type": "artifact",
+          "label": "sources",
+          "required": true,
+          "media_type": "application/json"
+        },
+        "photos": {
+          "type": "artifact",
+          "label": "photos",
+          "required": true,
+          "media_type": "application/zip"
+        }
+      },
+      "outputs": [
+        {
+          "name": "report",
+          "media_type": "text/markdown",
+          "purpose": "Advisory recommendations; user decides fit"
+        }
+      ]
+    },
+    {
+      "schema_version": 3,
+      "id": "pptx",
+      "operation": "images.pptx",
+      "objective": "Export all acquired candidates with advisory recommendations; user decides fit.",
+      "inputs": {
+        "photos": {
+          "task": "photos",
+          "output": "result"
+        },
+        "recommendations": {
+          "task": "recommendations",
+          "output": "report"
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "gallery",
+      "operation": "images.gallery",
+      "objective": "Export all acquired candidates with advisory recommendations; user decides fit.",
+      "inputs": {
+        "photos": {
+          "task": "photos",
+          "output": "result"
+        },
+        "recommendations": {
+          "task": "recommendations",
+          "output": "report"
+        }
+      }
+    }
+  ]
+}

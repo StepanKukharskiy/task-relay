@@ -1,5 +1,35 @@
 # Perplexity account browser pilot
 
+## Canvas node
+
+Add **Web & research → Research with Perplexity** (`perplexity.search`).
+Set **Research question** in the inspector, then use its browser account controls
+to enable Chrome access, sign in manually and choose **Done signing in**.
+The saved profile setting does not prove login; Run checks the actual account and
+ordinary Search controls before submitting. No API key is required.
+
+The existing node runtime dispatches this operation directly, without the legacy
+message queue. It allows one Search submission, keeps its durable receipt, and
+does not automatically repeat an uncertain submission. Existing background
+message services are not needed.
+
+Named outputs are **Answer** (Markdown containing the captured answer-page text,
+possibly including interface text) and **Sources** (JSON containing observed
+external URLs and titles, conversation URL and transcript hash). Source contents
+are not fetched or independently verified, and claim-level citation mapping is
+not asserted. Connect either output to another node using its named port.
+
+Once the matching answer is confirmed and saved, source capture is optional.
+If that read fails or the page changes, Answer retains the exact saved page text
+with a warning; Sources records `source_collection.status: unavailable`, the error,
+an empty link list and unknown capture counts. This does not mean the answer had
+no citations. Both named outputs remain available to downstream nodes. Successful
+capture records `completed`; neither case retries the Search or changes old runs.
+
+This adapter supports ordinary **Search**, not Perplexity's dedicated Research
+mode. Website changes, login challenges or unrecognized controls can block it.
+Account allowances apply; this node does not call a paid API.
+
 ## App setup: Browser use (requires Chrome)
 
 In the macOS companion, open **Settings → Browser use** and turn it on. Relay

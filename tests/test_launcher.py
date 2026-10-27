@@ -15,6 +15,18 @@ from task_relay.relay_paths import Paths
 
 
 class LauncherTests(unittest.TestCase):
+    def test_packaged_status_uses_bundle_version_not_stale_runtime_version(self):
+        import plistlib
+        app=self.paths.install/'Relay.app'
+        runtime=app/'Contents/Resources/runtime/app'
+        runtime.mkdir(parents=True)
+        (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString':'0.99.1'}))
+        paths=Paths(runtime,self.paths.data,self.paths.workspaces,self.paths.generated)
+        with patch.object(launcher,'PATHS',paths):
+            value=launcher.status()
+        self.assertEqual(value['version'],'0.99.1')
+        self.assertEqual(value['runtime_version'],__version__)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

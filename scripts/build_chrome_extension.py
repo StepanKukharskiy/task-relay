@@ -15,10 +15,15 @@ def build(output):
     output.mkdir(parents=True, exist_ok=True)
     target = output / 'task-relay-chrome'
     target.mkdir(exist_ok=True)
-    files = ['manifest.json', 'worker.js', 'extract.js', 'chatgpt.js', 'panel.html', 'panel.css', 'panel.js', 'portable.js']
+    files = ['manifest.json', 'worker.js', 'extract.js', 'chatgpt.js', 'panel.html', 'panel.css', 'panel.js', 'portable.js', 'work-map.js', 'map-wires.js', 'long-text.js', 'evidence.js', 'map.html', 'map-view.js']
     for name in files: shutil.copy2(source / name, target / name)
     shutil.copy2(ROOT / 'plugins/relay/assets/logo.png', target / 'logo.png')
     files.append('logo.png')
+    (target / 'icons').mkdir(exist_ok=True)
+    for size in (16, 32, 48, 128):
+        name = f'icons/icon{size}.png'
+        shutil.copy2(source / name, target / name)
+        files.append(name)
     archive = output / 'task-relay-chrome.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for name in sorted(files):

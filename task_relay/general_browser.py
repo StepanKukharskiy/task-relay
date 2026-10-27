@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
+import tempfile
 from urllib.parse import urljoin
 
 from orchestrator.browser_contract import validate,origin,profile_name
@@ -33,6 +35,13 @@ class NavigationBlocked(ValueError):
     def __init__(self,detail):
         self.detail=detail
         super().__init__('Navigation stopped ('+detail['reason']+'): '+detail['url'])
+
+
+class NavigationUnavailable(ValueError):
+    """A navigation timed out and its owned tab was confirmed closed."""
+    def __init__(self, url, error):
+        self.url=url
+        super().__init__(str(error)[:1000])
 
 
 @contextmanager
@@ -129,7 +138,21 @@ class PlaywrightDriver:
             page.on('popup',lambda popup:popup.close())
         if self.access:
             page.on('download',lambda download:download.cancel() if not self.policy['downloads'] else None)
-        self.goto(page,url)
+        self.read_navigation(page,url)
+
+    def read_navigation(self,page,url):
+        from playwright.sync_api import TimeoutError as NavigationTimeout
+        try:
+            self.goto(page,url)
+        except NavigationTimeout as exc:
+            # Only direct GET navigation uses this path. Interactive submissions
+            # and their redirects call goto directly and retain uncertainty.
+            page.close()
+            if not page.is_closed():raise RuntimeError("Timed-out navigation tab closure was not confirmed") from exc
+            for ident,owned in list(self.pages.items()):
+                if owned is page:del self.pages[ident]
+            self.navigation_blocks.pop(page,None);self.redirects.pop(page,None)
+            raise NavigationUnavailable(url,exc) from exc
 
     def goto(self,page,url):
         for _ in range(10):
@@ -162,6 +185,7 @@ class PlaywrightDriver:
         return page
 
     def snapshot(self,tab):
+        self.settle_redirect(tab)
         page=self.page(tab);handles=[];controls=[]
         for element in page.locator(CONTROLS).element_handles()[:150]:
             if not element.is_visible():continue
@@ -172,6 +196,32 @@ class PlaywrightDriver:
                 descriptor['value_sha256']=hashlib.sha256(value.encode()).hexdigest()
                 descriptor['value_truncated']=len(value)>1000
             handles.append(element);controls.append(descriptor)
+        from orchestrator.browser_action_sets import applicable
+        for grant,spec,node_id in applicable(self.policy,page.url):
+            for action in spec['actions']:
+                # Only a unique, visible, exact registered label is actionable.
+                # Do not promote arbitrary clickable text, canvas pixels or ancestors.
+                matches=[]
+                candidates=page.locator(action['selector'])
+                if candidates.count()>20:continue
+                for element in candidates.element_handles():
+                    if not element.is_visible():continue
+                    descriptor=element.evaluate(FIELDS)
+                    descriptor.pop('_value')
+                    if descriptor['label'].strip()!=action['label']:continue
+                    matches.append((element,descriptor))
+                if len(matches)!=1:continue
+                element,descriptor=matches[0]
+                descriptor.update(action_set=grant['name'],action=action['id'],
+                                  action_mode=grant['mode'],node_id=node_id,
+                                  disabled=element.get_attribute('aria-disabled')=='true')
+                existing=page.evaluate('(args) => args.handles.findIndex(el => el === args.element)',
+                                       dict(handles=handles,element=element))
+                if existing>=0:controls[existing]=descriptor
+                elif len(handles)<150:
+                    handles.append(element);controls.append(descriptor)
+        from .browser_render_controls import observe as render_controls
+        render_state=render_controls(page,self.policy,handles,controls)
         images=page.locator('img').evaluate_all('''els => els.filter(el => {
             const r=el.getBoundingClientRect();return r.width>=60 && r.height>=40 && r.bottom>0 && r.top<innerHeight;
         }).slice(0,40).map(el=>({src:((el.currentSrc||el.src||'').startsWith('https://')?(el.currentSrc||el.src):'').slice(0,4000),
@@ -179,9 +229,18 @@ class PlaywrightDriver:
             width:el.naturalWidth,height:el.naturalHeight}))''')
         text=page.locator('body').inner_text(timeout=5000)
         return {'url':page.url,'title':page.title()[:500],'text':text[:24000],
-                'text_truncated':len(text)>24000,'images':images,'controls':controls,'dialogs_dismissed':self.dialogs[-3:]},handles
+                'image_render':render_state,'text_truncated':len(text)>24000,'images':images,'controls':controls,'dialogs_dismissed':self.dialogs[-3:]},handles
 
-    def navigate(self,tab,url):self.goto(self.managed_page(tab),url)
+    def settle_redirect(self,tab):
+        # A form/upload response can arrive after the interaction returned.
+        # Observe its recorded permitted GET continuation, never resubmit it.
+        page=self.page(tab)
+        target=self.redirects.pop(page,None)
+        if target:
+            if origin(target) not in self.policy['origins']:raise ValueError('Redirect left permitted website origins')
+            self.goto(page,target)
+
+    def navigate(self,tab,url):self.read_navigation(self.managed_page(tab),url)
     def close(self,tab):
         page=self.managed_page(tab);page.close();self.navigation_blocks.pop(page,None);del self.pages[tab]
     def wait(self,tab,seconds):self.page(tab).wait_for_timeout(seconds*1000)
@@ -209,8 +268,11 @@ class PlaywrightDriver:
             return {'driver_action_returned':True,'remote_outcome':'not_independently_verified'}
 
     def interact(self,tab,element,operation,args,files):
-        if not element.evaluate('el => el.isConnected'):raise ValueError('Observed element was replaced')
-        if operation=='click':element.click(timeout=5000)
+        if element is not None and not element.evaluate('el => el.isConnected'):raise ValueError('Observed element was replaced')
+        if operation.startswith('visual_'):
+            from .browser_visual import perform
+            perform(self,tab,operation,args)
+        elif operation=='click':element.click(timeout=5000)
         elif operation=='fill':
             if element.evaluate(FIELDS)['value_present']:raise ValueError('Existing field content must be preserved')
             element.fill(args['text'],timeout=5000)
@@ -219,7 +281,15 @@ class PlaywrightDriver:
         elif operation=='upload':
             raw=files.read_bytes(args['path'])
             if hashlib.sha256(raw).hexdigest()!=files.inputs[args['path']]['sha256']:raise ValueError('Upload input version changed')
-            element.set_input_files({'name':Path(args['path']).name,'mimeType':'text/plain','buffer':raw},timeout=5000)
+            from orchestrator.browser_contract import upload_media
+            media=upload_media(files.inputs[args['path']],raw)
+            payload={'name':Path(args['path']).name,'mimeType':media,'buffer':raw}
+            if element.evaluate("el => el.tagName==='INPUT' && el.type==='file'"):
+                element.set_input_files(payload,timeout=5000)
+            else:
+                with self.page(tab).expect_file_chooser(timeout=5000) as event:
+                    element.click(timeout=5000)
+                event.value.set_files(payload,timeout=5000)
         elif operation=='download':
             with self.page(tab).expect_download(timeout=15000) as event:element.click(timeout=5000)
             download=event.value
@@ -227,9 +297,8 @@ class PlaywrightDriver:
             if temporary is None:raise ValueError('Download failed')
             with Path(temporary).open('rb') as f:raw=f.read(files.frozen['limits']['output_bytes']+1)
             if len(raw)>files.frozen['limits']['output_bytes']:raise ValueError('Download exceeds declared output budget')
-            result=files.call('file_write',{'path':args['path'],'text':raw.decode('utf-8')})
             download.delete()
-            return result
+            return raw
         page=self.managed_page(tab)
         if page in self.navigation_blocks:raise NavigationBlocked(self.navigation_blocks[page])
         target=self.redirects.pop(page,None)
@@ -238,8 +307,10 @@ class PlaywrightDriver:
 
 
 @contextmanager
-def browser(data,policy,*,headless=False):
+def browser(data,policy,*,headless=False,ephemeral=False):
     validate(policy)
+    if ephemeral and (policy['profile']!='public-source' or policy.get('session_source') or policy['uploads'] or policy['downloads']):
+        raise ValueError('Temporary browser state is only available for isolated public reads')
     from .browser_sites import PROFILE
     if policy.get('session_source')=='settings':
         from .managed_browser import context as managed_context
@@ -254,25 +325,37 @@ def browser(data,policy,*,headless=False):
         from .host_browser_accounts import browser as accounts_browser
         with accounts_browser(data,policy,headless) as driver:yield driver
         return
-    with profile_lock(data,policy['profile']) as root:
-        try:from playwright.sync_api import sync_playwright,Error
-        except ImportError:raise ValueError('Install the browser extra and Chromium; see docs/general-browser.md') from None
-        try:
-            with sync_playwright() as runtime:
-                context=runtime.chromium.launch_persistent_context(str(root/'profile'),headless=headless,
-                            accept_downloads=bool(policy['downloads']),permissions=[],service_workers='block')
-                try:
-                    # No restored page is adopted by position; tab IDs are assigned explicitly.
-                    yield PlaywrightDriver(context,policy)
-                finally:context.close()
-        except Error as exc:raise ValueError('Browser operation failed: '+str(exc)[:1000]) from None
+    temporary=Path(tempfile.mkdtemp(prefix='relay-public-read-')) if ephemeral else None
+    closed=False
+    try:
+        with profile_lock(temporary or data,policy['profile']) as root:
+            try:from playwright.sync_api import sync_playwright,Error
+            except ImportError:raise ValueError('Install the browser extra and Chromium; see docs/general-browser.md') from None
+            try:
+                with sync_playwright() as runtime:
+                    context=runtime.chromium.launch_persistent_context(str(root/'profile'),headless=headless,
+                                accept_downloads=bool(policy['downloads']),permissions=[],service_workers='block')
+                    try:
+                        # No restored page is adopted by position; tab IDs are assigned explicitly.
+                        yield PlaywrightDriver(context,policy)
+                    finally:
+                        context.close()
+                        closed=True
+            except Error as exc:raise ValueError('Browser operation failed: '+str(exc)[:1000]) from None
+    finally:
+        # Only this invocation's owned scratch profile is disposable, and only
+        # after confirmed context closure. Unknown closure leaves scratch state
+        # for diagnosis; durable source evidence lives outside this directory.
+        if temporary is not None and closed:
+            if temporary.is_symlink():raise ValueError('Temporary browser root changed; cleanup refused')
+            shutil.rmtree(temporary)
 
 
 class Session:
     def __init__(self,db,job,policy,driver,files=None,cancelled=None):
         self.policy=validate(policy);self.profile=policy['profile'];self.job=job
         self.journal=Journal(db);self.driver=driver;self.files=files;self.observations={}
-        self.tabs=set();self.cancelled=cancelled or (lambda:False)
+        self.visuals={};self.tabs=set();self.cancelled=cancelled or (lambda:False)
 
     def url(self,url):
         if origin(url) not in self.policy['origins']:raise ValueError('URL is outside the authorized website origins')
@@ -294,16 +377,17 @@ class Session:
         if not isinstance(ref,str) or not ref.isdigit() or int(ref)>=len(observation['handles']):raise ValueError('Unknown element ref')
         return observation['handles'][int(ref)],observation['raw']['controls'][int(ref)]
 
-    def observed(self,args):
+    def observed(self,args,*,require_current=True):
         tab=args['tab'];observation=self.observations.get(tab)
         if not observation or args.get('observation')!=observation['id']:raise ValueError('Inspect this tab before acting; stale observation')
-        raw,_=self.driver.snapshot(tab)
-        if digest(raw)!=observation['fingerprint']:raise ValueError('Page changed; inspect again before acting')
+        if require_current:
+            raw,_=self.driver.snapshot(tab)
+            if digest(raw)!=observation['fingerprint']:raise ValueError('Page changed; inspect again before acting')
         return observation
 
     def call(self,ident,name,args):
         from orchestrator.browser_contract import definitions
-        schema=next((d for d in definitions() if d['name']==name),None)
+        schema=next((d for d in definitions(self.policy) if d['name']==name),None)
         if not schema or not isinstance(args,dict) or set(args)!=set(schema['parameters']['required']):raise ValueError('Invalid browser tool arguments')
         for key,value in args.items():
             expected=schema['parameters']['properties'][key]['type']
@@ -317,11 +401,12 @@ class Session:
         if op in ('open','navigate'):self.url(args['url'])
         if op=='open' and len(self.tabs)>=self.policy['max_tabs']:raise ValueError('Tab budget exhausted')
         if op=='wait' and not 0<=args['seconds']<=5:raise ValueError('Wait must be 0–5 seconds')
-        interactive=op in INTERACTIVE
+        visual=op.startswith('visual_')
+        interactive=op in INTERACTIVE or visual
         if op=='image_source':
             if self.files is None:raise ValueError('No image-source file grant')
             self.files.image_source_ready(args['path'],args['subject'])
-            image_observation=self.observed(args)
+            image_observation=self.observed(args,require_current=False)
             ref=args['ref'];images=image_observation['raw'].get('images',[])
             if not ref.isdigit() or int(ref)>=len(images):raise ValueError('Unknown observed image ref')
             from orchestrator.browser_images import observed_image
@@ -334,9 +419,17 @@ class Session:
             if args['path'] not in self.policy.get('screenshots',[]) or self.files is None:raise ValueError('No exact screenshot grant')
             self.files.capture_ready(args['path'])
             capture_observation=self.observed(args)
-        if interactive:
+            if 'visual_actions' in self.policy:
+                from .browser_visual import state
+                capture_viewport=state(self.driver,tab)
+        if visual:
+            from .browser_visual import prepare
+            prepare(self,args,op)
+        if interactive and not visual:
             if not args['purpose'].strip():raise ValueError('State this action purpose within the assignment')
             element,descriptor=self.target(args)
+            from orchestrator.browser_action_sets import check_interaction
+            check_interaction(self.policy,descriptor,op)
             if op=='click' and descriptor.get('tag')=='A' and descriptor.get('href'):
                 anchor=self.url(descriptor['href']);interactive=False
             if interactive and not self.policy['interaction_scope'].strip():raise ValueError('This job authorizes reading/navigation only')
@@ -347,9 +440,19 @@ class Session:
                 raise ValueError('Unsupported key')
             if op in ('upload','download'):
                 if args['path'] not in self.policy[op+'s'] or self.files is None:raise ValueError('No exact file transfer grant')
+            if op=='download':
+                self.files.download_ready(args['path'])
+                download_observation=self.observations[tab]
         old=self.journal.claim(self.profile,self.job,ident,name,args,self.policy['max_actions'],interactive or op in ('screenshot','image_source'))
         if old is not None:return old
         # No external interaction occurs before the committed intent above.
+        driver_returned=False
+        def returned():
+            nonlocal driver_returned
+            with self.journal.db:
+                self.journal.event(self.profile,self.job,ident,'driver_returned',
+                    {'operation':op,'tab':tab,'remote_outcome':'not_independently_verified'})
+            driver_returned=True
         try:
             if self.cancelled():raise ValueError('Cancelled after claim; no automatic retry')
             if op=='tabs':
@@ -358,7 +461,7 @@ class Session:
             elif op=='open':
                 tab=secrets.token_hex(12);self.tabs.add(tab)
                 self.journal.tab(self.profile,tab,args['url'],'opening')
-                self.driver.open(tab,args['url']);result=self.inspect(tab)
+                self.driver.open(tab,args['url']);returned();result=self.inspect(tab)
             elif op=='read':result=self.inspect(tab)
             elif op=='image_source':
                 result=self.files.write_image_source(args['path'],candidate)
@@ -373,19 +476,37 @@ class Session:
                           'captured_at':datetime.now(timezone.utc).isoformat(),'mode':'viewport',
                           'purpose':args['purpose'],'job':self.job,'action_id':ident,
                           'limitation':'Capture does not establish page completeness, map accuracy or visual acceptance.'}
+                if 'visual_actions' in self.policy and state(self.driver,tab)!=capture_viewport:raise ValueError('Viewport changed during capture')
                 result={**metadata,'capture':self.files.write_capture(args['path'],raw,metadata)}
+                if 'visual_actions' in self.policy:
+                    from .browser_visual import remember
+                    remember(self,tab,ident,args,result,capture_viewport)
             elif op=='close':
                 self.driver.close(tab);self.tabs.remove(tab)
                 previous=self.observations.pop(tab,None)
                 self.journal.tab(self.profile,tab,previous['raw']['url'] if previous else '', 'closed')
                 result={'tab':tab,'closed':True}
             else:
+                transfer=None
                 if op=='navigate' or anchor:self.driver.navigate(tab,anchor or args['url'])
                 elif op=='wait':self.driver.wait(tab,args['seconds'])
-                else:self.driver.act(tab,element,op,args,self.files)
+                else:
+                    if visual:self.visuals.pop(tab,None)
+                    raw=self.driver.act(tab,element,op,args,self.files)
+                    if op=='download':
+                        from datetime import datetime,timezone
+                        metadata={'schema':'relay.browser-download.v1','tab':tab,'observation':args['observation'],
+                                  'url':download_observation['raw']['url'],'title':download_observation['raw']['title'],
+                                  'downloaded_at':datetime.now(timezone.utc).isoformat(),'mode':'download',
+                                  'purpose':args['purpose'],'job':self.job,'action_id':ident,
+                                  'limitation':'Original downloaded bytes; page association does not establish generated content, visual quality or acceptance.'}
+                        transfer=self.files.write_download(args['path'],raw,metadata)
+                returned()
                 self.observations.pop(tab,None)
                 result=self.inspect(tab)
                 result['action_observed']=True;result['remote_outcome']='not_independently_verified'
+                if transfer is not None:result['download']=transfer
+            result['action_id']=ident
             self.journal.finish(self.profile,self.job,ident,'observed',result)
             return result
         except Exception as exc:
@@ -396,10 +517,25 @@ class Session:
                         'next_step':str(exc)+' Continue only after explicit manual confirmation; do not replay prior submissions.'}
                 self.journal.finish(self.profile,self.job,ident,'observed',result)
                 return result
+            if isinstance(exc,NavigationUnavailable) and not interactive and (op in ('open','navigate') or anchor):
+                self.tabs.discard(tab)
+                result={'error':str(exc),'outcome':'unavailable','requested_url':exc.url,
+                        'tab':tab,'tab_closed':True,'action_id':ident,
+                        'observation_unavailable':True,
+                        'next_step':'This page was not verified. Use another permitted source; the closed tab cannot be reused. This action ID returns this receipt without replay.'}
+                self.journal.tab(self.profile,tab,exc.url,'closed')
+                self.journal.finish(self.profile,self.job,ident,'observed',result)
+                return result
             if isinstance(exc,NavigationBlocked) and not interactive:
                 result={'error':str(exc),'outcome':'blocked','tab':tab,'blocked_navigation':exc.detail,
                         'next_step':'Use another permitted URL or report the missing website scope; do not repeat this blocked navigation.'}
                 self.journal.tab(self.profile,tab,exc.detail['requested_url'],'blocked')
+                self.journal.finish(self.profile,self.job,ident,'observed',result)
+                return result
+            if driver_returned:
+                result={'error':str(exc)[:1000],'tab':tab,'driver_action_returned':True,
+                        'observation_unavailable':True,'remote_outcome':'not_independently_verified',
+                        'next_step':'The driver returned before page capture failed. Read this tab for a fresh observation; do not repeat the completed action. Business outcome is not verified.'}
                 self.journal.finish(self.profile,self.job,ident,'observed',result)
                 return result
             self.journal.finish(self.profile,self.job,ident,'uncertain',{'error':str(exc)[:1000],'tab':tab})

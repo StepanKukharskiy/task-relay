@@ -71,13 +71,16 @@ block non-GET/HEAD/OPTIONS requests, which can also prevent some sites from load
 navigation itself is not a guarantee that a site performs no server-side changes.
 No arbitrary JavaScript, shell, cookie or credential tools are exposed to the model.
 
-Uploads and downloads support UTF-8 text only in this first slice. Their paths must
-also appear in declared inputs/outputs. Uploads verify the selected file hash;
-downloads use the existing output byte limit. The convenience `prepare` command
+Uploads support UTF-8 text and declared PNG inputs. Downloads support UTF-8 text
+and explicitly declared `image/png` outputs with a matching `.png.json` provenance
+output. Their paths must also appear in declared inputs/outputs. Uploads verify
+the selected file hash; downloads use the existing output byte limit. PNG downloads
+use the same bounded container checks as captures (10 MB, 4096 pixels per side,
+eight million pixels). JPEG, WebP and arbitrary binary downloads remain unsupported.
+The convenience `prepare` command
 does not grant transfers; use an authored graph with exact registered artifacts
-for that work. Password and OTP fields, replacing existing drafts, canvas-only
-interfaces requiring visual interaction, visual reasoning, arbitrary frames and automatic account
-setup are outside this slice. Body text is capped at 24,000 characters per
+for that work. Password and OTP fields, replacing existing drafts, arbitrary frames and automatic account setup remain outside this interface.
+Canvas/custom controls can use the optional shared visual fallback below. Body text is capped at 24,000 characters per
 observation; the controller considers up to 150 DOM controls.
 
 ## Viewport screenshots
@@ -86,7 +89,8 @@ Browser workers can save the current managed tab as a PNG through
 `browser_screenshot`. The optional `browser.screenshots` list grants exact relative
 PNG output paths. Each path must be declared as `image/png`, together with a
 provenance output at the PNG path plus `.json` declared as `application/json`.
-Older scopes without this list grant no captures. Uploads/downloads remain text-only.
+Older scopes without this list grant no captures. A PNG download uses the separate
+`downloads` list and never substitutes a viewport screenshot for the original file.
 
 For example, ask Relay in the paired chat:
 
@@ -104,7 +108,8 @@ scripted provider responses; installed-app and live Google Maps delivery are sep
 
 The tool takes `tab`, the latest `observation`, `path` and `purpose`. It captures
 only the viewport, at CSS pixel resolution, with a five-second capture timeout.
-There is no crop, automatic scrolling, full-page stitching or coordinate clicking.
+There is no crop or full-page stitching. Coordinate input requires the separate
+visual_actions grant below; ordinary captures grant no interaction.
 Dimensions are limited to 4096 pixels per side and eight million pixels; the total
 browser output allowance is 10 MB, with text outputs still capped at 200 KB.
 PNG inputs have a separate combined 10 MB bound; text inputs remain capped at 512 KB.
@@ -122,7 +127,89 @@ grant (described below), image pixels are saved locally and
 are not sent to Gemini/OpenAI/Qwen by this tool. Capturing canvas content therefore
 does not give the worker visual understanding or prove that map tiles loaded,
 attribution is readable, or a study boundary is correct. Keep those checks for a
-capable visual reviewer or the user. Native browser interaction remains DOM-based.
+capable visual reviewer or the user. Ordinary captures remain DOM-only; the explicit visual fallback adds screenshot
+vision and bounded coordinate actions.
+
+## Shared visual fallback
+
+Prefer DOM tools for buttons, fields and transfers. For canvas content or custom
+controls that the DOM tools cannot address, add `visual_actions` to the frozen
+browser policy: a distinct subset of `click`, `scroll`, `drag`. An empty list
+allows screenshot vision without coordinate input. Omission preserves old
+metadata-only capture behavior. This is generic browser support; no website
+selector registry is required.
+
+Declare bounded screenshot PNG/JSON output pairs as usual. Each successful
+`browser_screenshot` supplies the actual PNG pixels to the configured model via
+Gemini, OpenAI or Qwen's existing image transport, alongside an unpredictable
+capture token, tab/observation identity, dimensions and hash. A vision-capable
+model is required. Unsupported models fail through their existing provider path;
+Relay does not silently switch providers or omit pixels.
+
+`browser_visual_click`, `browser_visual_scroll` and `browser_visual_drag` use that
+token and viewport CSS coordinates, never OS screen coordinates. Only individually
+granted actions are declared to the worker. Scroll deltas are bounded to2000 CSS
+pixels and drags stay inside the viewport. Existing DOM typing and exact file
+transfer tools remain the input path; there is no arbitrary desktop or native
+file-dialog control.
+
+Before an action, code verifies the original screenshot bytes, same tab and DOM
+observation, unchanged viewport/scroll/scale and exact current screenshot hash.
+Captures expire after60 seconds; an action consumes its capture. Animated or live
+pages can therefore require a fresh screenshot. Embedded frames, password/OTP/file
+inputs, disabled targets and off-origin links are rejected as applicable.
+Explicit observation-only registered action controls remain protected from visual
+clicks. These checks do not semantically classify every canvas region: original
+user instructions and frozen scope still govern generation, purchases, messages
+and editing. A visual fallback grants no additional permission.
+
+The existing journal commits intent before mouse dispatch, returns exact completed
+duplicates and holds lost/uncertain effects without replay. A returned mouse action
+with a failed follow-up observation is retained as returned but unverified. The
+model must read/capture again; it cannot infer success or resubmit the action.
+Screenshots, code-owned provenance, model requests/replies and browser journals
+remain the evidence. No generic site success or visual quality follows merely
+from a returned mouse event.
+
+## Original PNG downloads
+
+Declare `downloads: ["render.png"]` with outputs `render.png` (`image/png`) and
+`render.png.json` (`application/json`). The shared `browser_download` tool clicks
+one observed control, retains the original PNG bytes, and writes code-owned
+provenance with the initiating page URL, observation/action IDs, timestamp and
+file hash. The sidecar cannot be downloaded or fabricated through text tools.
+It records page association, not proof of image quality or generation settings.
+
+The operation commits its intent before clicking. Completed duplicate action IDs
+return the original receipt; an interrupted transfer or partial PNG/sidecar pair
+stays uncertain and cannot silently download again. Existing PNG paths are refused
+before clicking. Exact image bytes, provenance and original browser journals pass
+to the existing independent review boundary. No new provider or site controller
+is introduced. Account-profile owned contexts enable downloads only when the
+assignment declares download paths; this does not confirm live account access.
+
+For a screenshot-to-render service such as xFigura, this supplies the image
+transfer boundary only. The selected Relay Chrome profile must be signed in, the
+actual workflow must expose supported controls, and generation must have an exact
+input and spending scope. Canvas dragging requires an explicit visual fallback grant and fresh screenshots.
+Node wiring or layout edits still require authorization in the original request. Source tests are not an installed or live xFigura qualification.
+
+## Registered custom actions
+
+The optional browser grant `custom_actions: [{"name": "xFigura actions", "mode": "observe"}]`
+exposes the selected node's custom Generate control on xFigura's designer page.
+The shared DOM driver requires the registered origin, route, selected node ID,
+visible structure and a unique exact label. Observations include `action_set`,
+`action`, `action_mode` and `node_id`, distinguishing node execution from the
+ordinary toolbar Generate button that opens the add-node menu. No arbitrary
+selectors, canvas composition or site-specific execution controller are exposed.
+
+`observe` permits recognition only and rejects interactions with the custom
+control. `interact` allows the normal `browser_click` path only within the original
+request and frozen interaction scope, including explicit generation/spending
+authority. Existing stale-observation, committed-intent and uncertain-effect
+guards still apply. Missing or ambiguous matches are not promoted to custom
+controls. Recognition does not establish a successful generation or download.
 
 ## Local use
 

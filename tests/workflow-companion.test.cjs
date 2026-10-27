@@ -31,3 +31,24 @@ view.selections=[{artifact:'source',sha256:'changed'},{artifact:'old-draft',sha2
 assert.deepEqual(resultFiles(view).primary.map(f=>f.id),['draft']);
 assert.deepEqual(view.latest_outputs,outputs);
 console.log('Workflow projection passed: branching, sequence, disconnected work, damaged history and pending decisions.');
+
+const direct={tasks:[{id:'owner',status:'completed',dependencies:[]}],latest_outputs:[{id:'manifest',task:'owner',sha256:'m'},{id:'answer',task:null,sha256:'a'}],delivered_outputs:[{artifact:'answer',sha256:'a',review_status:'unreviewed'}]};
+assert.deepEqual(resultFiles(direct).primary.map(f=>f.id),['answer']);
+assert.deepEqual(resultFiles(direct).other.map(f=>f.id),['manifest']);
+assert.deepEqual(resultFiles({...direct,delivered_outputs:[{artifact:'answer',sha256:'changed'}]}).primary.map(f=>f.id),['manifest']);
+// Do not fabricate historical graphs from stage order or message transcripts.
+{
+ const {pipelineGraph,canvasEdges}=require('../task_relay/assets/companion-workflow.js');
+ const old={id:'old',stages:[{id:'read',tasks:[{id:'guess'}]},{id:'write',status:'pending'}]};
+ assert.equal(pipelineGraph(old).tasks.length,0);
+ const source={name:'a',tasks:[{id:'same',planned_outputs:[{path:'page'}]}],latest_outputs:[{id:'blob',sha256:'exact',task:'same',path:'page'}]};
+ const target={name:'b',tasks:[{id:'same',planned_inputs:[{path:'input'}],recorded_inputs:[{path:'input',artifact:'blob',sha256:'wrong'}]}]};
+ const view={id:'job',stages:[{id:'read',execution:source},{id:'write',execution:target}]};
+ const before=JSON.stringify(view);let graph=pipelineGraph(view);
+ assert.equal(new Set(graph.tasks.map(t=>t.id)).size,2);assert.equal(canvasEdges(graph.tasks).length,0,'same path or wrong hash cannot create a handoff');
+ assert.equal(JSON.stringify(view),before);
+ target.tasks[0].recorded_inputs[0].sha256='exact';graph=pipelineGraph(view);
+ assert.equal(canvasEdges(graph.tasks).length,1);assert.equal(canvasEdges(graph.tasks)[0].kind,'binding');
+ source.historical_outputs=source.latest_outputs;source.latest_outputs=[];
+ assert.equal(canvasEdges(pipelineGraph(view).tasks).length,0,'retained output cannot be shown as current output');
+}

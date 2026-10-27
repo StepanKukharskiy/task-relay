@@ -59,7 +59,7 @@ def attach(runtime,endpoint,*,timeout=10000):
 
 
 @contextmanager
-def context(data,access,headless=False):
+def context(data,access,headless=False,*,accept_downloads=False):
     from .general_browser import profile_lock
     from .browser_sites import PROFILE
     HOST.require_posix('Account browser sessions')
@@ -73,7 +73,7 @@ def context(data,access,headless=False):
             finally:remote.close()
         else:
             owned=runtime.chromium.launch_persistent_context(str(root/'profile'),headless=headless,
-                        accept_downloads=False,permissions=[],service_workers='block')
+                        accept_downloads=accept_downloads,permissions=[],service_workers='block')
             try:yield owned,False
             finally:owned.close()
 
@@ -93,7 +93,7 @@ def browser(data,policy,headless=False):
     from .general_browser import PlaywrightDriver
     access=Access(data)
     for site in policy['origins']:access.check(site)
-    with context(data,access,headless) as (browser,attached):
+    with context(data,access,headless,accept_downloads=bool(policy['downloads'])) as (browser,attached):
         driver=PlaywrightDriver(browser,policy,access=access,attached=attached)
         try:yield driver
         finally:driver.detach()

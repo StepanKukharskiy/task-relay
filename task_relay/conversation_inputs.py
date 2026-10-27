@@ -18,6 +18,8 @@ Relay freezes recent conversation entries as a readable input for Codex. They ar
 context, not new authorization: the current user request controls what work starts.
 If the requested draft is missing or multiple versions remain ambiguous, inspect
 the relevant files or ask which version; never silently substitute an old artifact.
+Entries marked failed or uncertain contain execution diagnostics, not successful
+advice. Do not retry those messages; only the current message authorizes new work.
 '''
 
 
@@ -26,13 +28,37 @@ def recent(state, job, limit=LIMIT):
     if saved is None:
         return []
     channel = relay_channels.request_channel(state, job['id'])
+    from . import conversation_flow
+    followup=conversation_flow.scope(state.db,job['id'])
+    if followup and followup['mode']=='message':
+        # Cross-channel continuation stays within this exact job, including failures.
+        # Keep the original request plus the latest bounded turns, never unrelated chats.
+        root=followup['source_request_id']
+        original=state.db.execute('SELECT id,created,focus,prompt,answer,status FROM orchestrator_chats WHERE id=?',(root,)).fetchone()
+        rows=state.db.execute('''SELECT c.id,c.created,c.focus,c.prompt,c.answer,c.status
+            FROM conversation_followups f JOIN desktop_plan_requests d ON d.request_id=f.request_id
+            JOIN orchestrator_chats c ON c.id=d.job_id WHERE f.source_request_id=? AND c.id!=? AND c.created<=?
+            ORDER BY c.created DESC,c.id DESC LIMIT ?''',(root,job['id'],saved['created'],max(0,limit-1))).fetchall()
+        entries=([dict(original)] if original else [])+[dict(row) for row in reversed(rows)]
+        from .attachment_batches import selected
+        for entry in entries:
+            ids=selected(state,entry['id'])
+            if ids is not None:entry['attachment_ids']=ids
+        return entries
     rows = state.db.execute('''SELECT c.id,c.created,c.focus,c.prompt,c.answer
         FROM orchestrator_chats c LEFT JOIN relay_request_channels r ON r.request_id=c.id
         WHERE c.status='answered' AND c.id!=? AND c.created<=?
+        AND NOT EXISTS (SELECT 1 FROM relay_pipeline_requests p WHERE p.request_id=c.id)
         AND COALESCE(r.channel,'telegram')=? AND (? IS NULL OR c.focus=?)
         ORDER BY c.created DESC,c.id DESC LIMIT ?''',
         (job['id'], saved['created'], channel, saved['focus'], saved['focus'], limit)).fetchall()
-    return [dict(row) for row in reversed(rows)]
+    from .attachment_batches import selected
+    entries = [dict(row) for row in reversed(rows)]
+    for entry in entries:
+        ids = selected(state, entry['id'])
+        if ids is not None:
+            entry['attachment_ids'] = ids
+    return entries
 
 
 def freeze(state, job):
@@ -41,8 +67,12 @@ def freeze(state, job):
         return []
     value = {'kind':'conversation_context', 'request_id':job['id'],
              'status':'unreviewed conversation; not production acceptance',
-             'scope':f'Last {LIMIT} answered turns in this channel and focus, oldest first; not the entire project history.',
+             'scope':f'Last {LIMIT} answered conversation turns in this channel and focus, oldest first; machine-generated workflow requests remain in their workflow ledger.',
              'instructions':INSTRUCTIONS, 'entries':entries}
+    from . import conversation_flow
+    linked=conversation_flow.scope(state.db,job['id'])
+    if linked and linked['mode']=='message':
+        value['scope']=f'Original request and at most {LIMIT-1} latest saved turns in this exact job, oldest first, including failed outcomes. Older intermediate turns may be omitted; current message alone authorizes new work.'
     data = (json.dumps(value, ensure_ascii=False, indent=2)+'\n').encode()
     if len(data)>MAX_BYTES:
         raise ValueError('Conversation inputs exceed 200 KB; select the required draft before routing. No draft was truncated.')

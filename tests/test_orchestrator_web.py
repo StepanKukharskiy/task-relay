@@ -134,11 +134,11 @@ class Tests(unittest.TestCase):
 
     def test_oversized_page_is_rejected_before_body_read(self):
         response=Mock(status=200)
-        values={'Content-Type':'text/html','Content-Length':str(web.MAX_BYTES+1)}
+        values={'Content-Type':'text/html','Content-Length':str(web.MAX_HTML_BYTES+1)}
         response.getheader.side_effect=lambda name,default=None:values.get(name,default)
         connection=Mock();connection.getresponse.return_value=response
         with patch.object(web,'public_addresses',return_value=['93.184.216.34']),patch.object(web,'PublicHTTPS',return_value=connection):
-            with self.assertRaisesRegex(ValueError,'1 MB'):web.download('https://example.com')
+            with self.assertRaisesRegex(ValueError,'raw bytes'):web.download('https://example.com')
         response.read1.assert_not_called()
 
 

@@ -190,6 +190,32 @@ class Tests(unittest.TestCase):
                         execute(self.frozen,control,type('Client',(),{'request':staticmethod(request)})(),reader)
                 self.assertEqual(len(requests),1);host.assert_not_called()
 
+    def test_binary_producers_preserve_drafts_after_nonproductive_calculations(self):
+        for suffix in ('png','pptx','pdf'):
+            with self.subTest(format=suffix),tempfile.TemporaryDirectory(dir=self.root) as temp:
+                control=Path(temp);reader=self.setup_worker(control=control)
+                output='candidate.'+suffix
+                self.frozen['outputs']=[dict(path=output,purpose='Binary draft')]
+                self.frozen['limits'].update(provider_requests=8,tool_calls=8)
+                seen=[];frozen=self.frozen
+                class Client:
+                    def request(self,endpoint,payload,**kwargs):
+                        seen.append(copy.deepcopy(payload));n=len(seen)
+                        offered={t['name'] for t in payload['tools'][0]['functionDeclarations']}
+                        if n<5:name,args='python_run',dict(code='calculate without saving',seconds=5)
+                        elif n==5:
+                            assert 'python_run' not in offered
+                            name,args='python_checkpoint',dict(code='save actual draft',seconds=5)
+                        else:name,args='finish',report(frozen)
+                        return {'candidates':[{'finishReason':'STOP','content':{'role':'model','parts':[{'functionCall':{'name':name,'args':args}}]}}]}
+                def host(runtime,folder,code,*args):
+                    out=folder/'outputs';out.mkdir()
+                    if code=='save actual draft':(out/output).write_bytes(b'bounded binary fixture\x00\xff')
+                    return dict(returncode=0,log='Calculation complete',outputs=str(out))
+                with patch.object(code_runtime,'available',return_value=shared.RECEIPT),patch.object(native_code_host,'run',side_effect=host):
+                    self.assertEqual(execute(self.frozen,control,Client(),reader)['decision'],'delivered')
+                self.assertEqual((self.ws/output).read_bytes(),b'bounded binary fixture\x00\xff')
+
     def test_saved_drafts_do_not_disable_later_progress_checkpoints(self):
         reader=self.setup_worker();self.frozen['limits'].update(provider_requests=16,tool_calls=16)
         seen=[];frozen=self.frozen

@@ -68,20 +68,23 @@ def read():
 
 def status():
     try:
-        value=read();runtime=native_code_host.identity()
-        current=bool(value and value['runtime']==runtime)
+        value=read()
+        try:
+            native_code_host.verify(value['runtime']) if value and value.get('runtime') else native_code_host.identity()
+            current=bool(value and value.get('runtime'))
+        except ValueError:current=False
         return {'available':True,'enabled':value.get('enabled',False) if value else True,'ready':bool(current and value.get('enabled')),
                 'tools':value.get('tools',{}) if value else {},'checked_at':value.get('checked_at') if value else None,
                 'detail':('Runtime changed; verification is required before use. ' if value and not current else 'Local verification runs before first use. ' if not value else '')+'Bundled Python and document libraries; no extra installation. Code works on assigned files without network or subprocess access.'}
     except (ValueError,OSError,KeyError) as exc:return {'available':False,'enabled':False,'error':str(exc)}
 
 
-def configure(enabled):
+def configure(enabled, *, pin=False):
     from .app_access import settings_lock
-    with settings_lock(path().parent):return _configure(enabled)
+    with settings_lock(path().parent):return _configure(enabled,pin=pin)
 
 
-def _configure(enabled):
+def _configure(enabled, *, pin=False):
     if type(enabled) is not bool:raise ValueError('Choose whether to enable native code workers.')
     if not enabled:
         value=read()
@@ -92,7 +95,7 @@ def _configure(enabled):
     try:old=read()
     except (ValueError,OSError):old=None
     if old:atomic(path(),{**old,'enabled':False})
-    runtime=native_code_host.identity()
+    runtime=native_code_host.pin(path().parent/'native-runtime') if pin else native_code_host.identity()
     path().parent.mkdir(parents=True,exist_ok=True)
     atomic(path(),{'version':1,'id':digest(runtime),'enabled':False,'runtime':runtime,'tools':{},'checked_at':None})
     with tempfile.TemporaryDirectory(prefix='code-check-',dir=path().parent) as temporary:
@@ -117,6 +120,7 @@ def available(ident=None):
                 if read() is None:_configure(True)
                 value=read()
         if not value or not value.get('enabled'):raise ValueError('Enable Code and document tools in Relay Settings first.')
-        if (ident is not None and value['id']!=ident) or value['runtime']!=native_code_host.identity():raise ValueError('Native runtime changed; check Code and document tools again.')
+        if ident is not None and value['id']!=ident:raise ValueError('Native runtime changed; check Code and document tools again.')
+        native_code_host.verify(value['runtime'])
         return value
     except (OSError,KeyError,TypeError) as exc:raise ValueError('Native runtime unavailable; check Code and document tools again.') from exc

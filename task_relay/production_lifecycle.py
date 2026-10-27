@@ -22,10 +22,11 @@ def controls(state,event,run):
     if not event.startswith('production:') or getattr(state,'channel','telegram')!='telegram' or relay_channels.event_channel(state,event)!='telegram':return []
     view=next(v for v in pc.inspect(state,run,include_files=False) if v['name']==run)
     verbs=[]
-    if view['status']=='paused':verbs.append(('resume','Resume'))
+    control_status=view.get('settlement',{}).get('terminal_outcome',view['status'])
+    if control_status=='paused':verbs.append(('resume','Resume'))
     elif pc.review_resume_digest(state,run,view,legacy=True):verbs.append(('resume','Resume remaining work'))
-    elif view['status'] in ('active','uncertain') and view['scheduler_enabled']:verbs.append(('pause','Pause scheduling'))
-    if view['status'] not in ('completed','cancelled'):verbs.append(('cancel','Cancel stage'))
+    elif control_status in ('active','uncertain') and view['scheduler_enabled']:verbs.append(('pause','Pause scheduling'))
+    if control_status not in ('completed','cancelled'):verbs.append(('cancel','Cancel stage'))
     buttons=[]
     with transaction(state.db):
         for verb,label in verbs:

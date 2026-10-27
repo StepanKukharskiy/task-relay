@@ -23,11 +23,50 @@ def identity():
     # Framework binaries and shared runtime libraries, not the whole user profile.
     roots.add(str(Path(sys.base_prefix).resolve()))
     from importlib.metadata import distributions
-    libraries=sorted([d.metadata.get('Name',''),d.version] for d in distributions())
+    # Standalone workers may prepend the same package root already on sys.path.
+    # Repeated discovery of identical metadata is not a runtime change; distinct
+    # installed versions still produce distinct entries in the identity.
+    libraries=[list(v) for v in sorted({(d.metadata.get('Name',''),d.version) for d in distributions()})]
     return {'adapter':'macos-seatbelt-v1','python':str(python),'python_sha256':hashlib.sha256(python.read_bytes()).hexdigest(),
             'read_roots':sorted(roots),'version':sys.version.split()[0],
             'libraries':libraries,
             'adapter_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+
+
+def pin(destination):
+    """Retain the complete relocatable Python tree before prospective admission."""
+    from . import runtime_snapshot,runtime_process
+    current=identity();base=Path(sys.base_prefix).resolve()
+    if any(not Path(p).is_relative_to(base) for p in [current['python'],*current['read_roots']]):
+        raise ValueError('Native runtime is not self-contained; cannot pin it')
+    receipt=runtime_snapshot.capture(base,destination)
+    python=Path(receipt['root'])/Path(current['python']).relative_to(base)
+    package=str(Path(__file__).resolve().parents[1])
+    code='import sys,json;sys.path.insert(0,'+repr(package)+');from task_relay.native_code_host import identity;print(json.dumps(identity()))'
+    result=subprocess.run(runtime_process.command(python,'-c',code,isolated=True),env=runtime_process.environment(),capture_output=True,text=True,timeout=30,check=True)
+    runtime=json.loads(result.stdout)
+    if runtime['libraries']!=current['libraries'] or runtime['python_sha256']!=current['python_sha256']:
+        raise ValueError('Relocated runtime differs from source')
+    if any(not Path(p).is_relative_to(Path(receipt['root'])) for p in [runtime['python'],*runtime['read_roots']]):
+        raise ValueError('Relocated runtime still reads outside its snapshot')
+    runtime['snapshot']=receipt
+    runtime['process_policy_sha256']=runtime_snapshot.sha(runtime_process.__file__)
+    verify(runtime);return runtime
+
+
+def verify(runtime):
+    if 'snapshot' not in runtime:
+        if runtime!=identity():raise ValueError('Native Python runtime changed; check tools again before execution.')
+        return
+    from . import runtime_snapshot,runtime_process
+    root=runtime_snapshot.verify(runtime['snapshot'])
+    if runtime['snapshot'].get('version')==2 and runtime.get('process_policy_sha256')!=runtime_snapshot.sha(runtime_process.__file__):
+        raise ValueError('Pinned runtime process policy changed')
+    if (runtime.get('adapter')!='macos-seatbelt-v1'
+        or runtime['adapter_sha256']!=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        or any(not Path(p).resolve().is_relative_to(root) for p in [runtime['python'],*runtime['read_roots']])
+        or runtime['python_sha256']!=runtime_snapshot.sha(runtime['python'])):
+        raise ValueError('Pinned native runtime identity changed')
 
 
 def profile(runtime,inputs,outputs,program,bootstrap):
@@ -43,8 +82,8 @@ def profile(runtime,inputs,outputs,program,bootstrap):
 
 
 def run(runtime,folder,code,seconds,maximum,cancelled=lambda:False):
-    current=identity()
-    if runtime!=current:raise ValueError('Native Python runtime changed; check tools again before execution.')
+    from . import runtime_process
+    verify(runtime)
     folder=Path(folder).resolve();inputs=folder/'inputs';outputs=folder/'outputs';outputs.mkdir()
     program=folder/'program.py'
     program.write_text(code,encoding='utf-8')
@@ -58,7 +97,8 @@ def run(runtime,folder,code,seconds,maximum,cancelled=lambda:False):
     policy=folder/'sandbox.sb';policy.write_text(profile(runtime,inputs,outputs,program,bootstrap),encoding='utf-8')
     env={'PATH':'/usr/bin:/bin','HOME':str(outputs),'TMPDIR':str(outputs),'PYTHONDONTWRITEBYTECODE':'1',
          'RELAY_INPUTS':str(inputs),'RELAY_OUTPUTS':str(outputs),'LANG':'en_US.UTF-8'}
-    command=['/usr/bin/sandbox-exec','-f',str(policy),runtime['python'],'-I','-B',str(bootstrap)]
+    env=runtime_process.environment(env)
+    command=['/usr/bin/sandbox-exec','-f',str(policy),*runtime_process.command(runtime['python'],bootstrap,isolated=True)]
     log=outputs/'runtime.log'
     spec=folder/'guard.json'
     spec.write_text(json.dumps(dict(command=command,outputs=str(outputs),env=env,seconds=seconds,maximum=maximum)))
@@ -66,7 +106,7 @@ def run(runtime,folder,code,seconds,maximum,cancelled=lambda:False):
     # lifetime pipe: even SIGKILL of the API worker closes it and kills the child.
     # It is outside the API supervisor's process group, carries no credentials,
     # and never passes the lifetime pipe into generated code.
-    process=subprocess.Popen([runtime['python'],'-I','-B',str(Path(__file__).resolve()),str(spec)],
+    process=subprocess.Popen(runtime_process.command(runtime['python'],Path(__file__).resolve(),spec,isolated=True),
         env=env,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
         start_new_session=True,close_fds=True)
     try:

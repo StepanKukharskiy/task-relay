@@ -89,6 +89,63 @@ class Tests(unittest.TestCase):
         self.frozen['backend']=self.backend('qwen',True)
         return CodeFiles(self.frozen,self.control)
 
+    def test_visual_requirement_transports_selected_png_without_a_model_transport_flag(self):
+        from tests.test_browser_screenshots import png
+        from orchestrator import worker_capabilities
+        import base64
+        raw=png();(self.ws/'reference.png').write_bytes(raw)
+        self.frozen['inputs']=[dict(path='reference.png',sha256=hashlib.sha256(raw).hexdigest(),media_type='image/png')]
+        backend=self.backend('gemini',True)
+        self.frozen['worker']=dict(requires=['files.text','images.view','code.execute'])
+        self.frozen.pop('tools',None)
+        worker_capabilities.resolve(self.frozen,[worker_capabilities.entry(backend)],backend)
+        self.frozen['backend']=backend
+        config={'api_key':'fixture-only'};atomic(self.control/'launch.json',dict(credential_fingerprint=executors.fingerprint(config,backend)))
+        transport=Transport('gemini',self.frozen)
+        with patch.object(code_runtime,'available',return_value=RECEIPT):execute(self.frozen,self.control,transport,lambda:(config,backend))
+        parts=transport.requests[0][1]['contents'][0]['parts']
+        self.assertEqual([base64.b64decode(p['inlineData']['data']) for p in parts if 'inlineData' in p],[raw])
+
+    def test_code_worker_receives_exact_declared_visual_pixels(self):
+        from tests.test_browser_screenshots import png
+        import base64
+        raw=png();(self.ws/'candidate.png').write_bytes(raw)
+        self.frozen['inputs']=[dict(path='candidate.png',sha256=hashlib.sha256(raw).hexdigest(),visual_reference=True,media_type='image/png')]
+        backend=self.backend('gemini',True);self.frozen.update(backend=backend,tools=['files','python'])
+        config={'api_key':'fixture-only'};atomic(self.control/'launch.json',dict(credential_fingerprint=executors.fingerprint(config,backend)))
+        transport=Transport('gemini',self.frozen)
+        with patch.object(code_runtime,'available',return_value=RECEIPT):execute(self.frozen,self.control,transport,lambda:(config,backend))
+        parts=transport.requests[0][1]['contents'][0]['parts']
+        self.assertEqual([base64.b64decode(p['inlineData']['data']) for p in parts if 'inlineData' in p],[raw])
+
+    def test_render_archive_pixels_reach_reviewer_and_traversal_is_rejected(self):
+        from tests.test_browser_screenshots import png
+        self.render_archive_observation(png())
+
+    def test_large_render_preview_reaches_model_and_exact_review_without_extra_call(self):
+        from tests.test_visual_review_observation import Tests
+        self.render_archive_observation(Tests.large_image(self))
+
+    def render_archive_observation(self,raw):
+        from tests.test_operation_session import Script
+        from orchestrator.visual_files import read
+        import base64,zipfile
+        with zipfile.ZipFile(self.ws/'render.zip','w') as z:z.writestr('slides/1.png',raw)
+        digest=hashlib.sha256((self.ws/'render.zip').read_bytes()).hexdigest()
+        self.frozen.update(inputs=[dict(path='render.zip',sha256=digest,media_type='application/zip')],review_of='producer',
+            outputs=[dict(path='review.md',purpose='Independent review',media_type='text/markdown')])
+        backend=self.backend('gemini',True);self.frozen.update(backend=backend,tools=['files','python'])
+        config={'api_key':'fixture-only'};atomic(self.control/'launch.json',dict(credential_fingerprint=executors.fingerprint(config,backend)))
+        script=Script([('image_view',dict(path='render.zip',members=['slides/1.png'])),('finish',dict(report_json=json.dumps(report(self.frozen))))])
+        with patch.object(code_runtime,'available',return_value=RECEIPT):execute(self.frozen,self.control,script,lambda:(config,backend))
+        pixels=[base64.b64decode(p['inlineData']['data']) for content in script.requests[1]['contents'] for p in content['parts'] if 'inlineData' in p]
+        from orchestrator.image_representation import inspection_preview
+        expected,_=inspection_preview(raw,'slides/1.png')
+        self.assertEqual(pixels,[expected]);self.assertEqual(len(script.requests),2)
+        from orchestrator.visual_files import confirmed_pixels,rendered_pixels
+        self.assertEqual(confirmed_pixels(self.control),rendered_pixels((self.ws/'render.zip').read_bytes(),'application/zip'))
+        with self.assertRaises(ValueError):read(CodeFiles(self.frozen,self.control),dict(path='render.zip',members=['../outside.png']))
+
     @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_every_code_provider_can_write_text_and_finish(self):
         for provider in executors.PROVIDERS:
@@ -154,6 +211,43 @@ class Tests(unittest.TestCase):
         with patch.object(code_runtime,'available',return_value=RECEIPT),patch.object(native_code_host,'run',side_effect=self.host_result):
             self.assertEqual(files.run({'code':'corrected','seconds':5})['returncode'],0)
         self.assertEqual(len(list(self.control.glob('code-*/outcome.json'))),2)
+
+    def test_working_files_persist_without_becoming_deliverables(self):
+        import os
+        def host(runtime,folder,code,*args):
+            out=folder/'outputs';out.mkdir();previous=os.getcwd()
+            try:
+                os.chdir(out);exec(code,{'__name__':'__main__'})
+            finally:os.chdir(previous)
+            return dict(returncode=0,log='',outputs=str(out))
+        with patch.object(code_runtime,'available',return_value=RECEIPT),patch.object(native_code_host,'run',side_effect=host):
+            files=self.files()
+            first=files.run(dict(code="from pathlib import Path\nPath('build.py').write_text('first')",seconds=5))
+            self.assertEqual(first['working_files'],1);self.assertFalse(files.written)
+            self.assertFalse((self.ws/'build.py').exists())
+            # Restore from committed journals, not an in-memory copy.
+            files=self.files()
+            files.run(dict(code="from __future__ import annotations\nfrom pathlib import Path\nassert Path('build.py').read_text()=='first'\nPath('build.py').write_text('revised')\nPath('output.txt').write_text('completed from saved script')",seconds=5))
+            self.assertEqual(set(files.written),{'output.txt'})
+            self.assertEqual((self.ws/'output.txt').read_text(),'completed from saved script')
+            first_outcome=next(p for p in self.control.glob('code-*/outcome.json') if json.loads(p.read_text())['workspace']['build.py']['bytes']==5)
+            self.assertEqual((first_outcome.parent/'outputs/build.py').read_text(),'first')
+            latest,manifest=files.workspace();(latest/'build.py').write_text('tampered')
+            with self.assertRaisesRegex(ValueError,'workspace changed'):files.run(dict(code='pass',seconds=5))
+
+    def test_scratch_files_obey_the_same_quota_and_link_boundaries(self):
+        for mode in ('large','symlink','directory_link'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                files=CodeFiles({**self.frozen,'backend':self.backend('qwen',True),'limits':{**self.frozen['limits'],'output_bytes':4}},temporary)
+                def host(runtime,folder,*args):
+                    output=folder/'outputs';output.mkdir()
+                    if mode=='large':(output/'scratch.txt').write_text('too much intermediate content')
+                    elif mode=='symlink':(output/'scratch.txt').symlink_to(self.ws/'.relay')
+                    else:(output/'scratch-dir').symlink_to(self.ws,target_is_directory=True)
+                    return dict(returncode=0,log='',outputs=str(output))
+                with patch.object(code_runtime,'available',return_value=RECEIPT),patch.object(native_code_host,'run',side_effect=host):
+                    with self.assertRaises((ValueError,OSError)):files.run(dict(code='fixture',seconds=5))
+                self.assertFalse(files.written)
 
     @unittest.skipIf(sys.platform == 'win32', 'POSIX file grants; Windows denial tested separately')
     def test_export_rejects_symlinks_and_over_budget_before_writing(self):

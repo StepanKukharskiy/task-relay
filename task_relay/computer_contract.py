@@ -95,6 +95,9 @@ def validate_response(value, frozen):
 def session_spec(value):
     """Frozen, finite manual action plan. No provider or arbitrary input surface."""
     keys = {'target', 'url', 'allowed_urls', 'actions', 'capture', 'local_fixture', 'max_seconds'}
+    if isinstance(value,dict) and 'navigation_policy' in value:
+        keys.add('navigation_policy')
+        if value['navigation_policy']!='same-origin-observed-v1' or value['target']!=NEW_WINDOW:raise ValueError('Unsupported native navigation policy')
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('Session needs an exact target, URL list, action plan and limits.')
     if managed_target(value['target']):
@@ -133,3 +136,13 @@ def session_spec(value):
         raise ValueError('Only exact allowed navigation, one-page scrolling and observation are supported.')
     # Serialize now to reject non-JSON values and detach callers' mutable objects.
     return json.loads(json.dumps(value, allow_nan=False))
+
+
+def navigation_url(expected,actual,policy=None,fixture=False):
+    """Only the explicit source-reader policy admits observed same-origin redirects."""
+    url(expected,fixture);url(actual,fixture)
+    if expected==actual:return actual
+    a,b=urlsplit(expected),urlsplit(actual)
+    origin=lambda u:(u.scheme,u.hostname,u.port or (443 if u.scheme=='https' else 80))
+    if policy!='same-origin-observed-v1' or origin(a)!=origin(b):raise ValueError('Native navigation destination outside policy')
+    return actual

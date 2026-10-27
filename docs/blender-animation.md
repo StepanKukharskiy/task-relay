@@ -56,12 +56,25 @@ Outputs under `delivery/`:
 The media queue adds an MP4 preview plus independent original-file delivery. Existing
 video metadata checks and document fallback apply. Live Telegram delivery is unverified.
 
-Rendering is bounded to 1–120 contiguous frames at integer 1–60 FPS and 600 seconds.
+Rendering is bounded to 1–120 contiguous frames at integer 1–60 FPS and 1200 seconds.
+New canvas animation attempts use this 20-minute operation default; model nodes
+retain their existing default. Explicitly saved shorter budgets and historical
+executed attempts are not rewritten. Cancellation and the hard deadline remain.
 Preview allows even 64–512px dimensions and 1–4 CPU samples; final allows 64–1024px
 and 1–16 samples. Declared outputs total at most 100 MB; checkpoint payloads use at
 most half that budget. Workspace/source/control copies also occupy disk and are
 retained for recovery; 100 MB is not a total process disk quota. Failed render files
 remain with their original attempt. This operation adds no automatic cleanup.
+
+Version-2 checkpoints store identical PNG bytes once, with every logical frame and
+its exact hash still recorded. PNG compression is lossless; filtered samples and
+colour chunks are preserved. Nonvisual PNG text chunks (such as Blender's frame
+number and render timing) are retained verbatim as base64 `png_text` chunks in the
+per-frame receipt, rather than making otherwise identical pictures unique. The
+same 50%-of-output payload cap counts the unique image files plus scene/checks/
+ledger. Restore validates all hashes and the exact archive inventory before
+expanding repeated frames for the encoder. Historical version-1 archives remain
+readable; implementation identity and unresolved-intent guards still apply.
 
 Blender, ffmpeg and ffprobe must be installed already. `TASK_RELAY_FFMPEG` and
 `TASK_RELAY_FFPROBE` select explicit executable paths; otherwise PATH is used. Invalid
@@ -76,8 +89,12 @@ equivalence, visual quality approval or proof of a physically valid animation.
 
 ## Explicit continuation
 
-Each frame has a saved intent before launch and a hash after a confirmed successful
-render. An atomic checkpoint is updated before and after each frame. A deadline
+Frames render in one Blender process with persistent render data; independent build
+and reopen verification still precede rendering. Each frame has an atomic durable
+intent before rendering and a hash after confirmed successful PNG output. The host
+validates the progress ledger and every completed image after process exit,
+including timeout. ZIP checkpoints are packaged before the batch and at settlement,
+not repeatedly recompressed per frame. A deadline
 between frames leaves later frames pending. Process timeout or interruption during
 a frame retains an unresolved intent; it is never silently reclassified as missing.
 
@@ -94,3 +111,21 @@ No folder scan searches for convenient partial renders. Existing attempts, budge
 receipts and user selections remain unchanged. Resume does not expand frame range,
 resolution, sample count or source versions. Final-quality work uses a separately
 approved manifest and does not reuse lower-quality frames.
+
+## Canvas composition
+
+New graphs connect both `scene_sha256` (Blender model) and `manifest_sha256`
+(animation settings) by named output reference. The names remain compatible with
+saved exact-hash assignments. A separate model node supplies one JSON preparation
+output; the shared writer owns `version` and `scene_sha256`. Declare the same scene
+on the preparation and render nodes. Chat's operation catalog includes the exact
+fragment schema, bounds and this binding policy. No user-supplied runtime-schema
+field is needed. Preflight resolves only completed producers, preserving the
+original graph and exact output identities.
+
+Empty tracks render ordinary keyframes already baked into the selected scene.
+Approved scene-generation Python may compute CA states and bake their visibility
+or transforms; the fixed renderer does not execute simulation code, drivers,
+Geometry Nodes or external caches. The current limit remains 120 contiguous
+frames, with at most 1024 pixels per dimension in final mode. This is a bounded
+animation export, not structural or general visual certification.

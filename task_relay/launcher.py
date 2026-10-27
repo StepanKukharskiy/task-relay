@@ -163,7 +163,8 @@ def status():
         cache = releases.cached(PATHS.data)
     except Exception:
         cache = {'checked': None, 'release': None, 'error': 'Release cache is unreadable.'}
-    return {'version': __version__, 'platform': HOST.platform,
+    app_version = host_apps.bundle_version(PATHS.install.resolve()) if HOST.platform == 'darwin' else None
+    return {'version': app_version or __version__, 'runtime_version': __version__, 'platform': HOST.platform,
             'setup_error': saved_error, 'project': project_info,
             'selected_provider': selected, 'providers': providers,
             'first_task_command': first_task,

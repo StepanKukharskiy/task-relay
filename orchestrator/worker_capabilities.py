@@ -16,7 +16,7 @@ CAPABILITIES = {
     'code.execute': 'Execute local code within the selected adapter boundaries (Codex shell or isolated Python); native registered operations remain separate.',
     'computer.use': 'Create, foreground and bind a dedicated Safari window (or use an explicit selection), then observe, navigate and scroll approved URLs with visible ownership; no focus reclamation after takeover.',
     'browser.use': 'Use browser tools with an explicit origin, action and transfer contract.',
-    'browser.capture': 'Save explicitly granted viewport PNG screenshots and provenance; inspect PNG metadata, not visual content.',
+    'browser.capture': 'Save granted viewport PNG screenshots and provenance; optional visual_actions enables screenshot vision and scoped visual click/scroll/drag fallback with a vision-capable model.',
 }
 TEXT_TYPES = {'text/plain', 'text/markdown', 'text/x-python', 'text/x-ruby', 'application/json', 'text/csv'}
 TEXT_SUFFIXES = {'.txt', '.md', '.json', '.csv', '.py', '.rb', '.js', '.html', '.css', '.xml', '.yaml', '.yml'}
@@ -27,16 +27,22 @@ def abilities(backend):
     result = ['files.text']
     if 'shell' in tools or 'python' in tools:result += ['files.binary', 'code.execute']
     if backend['type']=='codex-cli':result += ['images.view']
+    if backend['type'] in executors.VISION_TYPES:result += ['images.view']
     if 'computer' in tools:result += ['computer.use']
     if 'browser' in tools:result += ['browser.use','browser.capture']
     return result
 
 
 def entry(backend):
-    return dict(id=backend['type'], backend=copy.deepcopy(backend),
+    item=dict(id=backend['type'], backend=copy.deepcopy(backend),
                 capabilities=abilities(backend), tools=executors.validate(backend),
                 limits=executors.limits_for(backend) if backend['type'] in executors.API_TYPES
                 else dict(seconds=1800, tool_calls=60, output_bytes=100000000))
+    if backend['type'] in executors.CODE_TYPES:
+        item['restrictions']='Python only; no network, subprocesses, package installation or native apps. 120 seconds per code call. Binary inputs stay local; code logs and read text may be sent to the selected model. Delegate public research and native rendering to compatible registered operations.'
+    elif backend['type'] in executors.FILE_TYPES:
+        item['restrictions']='Declared-file tools only; no network, code execution or native apps. Use registered operations for research and rendering.'
+    return item
 
 
 def capture(state, default, locked=False):
@@ -46,12 +52,17 @@ def capture(state, default, locked=False):
         for candidate in executors.catalog(state):
             if candidate['available'] and candidate['id'] != default['type']:
                 result.append(entry(candidate['backend']))
+    return describe(result)
+
+
+def describe(catalog):
+    """Attach the existing qualified runtime report to exact allowed profiles."""
     from task_relay import code_runtime
+    result=copy.deepcopy(catalog)
     for item in result:
         if item['backend']['type'] in executors.CODE_TYPES:
             runtime=code_runtime.available(item['backend']['runtime'])
             item['runtime_tools']=runtime['tools']
-            item['restrictions']='Python only; no network, subprocesses, package installation or native apps. 120 seconds per code call. Binary inputs stay local; code logs and read text may be sent to the selected model.'
     return result
 
 
@@ -81,7 +92,19 @@ def matches(task, required, backend):
     if any(i['path'].startswith('operation-support/') and i['path'].endswith('/validate.py')
            for i in task.get('inputs',[])) and 'code.execute' not in caps:return False
     capture_files=False
-    if 'browser.capture' in caps:
+    if backend['type'] in executors.FILE_TYPES and executors.asset_policy(task):
+        capture_files=all(not has_binary({'inputs':[i]}) or executors.asset_input(task,i) for i in task.get('inputs',[])) and not any(has_binary({'outputs':[o]}) for o in task.get('outputs',[]))
+    if task.get('work_tools'):
+        from .worker_tools import validate_assignment
+        validate_assignment(task)
+        capture_files=backend['type'] in executors.FILE_TYPES and all(not has_binary({'inputs':[i]}) or executors.asset_input(task,i) for i in task.get('inputs',[]))
+    if task.get('artifact_roles') and backend['type'] in executors.FILE_TYPES:
+        from .artifact_roles import compatible
+        capture_files=compatible(task,caps,diagnose=False) and (bool(task.get('work_tools')) or not has_binary({'outputs':task.get('outputs',[])}))
+    if backend['type'] in executors.VISION_FILE_TYPES:
+        from .browser_contract import png_input
+        capture_files=capture_files or (all(not has_binary({'inputs':[i]}) or i.get('visual_reference') and png_input(i) for i in task.get('inputs',[])) and not any(has_binary({'outputs':[o]}) for o in task.get('outputs',[])))
+    if 'browser.capture' in caps and task.get('browser'):
         from .browser_contract import png_input,validate_files
         try:
             validate_files(task)
@@ -97,12 +120,24 @@ def resolve(task, catalog, default):
     if not isinstance(request, dict) or set(request)-{'requires','executor'} or 'requires' not in request:
         raise ValueError('Worker specifies requires and optionally a frozen executor ID; no model, command or tool injection.')
     required = requirements(request['requires'])
+    # Visual requirements select a registered input representation. Callers
+    # should not need an extra model-invented transport flag to send pixels.
+    matched=copy.deepcopy(task)
+    if 'images.view' in required:
+        from .browser_contract import png_input
+        for item in matched.get('inputs',[]):
+            if png_input(item):item['visual_reference']=True
     preferred = request.get('executor')
     if preferred is not None and (not isinstance(preferred,str) or not any(x['id']==preferred for x in catalog)):
         raise ValueError('Requested worker executor is outside the frozen catalog; no fallback.')
     candidates = [x for x in catalog if (preferred is None or x['id']==preferred)
-                  and matches(task, required, x['backend'])]
+                  and matches(matched, required, x['backend'])]
     if not candidates:
+        if task.get('artifact_roles'):
+            from .artifact_roles import compatible
+            for offered in catalog:
+                if offered['backend']['type'] in executors.FILE_TYPES and (preferred is None or offered['id']==preferred):
+                    compatible(matched,set(abilities(offered['backend'])))
         detail=''
         if any(i['path'].startswith('operation-support/') and i['path'].endswith('/validate.py')
                for i in task.get('inputs',[])):
@@ -115,12 +150,13 @@ def resolve(task, catalog, default):
     # bounded API file/Python workers over a general shell. Named executors are
     # filtered above; locked catalogs contain only the user's chosen profile.
     # Model names are configured, never invented or ranked by guessed cost.
-    candidates.sort(key=lambda x: (len(x['capabilities']), x['backend']['type'].split('-')[0]!=default['type'].split('-')[0], x['id']=='codex-cli',
+    candidates.sort(key=lambda x: (len(x['capabilities']), x['id']=='codex-cli', x['backend']['type'].split('-')[0]!=default['type'].split('-')[0],
                                    x['backend'] != default, x['id']))
     chosen = candidates[0]
     expected = executors.validate(chosen['backend'])
     if 'tools' in task and task['tools'] != expected:
         raise ValueError('Worker tools conflict with the resolved executor/provider; omit tools when using worker requirements.')
+    if 'inputs' in matched:task['inputs']=matched['inputs']
     task['tools'] = expected
     task['worker'] = dict(version=1, requires=list(required), executor=chosen['id'], backend=copy.deepcopy(chosen['backend']))
     validate(task)

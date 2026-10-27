@@ -1,5 +1,6 @@
 """Bounded native animation/rendering with explicit checkpoint continuation."""
 import json
+import copy
 import math
 from pathlib import Path
 import re
@@ -50,22 +51,34 @@ def validate(m):
     return m
 
 
+def selected_inputs(items,parameters):
+    """Resolve named graph ports against exact collected input descriptors."""
+    selected=[]
+    for key,media in (('manifest_sha256','application/json'),('scene_sha256','application/x-blender')):
+        matches=[i for i in items if i['media_type']==media]
+        if len(matches)!=1:raise ValueError('Animation requires one exact '+media+' input')
+        item=matches[0];value=parameters.get(key)
+        if value is None and key=='scene_sha256':pass # Historical manifest-bound scenes.
+        elif value not in (item['path'],item['sha256']):raise ValueError('Animation input binding mismatch: '+key)
+        selected.append(item)
+    return selected
+
+
 def bind_registered(rt,spec):
-    items=[{**i,**rt.artifact(i['artifact'])} for i in spec['inputs']]
+    items=[{**i,**rt.artifact(i['artifact']),'path':i['path']} for i in spec['inputs']]
     for i in items:
         if file_hash(i['blob'])!=i['sha256']:raise ValueError('Selected animation input changed')
-    manifest=next(i for i in items if i['media_type']=='application/json')
-    if manifest['sha256']!=spec['execution']['parameters']['manifest_sha256']:raise ValueError('Animation manifest hash mismatch')
+    manifest,scene=selected_inputs(items,spec['execution']['parameters'])
     if manifest['bytes']>200000:raise ValueError('Animation manifest exceeds 200 KB')
     m=validate(json.loads(Path(manifest['blob']).read_text()))
-    scene=next(i for i in items if i['media_type']=='application/x-blender')
     if scene['sha256']!=m['scene_sha256']:raise ValueError('Animation scene hash mismatch')
     for checkpoint in (i for i in items if i['media_type']=='application/zip'):
         parent=rt.db.execute('SELECT state,receipt,frozen FROM production_attempts WHERE id=?',(checkpoint['attempt'],)).fetchone()
-        if not parent or checkpoint['path']!='delivery/checkpoint.zip' or parent['state'] not in ('blocked','cancelled','completed') or json.loads(parent['receipt'] or '{}').get('status')!='finished':
+        if not parent or rt.artifact(checkpoint['artifact'])['path']!='delivery/checkpoint.zip' or parent['state'] not in ('blocked','cancelled','completed') or json.loads(parent['receipt'] or '{}').get('status')!='finished':
             raise ValueError('Checkpoint requires a confirmed stopped original animation attempt')
         frozen=json.loads(parent['frozen'])
-        if frozen.get('execution',{}).get('capability')!='blender.animate' or frozen['execution']['parameters']['manifest_sha256']!=manifest['sha256']:
+        original=next((i for i in frozen.get('inputs',[]) if i.get('media_type')=='application/json'),{})
+        if frozen.get('execution',{}).get('capability')!='blender.animate' or original.get('sha256')!=manifest['sha256']:
             raise ValueError('Checkpoint belongs to a different animation contract')
         with zipfile.ZipFile(checkpoint['blob']) as z:
             if z.getinfo('frames.json').file_size>200000:raise ValueError('Checkpoint receipt exceeds 200 KB')
@@ -83,10 +96,22 @@ def png(path,resolution):
     return file_hash(path)
 
 
+def stored_frames(state):
+    """V2 stores identical PNG bytes once; logical frame receipts remain complete."""
+    seen={};mapping={}
+    if state.get('version') not in (1,2):raise ValueError('Unsupported checkpoint storage version')
+    for f in sorted(state['frames'],key=int):
+        row=state['frames'][f]
+        if row['state']!='completed':continue
+        path=row['path'];digest=row['sha256']
+        mapping[path]=seen.setdefault(digest,path) if state['version']==2 else path
+    return mapping
+
+
 def checkpoint(root,out,state,limit):
     """Atomic snapshot. Unresolved intents are retained even if a process is killed."""
     atomic(root/'frames.json',state)
-    files=['candidate.blend','checks.json','frames.json']+[v['path'] for v in state['frames'].values() if v['state']=='completed']
+    files=['candidate.blend','checks.json','frames.json']+list(dict.fromkeys(stored_frames(state).values()))
     files=[p for p in files if (root/p).is_file()]
     if sum(safe_file(root,p).stat().st_size for p in files)>limit//2:raise ValueError('Checkpoint retained-byte budget exceeded')
     tmp=out/'checkpoint.tmp'
@@ -108,13 +133,51 @@ def restore(archive,root,manifest_hash,m,limit):
     if state.get('manifest_sha256')!=manifest_hash or state.get('candidate_sha256')!=file_hash(safe_file(root,'candidate.blend')):raise ValueError('Checkpoint contract/candidate mismatch')
     if set(state.get('frames',{}))!={str(f) for f in range(m['frame_start'],m['frame_end']+1)}:raise ValueError('Checkpoint frame range mismatch')
     expected={'candidate.blend','checks.json','frames.json'}
+    stored=stored_frames(state)
     for f,row in state['frames'].items():
         if row.get('path')!=f'frames/{int(f):06d}.png':raise ValueError('Checkpoint frame path mismatch')
         if row['state']=='completed':
-            expected.add(row['path'])
-            if png(safe_file(root,row['path']),m['resolution'])!=row.get('sha256'):raise ValueError('Checkpoint frame hash mismatch')
+            source=stored[row['path']];expected.add(source)
+            if png(safe_file(root,source),m['resolution'])!=row.get('sha256'):raise ValueError('Checkpoint frame hash mismatch')
         elif row['state']!='pending':raise ValueError('Unresolved frame intent; inspect the original attempt before any retry')
     if {i.filename for i in entries}!=expected:raise ValueError('Unlisted checkpoint data')
+    # Expand only after validating the complete archive and every logical hash.
+    for target,source in stored.items():
+        if target!=source:
+            with (root/target).open('xb') as dst,safe_file(root,source).open('rb') as src:shutil.copyfileobj(src,dst)
+    return state
+
+
+def frame_progress(root,before,m,assignment,limit):
+    """Validate durable worker receipts even after a killed render process."""
+    path=safe_file(root,'frames.json')
+    if path.stat().st_size>200000:raise ValueError('Frame ledger exceeds 200 KB')
+    state=json.loads(path.read_text())
+    if {k:v for k,v in state.items() if k!='frames'}!={k:v for k,v in before.items() if k!='frames'}:
+        raise ValueError('Frame ledger identity changed')
+    if set(state['frames'])!=set(before['frames']):raise ValueError('Frame ledger scope changed')
+    stopped=False;seen=set();retained=sum(safe_file(root,p).stat().st_size for p in ('candidate.blend','checks.json','frames.json'))
+    for f in range(m['frame_start'],m['frame_end']+1):
+        row=state['frames'][str(f)];old=before['frames'][str(f)]
+        if old['state']=='completed':
+            if row!=old:raise ValueError('Completed frame receipt changed')
+        elif row['state']=='pending':
+            if row!=old:raise ValueError('Pending frame receipt changed')
+            stopped=True
+        else:
+            fields={'path','state','attempt'}|({'sha256'} if row['state']=='completed' else set())
+            if 'png_text' in row:
+                fields.add('png_text')
+                if row['state']!='completed' or not isinstance(row['png_text'],list) or any(not isinstance(v,str) for v in row['png_text']):raise ValueError('Invalid PNG metadata receipt')
+            if stopped or row['state'] not in ('completed','in_progress') or set(row)!=fields or row['attempt']!=assignment or row['path']!=old['path']:
+                raise ValueError('Invalid frame transition')
+            if row['state']=='in_progress':stopped=True
+        if row['state']=='completed':
+            file=safe_file(root,row['path'])
+            if png(file,m['resolution'])!=row['sha256']:raise ValueError('Frame receipt hash mismatch')
+            if state.get('version')!=2 or row['sha256'] not in seen:retained+=file.stat().st_size
+            seen.add(row['sha256'])
+    if retained>limit//2:raise ValueError('Checkpoint retained-byte budget exceeded')
     return state
 
 
@@ -124,11 +187,10 @@ def execute(frozen,control,documents):
     for n in SOURCES:
         if frozen['runtime_sources'].get(n)!=file_hash(Path(__file__).with_name(n)):raise ValueError('Animation implementation changed after dispatch')
     if out.exists() or out.is_symlink():raise ValueError('Animation output exists; no replay')
-    mi=next(i for i in frozen['inputs'] if i['media_type']=='application/json')
-    if mi['sha256']!=frozen['execution']['parameters']['manifest_sha256']:raise ValueError('Manifest hash mismatch')
+    mi,si=selected_inputs(frozen['inputs'],frozen['execution']['parameters'])
     mp=safe_file(workspace,mi['path'])
     if mp.stat().st_size>200000:raise ValueError('Manifest exceeds 200 KB')
-    m=validate(json.loads(mp.read_text()));si=next(i for i in frozen['inputs'] if i['media_type']=='application/x-blender')
+    m=validate(json.loads(mp.read_text()))
     if si['sha256']!=m['scene_sha256']:raise ValueError('Scene hash mismatch')
     apps=video_tools();app=blender()
     if not app['available'] or not apps['available']:raise ValueError('Blender, ffmpeg and ffprobe must be available')
@@ -161,19 +223,27 @@ def execute(frozen,control,documents):
             if state.get('environment')!=environment:raise ValueError('Checkpoint implementation or executable identity changed')
         else:
             native('build')
-            state={'version':1,'environment':environment,'manifest_sha256':mi['sha256'],'candidate_sha256':file_hash(safe_file(root,'candidate.blend')),
+            state={'version':2,'environment':environment,'manifest_sha256':mi['sha256'],'candidate_sha256':file_hash(safe_file(root,'candidate.blend')),
                    'frames':{str(f):{'path':f'frames/{f:06d}.png','state':'pending'} for f in range(m['frame_start'],m['frame_end']+1)}}
         native('verify')
         if json.loads(safe_file(root,'checks.json').read_text()).get('passed') is not True:raise ValueError('Candidate verification failed')
         shutil.copyfile(root/'candidate.blend',out/'candidate.blend')
         checkpoint(root,out,state,frozen['limits']['output_bytes'])
-        for f,row in state['frames'].items():
-            if row['state']=='completed':continue
-            if time.monotonic()>=deadline:raise ValueError('Time budget exhausted; remaining frames are pending')
-            row.update(state='in_progress',attempt=frozen['assignment_id']);checkpoint(root,out,state,frozen['limits']['output_bytes'])
-            native('frame',f)
-            row.update(state='completed',sha256=png(safe_file(root,row['path']),m['resolution']))
-            checkpoint(root,out,state,frozen['limits']['output_bytes'])
+        if any(row['state']!='completed' for row in state['frames'].values()):
+            before=copy.deepcopy(state)
+            atomic(root/'batch.json',{'assignment':frozen['assignment_id'],'deadline':deadline,
+                   'retained_bytes':frozen['limits']['output_bytes']//2,'state_sha256':file_hash(root/'frames.json')})
+            try:
+                native('frames')
+            finally:
+                try:state=frame_progress(root,before,m,frozen['assignment_id'],frozen['limits']['output_bytes'])
+                except (ValueError,OSError,KeyError,TypeError):
+                    # A corrupt/missing ledger cannot turn possibly dispatched frames back into pending work.
+                    state=before
+                    for row in state['frames'].values():
+                        if row['state']!='completed':row.update(state='in_progress',attempt=frozen['assignment_id'])
+                    raise
+            if any(row['state']!='completed' for row in state['frames'].values()):raise ValueError('Render stopped before all frames completed')
         run([apps['ffmpeg'],'-nostdin','-v','error','-n','-framerate',str(m['fps']),'-start_number',str(m['frame_start']),'-i',str(root/'frames/%06d.png'),'-frames:v',str(len(state['frames'])),'-an','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-movflags','+faststart',str(out/'animation.mp4')],'encode')
         r=run([apps['ffprobe'],'-v','error','-select_streams','v:0','-count_frames','-show_entries','stream=width,height,nb_read_frames,r_frame_rate','-of','json',str(out/'animation.mp4')],'verify_video')
         streams=json.loads(r['stdout'])['streams']
@@ -182,7 +252,7 @@ def execute(frozen,control,documents):
         if any(file_hash(safe_file(workspace,i['path']))!=i['sha256'] for i in frozen['inputs']):raise ValueError('Original input copy changed')
         shutil.copyfile(root/f'frames/{m["frame_start"]:06d}.png',out/'preview.png')
         receipt['passed']=True
-    except (ValueError,OSError,KeyError,zipfile.BadZipFile) as e:receipt['error']=str(e)
+    except (ValueError,OSError,KeyError,TypeError,zipfile.BadZipFile) as e:receipt['error']=str(e)
     if state:
         try:checkpoint(root,out,state,frozen['limits']['output_bytes'])
         except (ValueError,OSError) as e:receipt.update(passed=False,error=str(e))

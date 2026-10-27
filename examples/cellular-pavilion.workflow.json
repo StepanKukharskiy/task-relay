@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "kind": "workflow",
+  "inputs": {
+    "brief": {
+      "type": "string",
+      "label": "Pavilion brief",
+      "required": true,
+      "default": "Concept pavilion, 6 x 6 meters, maximum height 3 meters. Deterministic cellular automata with an open entrance and permeable canopy; conceptual geometry, not structural certification."
+    },
+    "xfigura_url": {
+      "type": "string",
+      "label": "Selected empty xFigura render node URL",
+      "required": true
+    },
+    "render_prompt": {
+      "type": "string",
+      "label": "Rendering direction",
+      "required": true,
+      "default": "Architectural visualization of this cellular pavilion. Preserve geometry, openings, proportions and camera. Natural wood, soft daylight, neutral landscape. No new architectural elements."
+    }
+  },
+  "tasks": [
+    {
+      "schema_version": 3,
+      "id": "script",
+      "operation": "model",
+      "objective": "Generate cellular automata script",
+      "model": {
+        "provider": "codex",
+        "id": "gpt-6.1-sol",
+        "reasoning": "high"
+      },
+      "input_definitions": {
+        "brief": {
+          "type": "string",
+          "label": "Brief",
+          "required": true
+        },
+        "prompt": {
+          "type": "string",
+          "label": "Prompt",
+          "required": true
+        }
+      },
+      "inputs": {
+        "brief": {
+          "workflow": "brief"
+        },
+        "prompt": {
+          "value": "Generate the cellular automata pavilion script. Use deterministic Python and bpy only. Start from the empty scene supplied by Relay. Use meters; create named Pavilion mesh, Camera and Light, configure the camera. No files, network, packages or external assets. Save nothing: Relay owns saving. Explain rule and seed in code comments. Bound mesh complexity and leave the entrance open."
+        }
+      },
+      "outputs": [
+        {
+          "name": "script",
+          "media_type": "text/x-python",
+          "purpose": "Cellular automata Python script"
+        }
+      ]
+    },
+    {
+      "schema_version": 3,
+      "id": "checks",
+      "operation": "model",
+      "objective": "Prepare Blender scene checks",
+      "model": {
+        "provider": "codex",
+        "id": "gpt-6.1-sol",
+        "reasoning": "high"
+      },
+      "input_definitions": {
+        "script": {
+          "type": "artifact",
+          "label": "Script",
+          "media_type": "text/x-python",
+          "required": true
+        },
+        "prompt": {
+          "type": "string",
+          "label": "Prompt",
+          "required": true
+        }
+      },
+      "inputs": {
+        "script": {
+          "task": "script",
+          "output": "script"
+        },
+        "prompt": {
+          "value": "Prepare exact creation checks from the supplied script. mode=create, units=Meters, changed_objects empty. List all object names including Camera and Light; derive expected dimensions from the algorithm. Use a 512x512 preview and 4 samples. Do not execute the script or fabricate observations."
+        }
+      },
+      "outputs": [
+        {
+          "name": "checks",
+          "media_type": "application/json",
+          "purpose": "Blender creation checks"
+        }
+      ]
+    },
+    {
+      "schema_version": 3,
+      "id": "blender",
+      "operation": "blender.run_python",
+      "objective": "Build the cellular pavilion in Blender",
+      "inputs": {
+        "scene_sha256": {
+          "value": null
+        },
+        "script_sha256": {
+          "task": "script",
+          "output": "script"
+        },
+        "checks_sha256": {
+          "task": "checks",
+          "output": "checks"
+        },
+        "permissions": {
+          "value": "unrestricted_host"
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "geometry",
+      "operation": "blender.geometry",
+      "objective": "Export exact pavilion mesh geometry",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "task": "blender",
+              "output": "candidate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "render",
+      "operation": "xfigura.render",
+      "objective": "Render the pavilion with xFigura",
+      "inputs": {
+        "url": {
+          "workflow": "xfigura_url"
+        },
+        "prompt": {
+          "workflow": "render_prompt"
+        },
+        "image": {
+          "task": "blender",
+          "output": "after"
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "drawings",
+      "operation": "model",
+      "objective": "Prepare pavilion drawings",
+      "model": {
+        "provider": "codex",
+        "id": "gpt-6.1-sol",
+        "reasoning": "high"
+      },
+      "input_definitions": {
+        "geometry": {
+          "type": "artifact",
+          "label": "Exact Blender world meshes",
+          "media_type": "application/json",
+          "required": true
+        },
+        "prompt": {
+          "type": "string",
+          "label": "Prompt",
+          "required": true
+        }
+      },
+      "inputs": {
+        "geometry": {
+          "task": "geometry",
+          "output": "geometry"
+        },
+        "prompt": {
+          "value": "Prepare plan, front elevation and horizontal section at z=1.5m from the exact world mesh coordinates. Use the registered Rhino document schema. Project edges and intersect mesh faces; do not invent or redesign geometry. Lay out drawings on the XY plane, clearly label views, units and approximate concept dimensions. Include a Top named view and 1024x768 preview. Disclose omitted or ambiguous section segments."
+        }
+      },
+      "outputs": [
+        {
+          "name": "drawings",
+          "media_type": "application/json",
+          "purpose": "Rhino drawing specification"
+        }
+      ]
+    },
+    {
+      "schema_version": 3,
+      "id": "rhino",
+      "operation": "rhino.document",
+      "objective": "Create pavilion drawings in Rhino",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "task": "drawings",
+              "output": "drawings"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": 3,
+      "id": "slides",
+      "operation": "model",
+      "objective": "Compose pavilion presentation",
+      "model": {
+        "provider": "codex",
+        "id": "gpt-6.1-sol",
+        "reasoning": "high"
+      },
+      "input_definitions": {
+        "script": {
+          "type": "artifact",
+          "label": "Algorithm",
+          "media_type": "text/x-python",
+          "required": true
+        },
+        "view": {
+          "type": "artifact",
+          "label": "Blender view",
+          "media_type": "image/png",
+          "required": true
+        },
+        "render": {
+          "type": "artifact",
+          "label": "Visualization",
+          "media_type": "image/png",
+          "required": true
+        },
+        "drawings": {
+          "type": "artifact",
+          "label": "Rhino drawing preview",
+          "media_type": "image/png",
+          "required": true
+        },
+        "prompt": {
+          "type": "string",
+          "label": "Prompt",
+          "required": true
+        }
+      },
+      "inputs": {
+        "script": {
+          "task": "script",
+          "output": "script"
+        },
+        "view": {
+          "task": "blender",
+          "output": "after"
+        },
+        "render": {
+          "task": "render",
+          "output": "render"
+        },
+        "drawings": {
+          "task": "rhino",
+          "output": "preview"
+        },
+        "prompt": {
+          "value": "Compose a concise presentation: cellular rule and seed, Blender view, xFigura visualization, Rhino drawings and limitations. Use only bound image assets and contain-fit layouts. Distinguish generated visualization from exact geometry and concept drawings from construction documentation."
+        }
+      },
+      "outputs": [
+        {
+          "name": "slides",
+          "media_type": "application/json",
+          "purpose": "Presentation layout"
+        }
+      ]
+    },
+    {
+      "schema_version": 3,
+      "id": "pptx",
+      "operation": "pptx.create",
+      "objective": "Export cellular pavilion presentation",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "task": "slides",
+              "output": "slides"
+            },
+            {
+              "task": "blender",
+              "output": "after"
+            },
+            {
+              "task": "render",
+              "output": "render"
+            },
+            {
+              "task": "rhino",
+              "output": "preview"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

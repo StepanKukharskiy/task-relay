@@ -1,11 +1,12 @@
 /* Injected on explicit Keep only. No listeners, fetches, observers or page writes. */
 export function taskRelayCapture(selectionOnly=false) {
   try {
-  const LIMIT = 60000;
+  // Raw capture budget is separate from each AI request's smaller budget.
+  const LIMIT = 300000;
   function excluded(el) {
     // aria-hidden/inert can mark visually rendered citation labels and URLs.
     // Actual visibility and form boundaries determine what can be captured.
-    return !!el.closest('script,style,noscript,nav,header,footer,aside,form,input,textarea,select,button,h4.sr-only,[contenteditable="true"],[hidden]');
+    return !!el.closest('script,style,noscript,nav,header,footer,aside,form,input,textarea,select,button,.sr-only,.visually-hidden,.screen-reader-only,[contenteditable]:not([contenteditable="false"]),[hidden]');
   }
   function visible(el) {
     for (let node = el; node; node = node.parentElement) {
@@ -22,24 +23,50 @@ export function taskRelayCapture(selectionOnly=false) {
       if (!el || excluded(el) || !visible(el) || !node.textContent.trim()) continue;
       chunks.push(node.textContent.trim());
       length+=node.textContent.trim().length+1;
-      if (length > LIMIT) throw new Error('This page exceeds 60,000 characters. Select a smaller excerpt; nothing was truncated.');
+      if (length > LIMIT) throw new Error('This page exceeds 300,000 characters. Select a smaller excerpt; nothing was truncated.');
     }
     return chunks.join('\n');
   }
   const selection = window.getSelection();
   const selected = selection && !selection.isCollapsed;
-  if(selectionOnly&&!selected)throw new Error('Select text in your chat first.');
+  if(selectionOnly&&!selected)throw new Error('Select text on the page first.');
+  let selectedContent, selectionFiltered=false;
   if (selected) {
+    const parts=[];
+    function block(el) {
+      for(let node=el;node&&node!==document.body;node=node.parentElement) {
+        const display=getComputedStyle(node).display;
+        if(display!=='contents'&&!display.startsWith('inline'))return node;
+      }
+      return document.body;
+    }
     for (let i = 0; i < selection.rangeCount; i++) {
       const range = selection.getRangeAt(i);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) {
-        if (node.textContent.trim() && range.intersectsNode(node) && (excluded(node.parentElement) || !visible(node.parentElement))) {
-          throw new Error('Selection includes hidden content or a form. Select visible document text only.');
+        if(!range.intersectsNode(node))continue;
+        // Intersections may touch an unselected endpoint. Clip before checking
+        // controls or reading text so adjacent fields are not false positives.
+        const clipped=document.createRange();clipped.selectNodeContents(node);
+        if(clipped.compareBoundaryPoints(0,range)<0)clipped.setStart(range.startContainer,range.startOffset);
+        if(clipped.compareBoundaryPoints(2,range)>0)clipped.setEnd(range.endContainer,range.endOffset);
+        if(clipped.collapsed)continue;
+        const el=node.parentElement,text=clipped.toString();
+        if(!el||!visible(el)){if(text.trim())selectionFiltered=true;continue;}
+        if(text.trim()&&el.closest('form,input,textarea,select,[contenteditable]:not([contenteditable="false"])')) {
+          throw new Error('Select message or article text, not an input field.');
         }
+        if(excluded(el)){if(text.trim())selectionFiltered=true;continue;}
+        const owner=block(el),previous=parts.at(-1);
+        parts.push({text:(previous&&previous.owner!==owner?'\n':'')+text,owner});
       }
     }
+    // Keep browser selection formatting when no filtering is needed. Otherwise
+    // project only clipped visible text, retaining paragraph boundaries; never
+    // remove hidden strings by value (they may also appear in valid evidence).
+    if(!parts.some(part=>part.text.trim()))throw new Error('No readable text here. Highlight document text and try again.');
+    selectedContent=selectionFiltered?parts.map(part=>part.text).join(''):selection.toString();
   }
   const host = location.hostname;
   const adapters = [
@@ -53,10 +80,11 @@ export function taskRelayCapture(selectionOnly=false) {
   if (!selected && adapter?.site === 'chatgpt' && !messages.length) {
     messages = [...document.querySelectorAll('[data-turn-key] h4.sr-only')].map(heading => ({el:heading.parentElement,role:heading.getAttribute('data-conversation-role') === 'assistant' ? 'assistant' : heading.textContent.trim() === 'You said:' ? 'user' : null})).filter(row => row.role && visible(row.el) && !excluded(row.el));
   }
-  const content = selected ? selection.toString() : messages.length ? messages.map(row => `${row.role}:\n${read(row.el)}`).join('\n\n') : read(document.querySelector('main,[role="main"],article') || document.body);
+  const content = selected ? selectedContent : messages.length ? messages.map(row => `${row.role}:\n${read(row.el)}`).join('\n\n') : read(document.querySelector('main,[role="main"],article') || document.body);
   if (!content.trim()) throw new Error('No readable text here. Highlight document text and try again.');
-  if (content.length > LIMIT) throw new Error('Capture exceeds 60,000 characters. Select a smaller excerpt; nothing was truncated.');
+  if (content.length > LIMIT) throw new Error('Capture exceeds 300,000 characters. Select a smaller excerpt; nothing was truncated.');
   const limits = ['Only text currently present in the main document was captured. Unloaded messages, frames, images and files are excluded.'];
+  if(selectionFiltered)limits.push('Hidden text and interface controls crossed by the selection were excluded; visible text keeps its selected boundaries.');
   if (adapter && !selected && !messages.length) limits.push('Conversation markup was not recognized; generic visible text was used. Message roles are unavailable.');
   const url = new URL(location.href);
   if (!['http:','https:'].includes(url.protocol) || url.username || url.password) throw new Error('Use a regular http(s) webpage without credentials in its address.');

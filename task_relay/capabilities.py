@@ -233,12 +233,14 @@ GPU cache, driver or permissions root cause from a crash location alone. A start
 failure in that environment is a valid diagnostic finding, not permission to fix
 the host. Use the existing plan approval; do not claim execution before receipts.
 '''
+from .persistent_jobs import ORDINARY_INSTRUCTIONS
+EXECUTION_ROUTING += '\n'+ORDINARY_INSTRUCTIONS
 from orchestrator.browser_contract import WEBSITE_TASK_INSTRUCTIONS
 EXECUTION_ROUTING += '\n'+WEBSITE_TASK_INSTRUCTIONS
 from .capability_defaults import INSTRUCTIONS as MODEL_DEFAULT_INSTRUCTIONS
 EXECUTION_ROUTING += '\n' + MODEL_DEFAULT_INSTRUCTIONS
 
-IMMEDIATE = ('discover_opportunities','draft_procedure','run_procedure','plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'generate_video', 'continue_production', 'collect_references',
+IMMEDIATE = ('execute_work','discover_opportunities','draft_procedure','run_procedure','plan_pipeline','pipeline_result','pipeline_decision','pipeline_control','browser_research', 'generate_image', 'generate_video', 'continue_production', 'collect_references',
              'resume_production',
              'route_task', 'choose_task', 'create_codex_task', 'create_production_folder',
              'import_production_research', 'delegate_task', 'plan_production', 'authorize_production_plan','replace_selection')
@@ -469,6 +471,11 @@ def catalog(state, snapshot):
             permissions='Existing action card and scope checks.' if kind in GATED else 'Explicit user request; existing adapter checks.',
             limits='Existing adapter budgets and destination state checks.',
             evidence='Durable queue/control receipt; consult the underlying worker for completion.'))
+        if kind=='execute_work':
+            from .persistent_jobs import action_schema,graph_operations
+            specs[-1]['input_schema']=action_schema()
+            specs[-1]['conversation_operations']=graph_operations()
+            specs[-1]['inputs']='public_read, review, artifact_ids for text; or workflow, outputs for a registered graph; outcomes inherited from request_contract'
         if kind=='delegate_task':
             specs[-1]['input_schema']=copy.deepcopy(DELEGATE_SCHEMA)
         if kind=='create_codex_task':
@@ -512,7 +519,7 @@ def catalog(state, snapshot):
     from orchestrator.worker_capabilities import CAPABILITIES
     from .image_sourcing_policy import describe as image_sourcing
     graph_operations=graph_catalog(); graph_executors=executor_catalog(state); browser=managed_browser_status()
-    return dict(version=1,operations=specs,graph_operations=graph_operations,graph_executors=graph_executors,targets=targets,routing_enabled=enabled,dispatches=receipts,
+    return dict(ordinary_execution=next((dict(available=True,backend=v['backend'],scope='Text results/files and public reads; no paid APIs or native actions') for v in graph_executors if v['id']=='codex-agent' and v['available']),dict(available=False)),version=1,operations=specs,graph_operations=graph_operations,graph_executors=graph_executors,targets=targets,routing_enabled=enabled,dispatches=receipts,
         image_sourcing=image_sourcing(graph_operations,graph_executors,browser),
         local_video=local_video(graph_operations),
         gemini_video=gemini_video(),
@@ -653,6 +660,10 @@ def dispatch(state, job, action, snapshot):
         from task_relay import production_control
         text=production_control.resume_review(state,action['workflow'],legacy=True)
         executor='production_runs';receipt=action['workflow']
+    elif kind=='execute_work':
+        from . import persistent_jobs
+        text=persistent_jobs.enqueue(state,job,action,snapshot)
+        executor='production_runs';receipt='work-'+str(job['id'])
     elif kind=='plan_production':
         from task_relay import production_planning
         text=production_planning.enqueue(state,job,action,snapshot)

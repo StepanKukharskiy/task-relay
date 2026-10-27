@@ -8,7 +8,7 @@ from .native_apps import profile as native_profile
 
 TEXT_TYPES = ('text/plain','text/markdown')
 REGISTRY = {
-    'text.bundle': {'version':1,'kind':'procedure','input_types':list(TEXT_TYPES),'output_type':'text/plain',
+    'text.bundle': {'version':1,'kind':'procedure','input_types':[*TEXT_TYPES,'application/json'],'output_type':'text/plain',
         'max_inputs':20,'input_bytes':2000000,'seconds':30,'output_bytes':2100000,
         'criteria':['Inputs are preserved verbatim in a UTF-8 bundle with artifact identities and hashes.'],
         'parameters':{},'external_requests':0,'cancellation':'Local process termination; no external effects.'},
@@ -32,6 +32,33 @@ REGISTRY = {
         'permissions':'Host Blender process with normal OS permissions; fixed Relay code and bounded primitive JSON only; no arbitrary scripts or existing blend inputs.'},
 }
 
+REGISTRY['images.crop'] = {
+    'version':1,'kind':'procedure','input_types':['image/png','image/jpeg'],
+    'min_inputs':1,'max_inputs':1,'input_bytes':10000000,'output_type':'image/png',
+    'seconds':30,'output_bytes':10000000,'external_requests':0,
+    'parameters':{'region':'[x,y,width,height] integer pixels after EXIF orientation'},
+    'runtime_modules':['image_crop.py','browser_contract.py'],
+    'criteria':['Exact source bytes and bounded region produced a PNG crop with recorded source/output hashes; no inferred pixels, object identity or acceptance.'],
+    'permissions':'Local image decoding and cropping only; no network. An explicit downstream browser upload grant is required for visual search.',
+    'cancellation':'Local process termination; original source remains immutable.'}
+
+# File construction is explicit graph work, never a delivery-side effect.
+for _name,_media in (
+    ('images.pptx','application/vnd.openxmlformats-officedocument.presentationml.presentation'),
+    ('images.gallery','text/html')):
+    REGISTRY[_name] = {
+        'version':1,'kind':'procedure','user_review':True,
+        'description':'Export every acquired image and the advisory report as '+('an editable PowerPoint.' if _name=='images.pptx' else 'a self-contained HTML gallery.'),
+        'input_types':['application/zip',*TEXT_TYPES],'output_type':_media,
+        'min_inputs':2,'max_inputs':2,'input_bytes':50000000,
+        'seconds':120,'output_bytes':50000000,'external_requests':0,
+        'parameters':{'photos':'Exact acquired image bundle','recommendations':'Literal advisory report'},
+        'criteria':['All acquired candidates and the literal advisory report are included; source image hashes and unavailable outcomes are preserved. Recommendations do not filter membership or imply user acceptance.'],
+        'permissions':'Local format conversion only; no network, model, selection or arbitrary code.',
+        'cancellation':'Stop local conversion; preserve original inputs and operation receipts.',
+        'support_modules':['task_relay.image_gallery','orchestrator.image_sources',
+                           'orchestrator.image_representation']+(['orchestrator.pptx_document','orchestrator.table_layout'] if _name=='images.pptx' else [])}
+
 REGISTRY['web.sources'] = {
     'version': 1, 'kind': 'api', 'input_types': [], 'min_inputs': 0,
     'output_type': 'application/json', 'outputs': {'delivery/source-pack.json': 'application/json'},
@@ -43,6 +70,41 @@ REGISTRY['web.sources'] = {
     'external_requests': 60,
     'cancellation': 'Stop after the current request; an uncertain search submission is never replayed.',
     'permissions': 'Public Google-grounded search and bounded HTTPS page reads; no login, JavaScript or private network.'}
+
+# Prepared research consumes exact reviewed query data instead of inventing
+# item-specific queries before the upstream observations exist. Legacy stays fixed.
+REGISTRY['web.sources.prepared'] = {
+    **copy.deepcopy(REGISTRY['web.sources']),
+    'input_types':['application/json'], 'min_inputs':1, 'max_inputs':1,
+    'input_bytes':120000, 'external_requests':80,
+    'parameters':{'domains':'0–8 exact public domains; [] permits any public domain',
+                  'model':'Exact configured Gemini text model'},
+    'criteria':['The exact query specification, target mappings, literal queries, grounded candidates, fetched public page versions and failures are recorded; candidates are not verified facts.']}
+
+REGISTRY['web.sources.rendered']={
+    'version':1,'kind':'procedure','input_types':['application/json'],'min_inputs':1,'max_inputs':1,
+    'input_bytes':2000000,'output_type':'application/json','outputs':{'delivery/source-pack.json':'application/json'},
+    'output_bytes':3000000,'seconds':900,'external_requests':12,
+    'parameters':{'domains':'0–8 exact public domains; [] permits observed public domains','max_pages':'1–12 total direct HTTP or rendered read attempts; a fallback consumes another slot'},
+    'criteria':['Original source entries are preserved; only observed public candidate URLs are read through the public HTTP reader or isolated unsigned-in browser, sharing the original total read allowance. Captures, hashes, method-specific failures and missing outcomes remain distinct from acceptance.'],
+    'permissions':'Public HTTPS GET/HEAD/OPTIONS through the direct reader or isolated rendered browser; no accounts, forms, uploads, file downloads or invented URLs.',
+    'cancellation':'Stop owned browser processes and retain outcomes; missing read outcomes are never automatically replayed.',
+    'saved_evidence':{'capability':'web.sources','kind':'pages'}}
+for _cap in ('web.sources','web.sources.prepared'):
+    REGISTRY[_cap]['companions']={'web.sources.rendered':'observed-public-page-rendering-fallback'}
+
+# Different authority, same observed-source interface and collection lifecycle.
+# It is deliberately not injected into an existing isolated-browser grant.
+REGISTRY['web.sources.native']={
+    **copy.deepcopy(REGISTRY['web.sources.rendered']),
+    'parameters':{'domains':'0–8 exact public domains','max_pages':'1–3 observed candidate URLs',
+                  'browser':'safari-visual: explicit native computer-use transport',
+                  'max_observations':'2–8 observations per page, including initial load and bounded scrolling'},
+    'criteria':['Original source entries and failed reads remain intact; exact observed URLs are read through the explicitly granted native browser. Each bounded visible-text observation, action receipt and failure is retained as unverified evidence.'],
+    'permissions':'Native Safari session and ordinary page-generated networking. Foreground dedicated window, exact-URL navigation, observation and scrolling only. No clicks, forms, login, uploads or downloads; not a request-method firewall.',
+    'cancellation':'Existing native ownership controls stop further actions; uncertain actions are preserved and never replayed.',
+    'browser_transport':'native', 'source_mode':'web.sources.rendered',
+    'resources':['computer-safari'], 'external_requests':3}
 
 from .reel_contract import OUTPUTS as REEL_OUTPUTS
 from .hyperframes_contract import PREVIEW_OUTPUTS,RENDER_OUTPUTS,ASSET_TYPES
@@ -82,6 +144,46 @@ REGISTRY['pptx.create'] = {
     'parameters':{}, 'external_requests':0,
     'cancellation':'Terminate the local process; preserve partial results and never automatically replay.'}
 
+from .pptx_render import MIME as PPTX_MIME, OUTPUTS as PPTX_PREVIEW_OUTPUTS
+REGISTRY['pptx.render'] = {
+    'version':1,'kind':'procedure','input_types':[PPTX_MIME],'output_type':None,'outputs':PPTX_PREVIEW_OUTPUTS,
+    'min_inputs':1,'max_inputs':1,'input_bytes':50000000,'seconds':180,'output_bytes':50000000,
+    'parameters':{},'external_requests':0,'review_evidence':True,
+    'criteria':['The exact candidate PPTX opened in the verified compatible presentation renderer and every slide produced a hash-bound preview; source bytes are unchanged. Visual quality requires independent review; no PowerPoint or Keynote compatibility is inferred.'],
+    'permissions':'Fixed owned headless compatible renderer and PDF rasterizer with an isolated temporary profile; no arbitrary scripts, source edits, software installation or interactive app attachment.',
+    'cancellation':'Stop only owned renderer processes; preserve candidate and receipts.'}
+REGISTRY['pptx.create']['companions']={'pptx.render':'independent-review-evidence'}
+
+from .sourcing_slides import PARAMETERS as SOURCING_SLIDE_PARAMETERS
+from .sourcing_merge import PARAMETERS as SOURCING_MERGE_PARAMETERS,OUTPUTS as SOURCING_MERGE_OUTPUTS
+REGISTRY['sourcing.merge'] = {
+    'version':1,'kind':'procedure','input_types':['application/json'],'output_type':'application/json',
+    'outputs':SOURCING_MERGE_OUTPUTS,'min_inputs':4,'max_inputs':32,'input_bytes':12000000,
+    'seconds':120,'output_bytes':6000000,'parameters':SOURCING_MERGE_PARAMETERS,'external_requests':0,
+    'criteria':['Exact sealed sourcing partitions and version-bound independent supported reviews cover the full inventory without duplicates; original option goals, source versions and explicit gaps are preserved. This is not user acceptance.'],
+    'cancellation':'Stop local composition; preserve inputs and receipts. No model or network.'}
+for _cap in ('web.sources','web.sources.prepared'):
+    REGISTRY[_cap].setdefault('companions',{})['sourcing.merge']='bounded-typed-record-partitions'
+REGISTRY['web.sources.coverage'] = {
+    'version':1,'kind':'procedure','input_types':['application/json'],'output_type':'application/json',
+    'min_inputs':2,'max_inputs':2,'input_bytes':6000000,'seconds':900,'output_bytes':3000000,
+    'parameters':{'catalog_path':'Exact independently reviewed typed catalog','source_pack_path':'Exact matching source pack',
+                  'domains':'Same allowed public domains','model':'Exact configured Gemini text model'},
+    'external_requests':80,'saved_evidence':{'capability':'web.sources','kind':'pages'},
+    'criteria':['Exact reviewed product shortfalls selected bounded mapped subject queries; public candidates and failures are recorded. Search results are not verified products; new catalog records require independent semantic review.'],
+    'permissions':'One bounded coverage round using public search and public page GETs within the original declared domain scope. No accounts, purchases or invented product URLs.',
+    'cancellation':'Stop collection; retain request intents, responses and partial evidence; uncertain calls are not replayed.'}
+for _cap in ('web.sources','web.sources.prepared'):
+    REGISTRY[_cap].setdefault('companions',{})['web.sources.coverage']='reviewed-product-coverage-recovery'
+for _cap in ('web.sources','web.sources.prepared','web.sources.coverage'):
+    REGISTRY[_cap]['usage_source']='public-search-journals'
+REGISTRY['sourcing.slides'] = {
+    'version':1,'kind':'procedure','input_types':['application/json','image/png','application/zip'],
+    'output_type':'application/json','min_inputs':4,'max_inputs':5,'input_bytes':50000000,
+    'seconds':120,'output_bytes':2000000,'parameters':SOURCING_SLIDE_PARAMETERS,'external_requests':0,
+    'criteria':['The exact typed inventory and source-bound catalog produced a schema-valid slide specification with editable image-map markers, captured prices, retailer links and explicit coverage/photo gaps. Semantic and visual quality require independent review.'],
+    'cancellation':'Stop local assembly; retain inputs and receipt. No model or network request.'}
+
 REGISTRY['pptx.edit'] = {
     'review_correction':'application/json', 'version':1, 'kind':'procedure',
     'input_types':['application/json','application/vnd.openxmlformats-officedocument.presentationml.presentation','image/png','image/jpeg'],
@@ -90,8 +192,10 @@ REGISTRY['pptx.edit'] = {
     'criteria':['The exact baseline PPTX and guarded manifest produced a new editable PPTX; every untargeted package part retained its bytes and edited text or pictures reopened correctly. Visual fit requires separate review.'],
     'parameters':{}, 'external_requests':0,
     'cancellation':'Terminate the local process; preserve the baseline and partial evidence; never automatically replay.'}
+REGISTRY['pptx.edit']['companions']={'pptx.render':'independent-review-evidence'}
 
 REGISTRY['images.collect'] = {
+    'conversation_execution':True,
     'version':1,'kind':'procedure','input_types':list(TEXT_TYPES),'output_type':'application/zip',
     'min_inputs':0,'max_inputs':20,'input_bytes':120000,'seconds':600,'output_bytes':45000000,
     'criteria':['At least one usable photo is collected. Each requested subject has a found or missing receipt; downloaded JPEG/PNG candidates retain source, author, licence and byte hashes. Metadata matches are not visual identification.'],
@@ -100,6 +204,12 @@ REGISTRY['images.collect'] = {
     'permissions':'Public read-only Wikimedia Commons search and image downloads; no credentials, paid model, generation or arbitrary URLs.',
     'cancellation':'Stop local downloads; retain receipts; no automatic replay.'}
 
+# Viewing acquired pictures does not require another model to author advice.
+# Existing reports remain exact optional inputs; every candidate is retained.
+REGISTRY['images.gallery'].update(conversation_execution=True,min_inputs=1,
+    optional_parameters=['recommendations'],input_defaults={'recommendations':None},
+    description='Display every acquired image, source and explicit gap in a self-contained HTML gallery. An advisory report is optional; it never filters candidates.')
+
 REGISTRY['images.fetch'] = {
     'version':1,'kind':'procedure','input_types':['application/json'],'output_type':'application/zip',
     'min_inputs':1,'max_inputs':1,'input_bytes':512000,'seconds':600,'output_bytes':45000000,
@@ -107,6 +217,86 @@ REGISTRY['images.fetch'] = {
     'parameters':{},'external_requests':320,
     'permissions':'Public HTTPS GETs to observed image/publisher hosts, no credentials or cookies. Unknown author/licence remain explicitly unknown. No image generation.',
     'cancellation':'Stop downloads; retain evidence; no automatic replay.'}
+
+REGISTRY['images.merge'] = {
+    'version':1,'kind':'procedure','input_types':['application/zip'],'output_type':'application/zip',
+    'min_inputs':2,'max_inputs':20,'input_bytes':45000000,'seconds':120,'output_bytes':45000000,
+    'criteria':['Exact base photo subjects and found bytes are preserved; recovery bundles fill only missing subjects with hash-validated images and retained provenance. Full subject identity and suitability require independent review.'],
+    'parameters':{},'external_requests':0,
+    'permissions':'Local validation and byte-preserving ZIP composition only; no network, generation or arbitrary code.',
+    'cancellation':'Stop local composition and retain receipts.'}
+
+from .product_photos import PARAMETERS as PRODUCT_PHOTO_PARAMETERS
+REGISTRY['images.products'] = {
+    'user_review':True,
+    'version':1,'kind':'procedure','input_types':['application/json'],'output_type':'application/zip',
+    'min_inputs':2,'max_inputs':3,'input_bytes':12000000,'seconds':600,'output_bytes':45000000,
+    'criteria':['Product images recorded on the exact source-bound catalog pages were downloaded and hash-validated; all found/missing receipts and original WebP/AVIF bytes are retained. Explicit target policy permits partial or empty coverage. Acquisition does not establish visual correspondence or rights; apply the workflow assessment policy.'],
+    'parameters':PRODUCT_PHOTO_PARAMETERS,'external_requests':320,
+    'permissions':'Public HTTPS GETs only to image references already captured in declared product-page evidence; no new search, cookies, credentials or invented URLs.',
+    'cancellation':'Stop owned downloads; preserve evidence and never replay unknown requests.'}
+
+# Receipt reuse is connector metadata. New read connectors must declare this
+# boundary rather than accidentally fall through a capability-name list.
+for _cap in ('web.sources','web.sources.prepared','images.fetch','images.products'):
+    REGISTRY[_cap]['saved_evidence']={'capability':'web.sources' if _cap.startswith('web.sources') else _cap,
+                                    'kind':'pages' if _cap.startswith('web.sources') else 'photos'}
+for _cap in ('images.fetch','images.products'):
+    REGISTRY[_cap]['completion_companions']={'images.merge':'partial-photo-composition'}
+
+# Legacy operation names retain their definitions. New generic ports use the
+# same native adapters and execution loop, with configurable content schemas.
+REGISTRY['records.merge']={**copy.deepcopy(REGISTRY['sourcing.merge']),
+    'parameters':{**SOURCING_MERGE_PARAMETERS,'field_definitions':'Registered field extraction rules','identity_field':'Observed identity field'},
+    'criteria':['Exact sealed record partitions and version-bound independent supported reviews cover the declared subjects without duplicates; source versions, quantity policy and gaps are preserved. This is not user acceptance.']}
+REGISTRY['collection.slides']={**copy.deepcopy(REGISTRY['sourcing.slides']),'min_inputs':3,
+    'criteria':['Exact source-bound collected records produced an editable slide specification with captured fields, source links and explicit gaps. Semantic and visual quality require independent review.']}
+REGISTRY['images.catalog']=copy.deepcopy(REGISTRY['images.products'])
+REGISTRY['images.catalog']['parameters'].update(source_adapters='Ordered observed-pages and/or commons adapters',image_identity='page or subject; Commons requires subject')
+for _cap in ('images.products','images.catalog'):
+    REGISTRY[_cap]['evidence_revision']={
+        'media_type':'application/zip',
+        'admit':'orchestrator.image_sources:revision_contract',
+        'validate':'orchestrator.image_sources:validate_revision',
+        'project':'orchestrator.image_sources:revise_bundle',
+        'repair':'orchestrator.image_sources:repair_revision',
+        'instruction':'Create a new ZIP projection of the exact base. Quarantine only photographs rejected by the supplied independent review. Retain all original image and source-original bytes inside the delivered ZIP, referenced by rejected_evidence; quarantined entries stay missing and are never usable slide images. Never fetch replacements, generate pixels, relabel subjects or alter retained evidence. Use the supplied revision helper with a JSON object mapping exact manifest subject IDs to review-backed rejection reasons. Missing coverage is allowed by the frozen target policy. Retain other qualifications in the review report.'}
+from .image_sources import MAX_BUNDLE_SUBJECTS,MAX_SUBJECT_REQUESTS
+REGISTRY['images.catalog']['external_requests']=MAX_BUNDLE_SUBJECTS*MAX_SUBJECT_REQUESTS*2
+for _cap in ('sourcing.merge','records.merge'):
+    REGISTRY[_cap].setdefault('support_modules',[]).extend(['orchestrator.record_transfers','orchestrator.operation_contracts'])
+for _cap in ('records.merge','collection.slides','images.catalog'):
+    REGISTRY[_cap]['scope_versions']={'record_interfaces_version':1}
+for _cap,_adapter in [('sourcing.merge','reviewed-record-merge'),('records.merge','reviewed-record-merge'),
+                      ('sourcing.slides','record-slides'),('collection.slides','record-slides'),
+                      ('images.products','catalog-images'),('images.catalog','catalog-images')]:
+    REGISTRY[_cap]['native_adapter']=_adapter
+    REGISTRY[_cap]['runtime_modules']=['collection_core.py','record_lifecycle.py']
+    if _adapter=='catalog-images':
+        REGISTRY[_cap]['preflight_recovery']='orchestrator.product_photos:preflight_recovery'
+        REGISTRY[_cap]['revision_preview']='orchestrator.product_photos:revision_preview'
+    if _adapter=='record-slides':
+        REGISTRY[_cap]['review_workload']='orchestrator.sourcing_slides:review_workload'
+        REGISTRY[_cap]['data_revision']='application/json'
+for _cap in ('web.sources','web.sources.prepared'):
+    REGISTRY[_cap].setdefault('companions',{})['records.merge']='registered-record-partitions'
+REGISTRY['pptx.create']['companions']['collection.slides']='registered-record-projection'
+
+# These adapters produce only local versioned artifacts. Recovery may propose
+# new reviewed work from their confirmed receipts; this never replays a host
+# action or makes the previous candidate accepted.
+for _cap in ('sourcing.slides','collection.slides','sourcing.merge','records.merge',
+             'pptx.create','pptx.edit','pptx.render'):
+    REGISTRY[_cap]['completion_recovery']='local_artifact'
+REGISTRY['images.catalog']['completion_companions']={'images.merge':'partial-photo-composition'}
+for _cap in ('images.collect','images.fetch','images.products','images.catalog','sourcing.merge','records.merge','web.sources.coverage'):
+    REGISTRY[_cap].setdefault('runtime_modules',[]).append('collection_core.py')
+    REGISTRY[_cap]['runtime_modules']=list(dict.fromkeys(REGISTRY[_cap]['runtime_modules']))
+
+for _cap in ('images.collect','images.fetch','images.products','images.catalog','web.sources','web.sources.prepared','web.sources.coverage'):
+    REGISTRY[_cap]['support_modules']=['task_relay.orchestrator_web']
+for _cap in ('web.sources','web.sources.prepared'):
+    REGISTRY[_cap]['support_modules'].extend(['orchestrator.search_outcomes','orchestrator.provider_cooldown'])
 
 # Separate versioned capability preserves existing primitive-only plan contracts.
 REGISTRY.update(CLOUD_MEDIA)
@@ -138,14 +328,21 @@ REGISTRY['blender.inspect']={'version':1,'kind':'host','input_types':[*TEXT_TYPE
 # Fixed inspections may supply evidence to an already-declared reviewer.
 REGISTRY['blender.inspect']['review_evidence'] = True
 
+REGISTRY['blender.geometry']={**copy.deepcopy(REGISTRY['blender.inspect']),
+    'outputs':{'delivery/inspection.json':'application/json','delivery/execution.json':'application/json','delivery/geometry.json':'application/json'},
+    'output_bytes':12000000,
+    'node_ui':dict(title='Export Blender geometry',inputs={'files':'Blender scene'},outputs={'geometry':'World mesh geometry'}),
+    'description':'Export exact evaluated world mesh coordinates from the selected Blender scene without changing it.'}
+
 REGISTRY['blender.run_python']={'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/x-blender','text/x-python','application/json'],
     'output_type':None,'max_inputs':20,'input_bytes':100000000,'seconds':600,'output_bytes':100000000,
     'outputs':{'delivery/candidate.blend':'application/x-blender','delivery/before.png':'image/png',
                'delivery/after.png':'image/png','delivery/edit.py':'text/plain','delivery/checks.json':'application/json',
                'delivery/execution.json':'application/json'},
     'criteria':['The exact approved script ran against the selected scene copy; a candidate reopened independently, passed the declared preservation/dimension checks and produced matching-camera previews; original input copies remain unchanged.'],
-    'parameters':{'scene_sha256':'Selected native scene SHA-256','script_sha256':'Exact reviewed Python SHA-256',
-                  'checks_sha256':'Exact JSON verification/preview contract SHA-256','permissions':'unrestricted_host'},
+    'node_ui':dict(title='Run Blender Python',inputs={'scene_sha256':'Scene (empty for create)','script_sha256':'Python script','checks_sha256':'Scene checks'},outputs={'candidate':'Blender model','after':'Render preview'}),
+    'parameters':{'scene_sha256':'Exact source scene reference; null for create. Legacy SHA-256 bindings remain supported.','script_sha256':'Exact Python input reference; bytes are bound at approval',
+                  'checks_sha256':'Exact checks input reference; bytes are bound at approval','permissions':'unrestricted_host'},
     'external_requests':None,'cancellation':'Terminate the local process group; preserve partial results and never replay. Host script side effects cannot be undone.',
     'permissions':'Explicit exact-script host approval required. Python has normal host filesystem/network access; no workspace or network isolation is enforced. Embedded scene auto-execution stays disabled.'}
 
@@ -161,12 +358,14 @@ REGISTRY['blender.import_asset']={'version':1,'kind':'host','input_types':[*TEXT
     'permissions':'Fixed host append/packing code with embedded auto-execution disabled. Normal host permissions, not filesystem isolation. Only declared selected files are staged; no downloads, persistent links or arbitrary scripts.'}
 
 REGISTRY['blender.animate']={'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/json','application/x-blender','application/zip'],
-    'output_type':None,'max_inputs':30,'input_bytes':150000000,'seconds':600,'output_bytes':100000000,
+    'output_type':None,'max_inputs':30,'input_bytes':150000000,'seconds':1200,'default_seconds':1200,'output_bytes':100000000,
     'outputs':{'delivery/candidate.blend':'application/x-blender','delivery/animation.mp4':'video/mp4',
                'delivery/preview.png':'image/png','delivery/checkpoint.zip':'application/zip',
                'delivery/frames.json':'application/json','delivery/execution.json':'application/json'},
     'criteria':['The selected scene and numeric animation contract produced an independently reopened candidate, verified frame/FPS and transform checks, hashed per-frame receipts and an encoded video with the exact frame count/dimensions/FPS; original inputs remain unchanged.'],
-    'parameters':{'manifest_sha256':'Exact registered animation manifest SHA-256'},'external_requests':0,
+    'parameters':{'manifest_sha256':'Exact animation manifest input path or SHA-256',
+                  'scene_sha256':'Exact Blender scene input path or SHA-256'},
+    'optional_parameters':['scene_sha256'],'external_requests':0,
     'cancellation':'Terminate the local process group. Explicit continuation can reuse verified completed frames from a confirmed stopped attempt. Unresolved frame intents block; no automatic retry.',
     'permissions':'Fixed native Blender and ffmpeg operations with embedded scripts disabled, normal OS permissions. Numeric transforms only; no arbitrary Python, downloads or simulation. Output remains unselected.'}
 
@@ -222,6 +421,17 @@ REGISTRY['rhino.run_python'] = {
     'cancellation':'Stop the owned process or shared-session client only; never kill an existing Rhino. A shared script may continue; retain its pending receipt and never replay. Script side effects cannot be undone.',
     'permissions':'Exact-script approval required for IronPython 2.7 (Rhino 7) or CPython 3 (Rhino 8)/RhinoCommon with normal host filesystem/network access. No OS isolation. Grasshopper authoring requires the separate rhino.grasshopper operation.'}
 
+REGISTRY['rhino.document'] = {
+    'version':1,'kind':'host','input_types':['application/json'],
+    'output_type':None,'min_inputs':1,'max_inputs':1,'input_bytes':2000000,'seconds':600,'output_bytes':100000000,
+    'outputs':{'delivery/candidate.3dm':'application/vnd.rhino','delivery/preview.png':'image/png',
+               'delivery/document.json':'application/json','delivery/checks.json':'application/json','delivery/execution.json':'application/json'},
+    'criteria':['Typed geometry, text, dimensions and named views were built by fixed code, saved and independently reopened in Rhino. Exact content and native geometry checks passed; visual fidelity and source assumptions require review.'],
+    'parameters':{},'external_requests':0,
+    'runtime_modules':['rhino_execution.py','rhino_contract.py','rhino_worker.py','rhino_document.py'],
+    'permissions':'Fixed data-only document construction in Rhino 7/8; no model-supplied scripts, existing-document edits or arbitrary API calls.',
+    'cancellation':REGISTRY['rhino.run_python']['cancellation']}
+
 REGISTRY['rhino.render'] = {
     'version':1,'kind':'host','input_types':[*TEXT_TYPES,'application/vnd.rhino','application/json'],
     'output_type':None,'max_inputs':20,'input_bytes':100000000,'seconds':600,'output_bytes':10000000,
@@ -275,124 +485,158 @@ for _capability in ('blender.run_python','blender.import_asset','blender.animate
     REGISTRY[_capability]['requires_registered_inputs'] = True
 
 
-def catalog():
-    from task_relay import gemini, api_providers
-    config=gemini.read_config()
-    result = [dict(id=ident,**copy.deepcopy(spec),available=not ident.startswith('gemini.') or bool(config),
-        availability_evidence='Local implementation; provider configuration only, not authentication proof.',
-        configured_model=(config.get('models',{}).get(ident.split('.')[1],gemini.DEFAULT_MODELS[ident.split('.')[1]]) if config and ident.startswith('gemini.') else None))
-        for ident,spec in REGISTRY.items()]
-    for entry in result:
-        if entry['id']=='web.sources':
-            entry.update(available=bool(config and config.get('models',{}).get('text')),
-                         configured_model=(config or {}).get('models',{}).get('text'),
-                         availability_evidence='Configured Gemini text model and public page reader; live search and source coverage are checked during execution.')
-        if entry['id']=='rhino3dm.run_python':
-            from .rhino3dm_script import discover
-            from .rhino3dm_script_contract import DESCRIPTION
-            app=discover()
-            entry.update(available=app['available'],availability_evidence=app['evidence'],blocker=app['blocker'],
-                library_version=app['version'],interpreter=app['interpreter'],checks_schema=DESCRIPTION)
-        if entry['id']=='rhino3dm.create':
-            from . import rhino3dm_document, rhino3dm_contract
-            entry['geometry_schema']=rhino3dm_contract.DESCRIPTION
-            entry['execution_mode']='standalone_library'
-            try:rhino3dm_document.available()
-            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
-            else:entry['availability_evidence']='Pinned rhino3dm library available; no Rhino installation or native verification required or implied.'
-        if entry['id'].startswith('sketchup.'):
-            app=native_profile(entry['id']).discover()
-            entry.update(available=app['available'],availability_evidence=app['evidence'],blocker=app['blocker'],
-                         application_version=app['version'],interpreter=app['interpreter'])
-            if entry['id']=='sketchup.run_ruby':
-                from .sketchup_contract import DESCRIPTION
-                entry['checks_schema']=copy.deepcopy(DESCRIPTION)
-        if entry['id']=='images.collect':
-            from .image_sources import DESCRIPTION
-            entry['image_source_schema']=DESCRIPTION
-            entry.update(available=importlib.util.find_spec('PIL') is not None,
-                         availability_evidence='Public Commons adapter and local image validation; live coverage varies by subject.')
-        if entry['id']=='images.fetch':
-            from .browser_images import DESCRIPTION
-            entry['image_source_schema']=DESCRIPTION
-            entry.update(available=importlib.util.find_spec('PIL') is not None,
-                         availability_evidence='Observed browser image references and public downloads; browser discovery requires a configured browser worker.')
-        if entry['id'] in CLOUD_MEDIA:
-            from task_relay.cloud_providers import read_config
-            provider,kind=entry['id'].split('.')
-            selected=read_config(provider)
-            entry.update(available=bool(selected), configured_model=(selected or {}).get('models',{}).get(kind),
-                         availability_evidence='Saved API credential and implemented model adapter; generation access and credits are unverified.')
-            entry['available']=entry['available'] and bool(entry['configured_model'])
-        if entry['id'].startswith('hyperframes.'):
-            from . import hyperframes_project,hyperframes_contract
-            entry['project_schema']=hyperframes_contract.DESCRIPTION
-            try:hyperframes_project.available()
-            except (ValueError,ImportError) as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
-            else:entry['availability_evidence']='Local authored-project check, snapshots and render are qualified; provider authorship and visual quality require independent review.'
-        if entry['id']=='media.compose':
-            from . import reel_document,reel_contract
-            entry['composition_schema']=reel_contract.DESCRIPTION
-            try:reel_document.available()
-            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
-            else:entry['availability_evidence']='Configured local HyperFrames runtime passed the recorded fixture qualification; each reel still requires independent review and visual selection.'
-        if entry['id']=='pptx.create':
-            from . import pptx_document
-            entry['slide_schema']=pptx_document.DESCRIPTION
-            try:pptx_document.available()
-            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc))
-            else:entry['availability_evidence']='Local python-pptx dependency available; native-app import and visual quality are not qualified.'
-        if entry['id']=='pptx.edit':
-            from . import pptx_edit
-            entry['edit_schema']=pptx_edit.DESCRIPTION
-            try:pptx_edit.available()
-            except ValueError as exc:entry.update(available=False,availability_evidence=str(exc),blocker=str(exc))
-            else:entry['availability_evidence']='Local OOXML package editor available; visual fit and native-app import require review.'
-        if entry['id'] in IMAGE_PROVIDERS and IMAGE_PROVIDERS[entry['id']] != 'gemini':
-            provider=IMAGE_PROVIDERS[entry['id']]; selected=api_providers.read_config(provider)
-            model=(selected or {}).get('models',{}).get('image')
-            entry.update(available=bool(selected and model),configured_model=model,
-                availability_evidence='Configured image model and credentials; account access unverified. Set the image default in /providers.')
-        if (entry['id'] in IMAGE_PROVIDERS or entry['id'] in CLOUD_MEDIA and entry['id'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
-            entry.update(available=False,availability_evidence='Image conversion dependency missing. Install task-relay[images] or use a rebuilt desktop app.')
-    from task_relay.host_apps import blender,rhino
-    from .blender_host import SCENE_DESCRIPTION,MESH_DESCRIPTION
-    app=blender()
-    for entry in result:
-        if entry['kind']=='host':
-            if entry['id']=='rhino3dm.run_python':continue
-            if entry['id'].startswith('sketchup.'):continue
-            if entry['id'].startswith('rhino.'):
-                rhino_app=native_profile(entry['id']).discover()
-                entry.update(available=rhino_app['available'],availability_evidence=rhino_app['evidence'])
-                if entry['id']=='rhino.grasshopper':
-                    from .grasshopper_contract import DESCRIPTION
-                    entry['checks_schema']=DESCRIPTION
-                if entry['id']=='rhino.run_python':
-                    from .rhino_contract import DESCRIPTION
-                    entry['checks_schema']=DESCRIPTION
-                if entry['id']=='rhino.render':
-                    from .rhino_contract import RENDER_DESCRIPTION
-                    entry['render_schema']=RENDER_DESCRIPTION
-                entry['rhino_version']=rhino_app.get('version')
-                entry['interpreter']=rhino_app.get('interpreter')
-                continue
-            entry.update(available=app['available'],availability_evidence=app['evidence'])
-            if entry['id']=='blender.scene':entry['scene_schema']=SCENE_DESCRIPTION
-            if entry['id']=='blender.mesh_scene':entry['scene_schema']=MESH_DESCRIPTION
-            if entry['id']=='blender.run_python':
-                from .blender_edit import CHECKS_DESCRIPTION
-                entry['checks_schema']=CHECKS_DESCRIPTION
-            if entry['id']=='blender.import_asset':
-                from .blender_assets import DESCRIPTION
-                entry['asset_schema']=DESCRIPTION
-            if entry['id']=='blender.animate':
-                from .blender_animation import DESCRIPTION
-                from task_relay.host_apps import video_tools
-                entry['animation_schema']=DESCRIPTION
-                entry['available']=app['available'] and video_tools()['available']
-                entry['availability_evidence']='Executable presence only; Blender, ffmpeg and ffprobe required.'
+# Explicit scope for older adapters whose implementation already enforces these
+# restrictions. New registrations must provide this metadata themselves.
+for _capability in ('text.bundle','pptx.create','pptx.edit','sourcing.merge','records.merge','sourcing.slides','collection.slides'):
+    REGISTRY[_capability]['permissions']='Local reads of declared inputs and writes of declared artifact outputs; no provider calls, network or host-application automation.'
+REGISTRY['gemini.text']['permissions']='One configured text-provider request using declared text inputs; no tools, accounts, messages or host execution.'
+for _capability in IMAGE_PROVIDERS:
+    REGISTRY[_capability]['permissions']='Configured image-provider generation using declared prompts/references; bounded image retrieval and local conversion. No provider switching or uncertain submission replay.'
+
+
+from .document_compose import PARAMETERS as COMPOSE_PARAMETERS
+REGISTRY['document.compose']={
+    'version':1,'kind':'procedure','input_types':['application/json','image/png','image/jpeg','application/zip'],
+    'output_type':'application/json','min_inputs':1,'max_inputs':100,'input_bytes':100000000,
+    'seconds':60,'output_bytes':10000000,'parameters':COMPOSE_PARAMETERS,'external_requests':0,
+    'criteria':['Saved sections retain literal content, source notes and exact image versions; appended previews use full-page contain layouts. Composition makes no semantic or visual acceptance claim.'],
+    'permissions':'Local deterministic document composition; no provider, network or native-app calls.',
+    'cancellation':'Stop local composition; retain original section versions.',
+    'support_modules':['orchestrator.document_compose','orchestrator.pptx_document','orchestrator.slide_templates','orchestrator.table_layout','orchestrator.image_sources'],
+    'data_revision':'application/json'}
+for _cap in ('collection.slides','sourcing.slides','pptx.create'):
+    REGISTRY[_cap].setdefault('support_modules',[]).append('orchestrator.document_compose')
+REGISTRY['pptx.create']['companions']['document.compose']='registered-record-projection'
+
+# Literal prompts share the existing provider adapters; historical file prompts remain valid.
+for _cap in ('gemini.text','gemini.image','openai.image','openrouter.image'):
+    REGISTRY[_cap]['parameters']['prompt']='Literal generation prompt; source documents are optional context'
+    REGISTRY[_cap]['optional_parameters']=['prompt']
+    REGISTRY[_cap]['min_inputs']=0
+    REGISTRY[_cap]['input_defaults']={'prompt':'',**({'max_output_tokens':4096} if _cap.startswith('gemini.') else {}),
+        **({'aspect_ratio':'1:1'} if _cap in ('gemini.image','openrouter.image') else {}),
+        **({'size':'auto','quality':'auto'} if _cap=='openai.image' else {})}
+# These registered adapters already construct text-only requests. Runway video
+# retains its image requirement because its adapter uses image_to_video.
+for _cap in ('runway.image','higgsfield.image','higgsfield.video','meshy.mesh'):
+    REGISTRY[_cap]['min_inputs']=0
+
+# Adapter definitions are trusted code registrations, never model-provided imports.
+from .operation_adapters import builtins as _adapter_definitions
+ADAPTERS = _adapter_definitions(REGISTRY)
+from .codex_sources import register as _register_codex_sources
+_register_codex_sources(REGISTRY, ADAPTERS)
+from .public_read_operation import register as _register_public_read
+_register_public_read(REGISTRY, ADAPTERS)
+from .perplexity_search import register as _register_perplexity
+_register_perplexity(REGISTRY, ADAPTERS)
+from .browser_render import register as _register_browser_render
+_register_browser_render(REGISTRY, ADAPTERS)
+
+# Human names for the existing ports. These are presentation metadata only:
+# stored references, adapter parameters, output paths and execution stay fixed.
+for _cap,_title,_bundle,_result in (
+    ('text.bundle','Combine text','Text documents','Combined text'),
+    ('web.fetch','Read a web page',None,None),
+    ('web.sources','Search public sources (Gemini)',None,None),
+    ('web.sources.codex','Search public sources (Codex)',None,None),
+    ('web.sources.prepared','Search a query plan (Gemini)','Query plan',None),
+    ('web.sources.prepared.codex','Search a query plan (Codex)','Query plan',None),
+    ('web.sources.coverage','Search for coverage gaps (Gemini)',None,'Source pack'),
+    ('web.sources.rendered','Read source pages (HTTP / rendered)','Source pack',None),
+    ('web.sources.native','Read source pages (native browser)','Source pack',None),
+    ('images.collect','Acquire candidate images','Reference images','Candidate image bundle'),
+    ('images.fetch','Download recorded images','Image request manifest','Image bundle'),
+    ('images.products','Acquire product images',None,'Product image bundle'),
+    ('images.catalog','Acquire catalog images',None,'Catalog image bundle'),
+    ('images.crop','Crop an image','Source image','Cropped image'),
+    ('images.merge','Combine image bundles','Image bundles','Combined image bundle'),
+    ('images.pptx','Export candidate cards to PowerPoint',None,'PowerPoint'),
+    ('images.gallery','Export candidate gallery',None,'Gallery'),
+    ('collection.slides','Build catalog slides',None,'Slide specification'),
+    ('sourcing.slides','Build sourcing slides (legacy)',None,'Slide specification'),
+    ('records.merge','Merge catalog partitions',None,None),
+    ('sourcing.merge','Merge sourcing partitions (legacy)',None,None),
+    ('document.compose','Compose a document',None,'Document specification'),
+    ('pptx.create','Create PowerPoint','Slide specification and assets','PowerPoint'),
+    ('pptx.edit','Edit PowerPoint','Presentation, edit specification and assets','PowerPoint'),
+    ('pptx.render','Render PowerPoint','Presentation and supporting files',None),
+    ('hyperframes.preview','Preview a video project','Project and assets',None),
+    ('media.compose','Compose a video','Scene specification and assets',None),
+    ('gemini.text','Generate text (Gemini)','Prompt documents','Generated text'),
+    ('blender.scene','Create a Blender scene','Scene specification and supporting files',None),
+    ('blender.mesh_scene','Create a Blender mesh scene','Mesh specification and supporting files',None),
+    ('rhino.document','Create a Rhino document','Geometry specification and supporting files',None),
+    ('rhino3dm.create','Create a 3DM file','Geometry specification and supporting files',None),
+):
+    REGISTRY[_cap]['node_ui']=dict(title=_title,inputs={'files':_bundle} if _bundle else {},outputs={'result':_result} if _result else {})
+for _cap,_spec in REGISTRY.items():
+    _ui=_spec.setdefault('node_ui',{})
+    if _cap.endswith('.startup'):_ui['inputs']={'files':'Probe context documents'}
+    if _cap.endswith('.inspect'):_ui['inputs']={'files':'Native file and inspection evidence'}
+    if _cap in IMAGE_PROVIDERS or _cap in CLOUD_MEDIA:
+        _ui.update(inputs={'files':'Reference files'},outputs={'result':'Generated image' if _cap.endswith('.image') else 'Generated media'})
+REGISTRY['sourcing.merge']['node_ui']['replaced_by']='records.merge'
+REGISTRY['sourcing.slides']['node_ui']['replaced_by']='collection.slides'
+for _cap in ('images.pptx','images.gallery'):
+    REGISTRY[_cap]['node_ui']['inputs']=dict(photos='Candidate image bundle',recommendations='AI recommendations (advisory)')
+REGISTRY['images.collect']['node_ui']['inputs']['subjects']='Subjects to find'
+for _cap in ('blender.scene','blender.mesh_scene'):
+    REGISTRY[_cap]['node_ui']['output_details']={
+        'scene':dict(label='Blender model',role='primary',open_with='Blender'),
+        'preview':dict(label='Render preview',role='preview'),
+        'scene-script':dict(label='Generated script',role='technical'),
+        'execution':dict(label='Execution receipt',role='technical')}
+
+# Explicit model dependencies, separate from external HTTP page/image reads.
+# Used when an executor contract forbids a hidden second inference provider.
+MODEL_PROVIDERS={cap:provider for provider in ('gemini','openai','openrouter','runway','higgsfield','meshy')
+                 for cap in REGISTRY if cap.startswith(provider+'.')}
+MODEL_PROVIDERS.update({cap:'gemini' for cap in ('web.sources','web.sources.prepared','web.sources.coverage')})
+MODEL_PROVIDERS.update({cap:'codex' for cap in ('web.sources.codex','web.sources.prepared.codex')})
+
+
+def adapter(capability):
+    value=ADAPTERS.get(capability)
+    if value is None:raise ValueError('Missing registered admission adapter: '+capability)
+    return value
+
+
+def parameter_schema(capability):
+    """The same registered wire shape is used by planning and admission."""
+    return adapter(capability).schema(REGISTRY[capability])
+
+
+def catalog(capabilities=None):
+    from .connector_protocol import capture
+    selected=list(REGISTRY) if capabilities is None else list(capabilities)
+    if any(ident not in REGISTRY for ident in selected):raise ValueError('Unknown operation in catalog scope')
+    context={};result=[]
+    for ident in selected:
+        spec=REGISTRY[ident]
+        definition=adapter(ident)
+        entry=dict(id=ident,**copy.deepcopy(spec),available=bool(definition.handler),configured_model=None,
+            availability_evidence='Local implementation; provider configuration only, not authentication proof.',
+            connector_interface=capture(ident),parameter_schema=parameter_schema(ident),
+            data_owner='registered code' if spec['kind']=='procedure' else 'provider or host execution')
+        definition.describe(entry,context)
+        result.append(entry)
     return result
+
+
+def validate_inputs(a,*,complete=True):
+    """Same native consumption bounds for planning, admission and dispatch."""
+    cap=a['execution']['capability'];spec=REGISTRY[cap]
+    inputs=a.get('inputs');minimum=spec.get('min_inputs',1) if complete else 0;maximum=spec['max_inputs']
+    if not isinstance(inputs,list) or not minimum<=len(inputs)<=maximum:
+        raise ValueError('Invalid registered-operation input count for '+a.get('id','<task>')+' ('+cap+'): expected '+str(minimum)+'–'+str(maximum)+', received '+str(len(inputs) if isinstance(inputs,list) else 'non-list')+'. Inputs are consumed operation data; keep background evidence on the author/reviewer.')
+    for item in inputs:
+        if not isinstance(item,dict):raise ValueError('Registered input must be an artifact descriptor')
+        if item.get('media_type') not in spec['input_types']:
+            from .artifact_roles import CompatibilityError
+            raise CompatibilityError(item,'operation_input',dict(kind='selected'),
+                'Registered input media types do not match '+cap,
+                'Choose operation data with a supported type: '+', '.join(spec['input_types'])+'; keep background evidence on the inspecting worker')
 
 
 def validate(a):
@@ -402,130 +646,22 @@ def validate(a):
     spec=REGISTRY.get(e['capability']) if isinstance(e['capability'],str) else None
     if not spec or type(e['version']) is not int or e['version']!=spec['version']:
         raise ValueError('Unknown capability or unsupported execution version.')
+    from .connector_protocol import interface,verify
+    interface(e['capability'])  # Every registered operation must conform.
+    verify(e['capability'],a.get('connector_interface'))
     params=e['parameters']
-    if not isinstance(params,dict) or set(params)!=set(spec['parameters']):
+    if not isinstance(params,dict) or not set(spec['parameters'])-set(spec.get('optional_parameters',[]))<=set(params) or not set(params)<=set(spec['parameters']):
         expected=set(spec['parameters']);actual=set(params) if isinstance(params,dict) else set()
         issues=[]
-        if expected-actual:issues.append('missing '+', '.join(sorted(expected-actual)))
+        required=expected-set(spec.get('optional_parameters',[]))
+        if required-actual:issues.append('missing '+', '.join(sorted(required-actual)))
         if actual-expected:issues.append('unsupported '+', '.join(sorted(actual-expected)))
         if not isinstance(params,dict):issues.append('expected an object')
         raise ValueError('Invalid registered-operation parameters for '+e['capability']+': '+'; '.join(issues)+'.')
-    if e['capability']=='images.collect':
-        from .image_sources import validate_subjects
-        validate_subjects(params['subjects'])
-        if any(not str(o.get('path','')).endswith('.zip') for o in a.get('outputs',[])):
-            raise ValueError('Image collection requires a .zip output.')
-    if e['capability']=='web.sources':
-        from .web_sources import validate as validate_queries
-        validate_queries(params['queries'], params['domains'])
-        if not isinstance(params['model'],str) or not params['model'].strip():
-            raise ValueError('Web source collection requires an exact text model.')
-    if e['capability']=='images.fetch' and any(not o['path'].endswith('.zip') for o in a.get('outputs',[])):
-        raise ValueError('Image fetching requires a .zip output.')
-    if e['capability'] in CLOUD_MEDIA:
-        from .cloud_media import validate as validate_cloud, OUTPUTS
-        validate_cloud(e['capability'],params,a.get('inputs',[]))
-        if any(not str(o.get('path','')).endswith(OUTPUTS[e['capability'].split('.')[1]][1]) for o in a.get('outputs',[])):
-            raise ValueError('Use the registered media output file extension.')
-    if e['capability']=='openai.image':
-        if not isinstance(params['model'],str) or not re.fullmatch(r'gpt-image-[A-Za-z0-9._-]{1,100}',params['model']):
-            raise ValueError('Choose an exact GPT Image model ID; text models cannot generate through the image adapter.')
-        if params['size'] not in ('auto','1024x1024','1536x1024','1024x1536') or params['quality'] not in ('auto','low','medium','high'):
-            raise ValueError('Unsupported image size or quality.')
-        if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:raise ValueError('Choose at most six image references.')
-    if e['capability']=='openrouter.image':
-        from task_relay.api_providers import model_name
-        model_name(params['model'])
-        if '/' not in params['model'] or params['aspect_ratio'] not in ('1:1','16:9','9:16'):
-            raise ValueError('Choose an exact OpenRouter image model slug and supported aspect ratio.')
-        if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:
-            raise ValueError('Choose at most six image references.')
-    if e['capability']=='rhino.render':
-        if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):
-            raise ValueError('Rhino render requires an exact manifest hash')
-        for media in ('application/vnd.rhino','application/json'):
-            if sum(i.get('media_type')==media for i in a.get('inputs',[]) if isinstance(i,dict))!=1:
-                raise ValueError('Rhino render needs exactly one model and manifest')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
-            raise ValueError('Rhino render requires already registered inputs')
-    if e['capability']=='sketchup.run_ruby':
-        if params['permissions']!='unrestricted_host':raise ValueError('SketchUp Ruby requires unrestricted_host')
-        for key in ('scene_sha256','script_sha256','checks_sha256'):
-            if key=='scene_sha256' and params[key] is None:continue
-            if not isinstance(params[key],str) or not re.fullmatch('[a-f0-9]{64}',params[key]):raise ValueError('SketchUp requires exact input hashes')
-        for media,count in (('application/vnd.sketchup.skp',int(params['scene_sha256'] is not None)),('text/x-ruby',1),('application/json',1)):
-            if sum(i.get('media_type')==media for i in a.get('inputs',[]))!=count:raise ValueError('SketchUp needs exact Ruby/checks and a model only for edits')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):raise ValueError('SketchUp accepts only already registered inputs')
-    if e['capability']=='rhino.grasshopper' and params['scene_sha256'] is not None:
-        raise ValueError('Grasshopper supports new definitions only; scene_sha256 must be null')
-    if e['capability'] in ('rhino.run_python','rhino3dm.run_python','rhino.grasshopper'):
-        if params['permissions']!='unrestricted_host':raise ValueError('Rhino Python requires unrestricted_host; no isolation is enforced')
-        for key in ('scene_sha256','script_sha256','checks_sha256'):
-            if key=='scene_sha256' and params[key] is None:continue
-            if not isinstance(params[key],str) or not re.fullmatch('[a-f0-9]{64}',params[key]):raise ValueError('Rhino Python requires exact input hashes')
-        for media,count in (('application/vnd.rhino',int(params['scene_sha256'] is not None)),('text/x-python',1),('application/json',1)):
-            if sum(i.get('media_type')==media for i in a.get('inputs',[]) if isinstance(i,dict))!=count:
-                raise ValueError('Rhino Python needs exact script/checks and a scene only for edits')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
-            raise ValueError('Rhino Python accepts only already registered inputs; prepare and review scripts in a separate stage')
-    if e['capability']=='blender.animate':
-        if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):raise ValueError('Select the exact animation manifest hash')
-        for media in ('application/json','application/x-blender'):
-            if sum(i.get('media_type')==media for i in a.get('inputs',[]))!=1:raise ValueError('Select one animation manifest and one scene')
-        if sum(i.get('media_type')=='application/zip' for i in a.get('inputs',[]))>1:raise ValueError('Select at most one animation checkpoint')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):raise ValueError('Animation requires already registered inputs; prepare the manifest in a separate stage')
-    if e['capability']=='blender.import_asset':
-        if not isinstance(params['manifest_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',params['manifest_sha256']):raise ValueError('Select the exact asset manifest hash')
-        if sum(i.get('media_type')=='application/json' for i in a.get('inputs',[]) if isinstance(i,dict))!=1:raise ValueError('Select one asset manifest JSON')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):raise ValueError('Asset imports require already registered files and manifest; prepare them in a separate stage')
-    if e['capability']=='blender.run_python':
-        if params['permissions']!='unrestricted_host':raise ValueError('Blender Python requires explicit unrestricted_host scope; no isolation is enforced.')
-        if any(not isinstance(params[k],str) or not re.fullmatch('[a-f0-9]{64}',params[k]) for k in ('scene_sha256','script_sha256','checks_sha256')):
-            raise ValueError('Blender Python needs exact scene, script and checks hashes.')
-        for media in ('application/x-blender','text/x-python','application/json'):
-            if sum(i.get('media_type')==media for i in a.get('inputs',[]) if isinstance(i,dict))!=1:
-                raise ValueError('Blender Python needs exactly one native scene, Python script and checks JSON.')
-        if any('artifact' not in i or 'from_task' in i for i in a.get('inputs',[])):
-            raise ValueError('Blender Python accepts only already registered inputs; prepare scripts in a separate stage before approval.')
-    if e['capability'] in ('gemini.text','gemini.image'):
-        if not isinstance(params['model'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}',params['model']):
-            raise ValueError('Choose an exact Gemini model ID.')
-        if type(params['max_output_tokens']) is not int or not 1<=params['max_output_tokens']<=4096:
-            raise ValueError('API output token limit must be 1–4096.')
-        if e['capability']=='gemini.image':
-            if params['aspect_ratio'] not in ('1:1','16:9','9:16'):raise ValueError('Unsupported image aspect ratio.')
-            if sum(i.get('media_type','').startswith('image/') for i in a.get('inputs',[]))>6:
-                raise ValueError('Choose at most six image references.')
     if a.get('review_of'):raise ValueError('Registered operations cannot impersonate an independent agent reviewer.')
-    if e['capability']=='pptx.create':
-        if sum(i.get('media_type')=='application/json' for i in a.get('inputs',[]) if isinstance(i,dict))!=1:
-            raise ValueError('PPTX creation requires exactly one JSON slide specification.')
-        if any(not isinstance(o,dict) or not str(o.get('path','')).endswith('.pptx') for o in a.get('outputs',[])):
-            raise ValueError('PPTX creation requires a .pptx output path.')
-    if e['capability']=='pptx.edit':
-        types=[i.get('media_type') for i in a.get('inputs',[]) if isinstance(i,dict)]
-        if types.count('application/json')!=1 or types.count('application/vnd.openxmlformats-officedocument.presentationml.presentation')!=1 or any(t not in REGISTRY['pptx.edit']['input_types'] for t in types):
-            raise ValueError('PPTX edit requires one baseline PPTX, one JSON edit manifest and optional declared PNG/JPEG pictures.')
-        if any(not isinstance(o,dict) or not str(o.get('path','')).endswith('.pptx') for o in a.get('outputs',[])):
-            raise ValueError('PPTX edit requires a .pptx output path.')
     if a.setdefault('tools',[])!=[]:raise ValueError('Registered operations have no agent tools.')
     if a.get('criteria')!=spec['criteria']:raise ValueError('Use the registered operation criteria; semantic review is a separate agent step.')
-    if not isinstance(a.get('inputs'),list) or not spec.get('min_inputs',1)<=len(a['inputs'])<=spec['max_inputs']:raise ValueError('Invalid registered-operation input count.')
-    if any(not isinstance(i,dict) or i.get('media_type') not in spec['input_types'] for i in a['inputs']):raise ValueError('Registered input media types do not match the selected operation.')
-    if e['capability'] in ('hyperframes.preview','hyperframes.render'):
-        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
-            raise ValueError('HyperFrames needs exactly one project JSON or preview receipt')
-        if e['capability']=='hyperframes.render':
-            if sum(i.get('media_type')=='application/zip' for i in a['inputs'])!=1 or any('artifact' not in i or 'from_task' in i for i in a['inputs']):
-                raise ValueError('Render requires already registered preview project and receipt; select the preview before the render stage')
-            if any(not isinstance(params[k],str) or not re.fullmatch('[a-f0-9]{64}',params[k]) for k in ('project_sha256','preview_sha256')):
-                raise ValueError('Render requires exact project and preview SHA-256 values')
-    if e['capability']=='media.compose':
-        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
-            raise ValueError('Reel composition requires exactly one JSON scene specification')
-    if e['capability']=='rhino3dm.create':
-        if sum(i.get('media_type')=='application/json' for i in a['inputs'])!=1:
-            raise ValueError('Standalone 3DM creation needs exactly one geometry JSON specification')
+    validate_inputs(a)
     if spec.get('outputs'):
         if any(i.get('path','').split('/')[0]=='delivery' for i in a['inputs']):
             raise ValueError('Operation inputs must stay outside the reserved delivery directory.')
@@ -534,16 +670,10 @@ def validate(a):
                 or any(not isinstance(o,dict) for o in outputs)
                 or {o.get('path'):o.get('media_type') for o in outputs}!=spec['outputs']):
             raise ValueError('Use the exact registered '+('host ' if spec['kind']=='host' else '')+'output paths and media types.')
-        if e['capability']=='rhino.inspect' and sum(i['media_type']=='application/vnd.rhino' for i in a['inputs'])!=1:
-            raise ValueError('Select exactly one Rhino model version for inspection')
-        if e['capability']=='blender.inspect' and sum(i['media_type']=='application/x-blender' for i in a['inputs'])!=1:
-            raise ValueError('Select exactly one Blender scene version for inspection.')
-        if e['capability']=='sketchup.inspect' and sum(i['media_type']=='application/vnd.sketchup.skp' for i in a['inputs'])!=1:
-            raise ValueError('Select exactly one SketchUp model version for inspection.')
-        if e['capability'] in ('blender.scene','blender.mesh_scene') and sum(i['media_type']=='application/json' for i in a['inputs'])!=1:
-            raise ValueError('Blender scene needs exactly one application/json scene input; context inputs are text/plain.')
     elif not isinstance(a.get('outputs'),list) or len(a['outputs'])!=1 or not isinstance(a['outputs'][0],dict) or a['outputs'][0].get('media_type')!=spec['output_type']:
         raise ValueError('Registered operation needs one output with its declared media type.')
+    admission=adapter(e['capability'])
+    admission.validate(a,spec)
     limits=a.setdefault('limits',{})
     for key,maximum in [('seconds',spec['seconds']),('output_bytes',spec['output_bytes']),('tool_calls',1)]:
         limits.setdefault(key,maximum)
@@ -551,51 +681,38 @@ def validate(a):
     correction=a.get('review_correction')
     if correction is not None:
         if (not spec.get('review_correction') or spec['kind']!='procedure' or spec['external_requests']!=0
-                or not isinstance(correction,dict) or set(correction)!={'producer'}):
+                or not isinstance(correction,dict) or (set(correction)!={'producer'} and not (set(correction)=={'producer','kind'} and correction['kind'] in admission.correction_kinds))):
             raise ValueError('Correction requires a supported local data-only operation.')
         from .contracts import label
         label(correction['producer'])
         if a.setdefault('max_attempts',2)!=2:raise ValueError('Local document correction permits two operation attempts.')
+    elif admission.max_attempts==2:
+        if a.setdefault('max_attempts',1) not in (1,2):raise ValueError('Native sourcing assembly permits at most two bounded layout attempts')
+    elif spec.get('preflight_recovery') and a.get('revision',{}).get('kind')=='registered_input_preflight':
+        # This is only structural admission. Runtime rechecks the committed
+        # cycle, exact finished receipt, adapter proof and unchanged inputs.
+        if a.setdefault('max_attempts',1)!=2:raise ValueError('Native preflight continuation permits one allocated successor')
     elif a.setdefault('max_attempts',1)!=1:raise ValueError('Registered operations permit one attempt; uncertain calls are never replayed.')
     return spec
 
 
 def available(a):
     spec=validate(copy.deepcopy(a))
-    if a['execution']['capability']=='web.sources':
-        from task_relay import gemini
-        config=gemini.read_config()
-        if not config or config.get('models',{}).get('text')!=a['execution']['parameters']['model']:
-            raise ValueError('The configured Gemini text model for web.sources is unavailable or changed.')
-    if a['execution']['capability'].startswith('hyperframes.'):
-        from .hyperframes_project import available as project_available
-        project_available()
-    if a['execution']['capability']=='media.compose':
-        from .reel_document import available as reel_available
-        reel_available()
-    if a['execution']['capability']=='rhino3dm.create':
-        from .rhino3dm_document import available as library_available
-        library_available()
-    if a['execution']['capability'] in ('images.collect','images.fetch') and importlib.util.find_spec('PIL') is None:
-        raise ValueError('Image collection requires the bundled Pillow image validator.')
-    if a['execution']['capability']=='pptx.create':
-        from .pptx_document import available as pptx_available
-        pptx_available()
-    if a['execution']['capability']=='pptx.edit':
-        from .pptx_edit import available as pptx_edit_available
-        pptx_edit_available()
-    if (a['execution']['capability'] in IMAGE_PROVIDERS or a['execution']['capability'] in CLOUD_MEDIA and a['execution']['capability'].endswith('.image')) and importlib.util.find_spec('PIL') is None:
-        raise ValueError('Image conversion dependency is missing; no provider request was sent. Install task-relay[images] or update the desktop app.')
-    if spec['kind']=='host':
-        app=native_profile(a['execution']['capability']).discover()
-        if not app['available']:raise ValueError(app['blocker'])
-        if a['execution']['capability']=='blender.animate':
-            from task_relay.host_apps import video_tools
-            if not video_tools()['available']:raise ValueError('Animation needs installed ffmpeg and ffprobe executables')
-    if spec['kind']=='api':
-        from task_relay import gemini, api_providers
-        name=a['execution']['capability'].split('.')[0]
-        from task_relay import cloud_providers
-        config=(cloud_providers.read_config(name) if name in cloud_providers.PROVIDERS else
-                api_providers.read_config(name) if name in api_providers.SPECS else gemini.read_config())
-        if not config:raise ValueError(name+' capability is unavailable: provider configuration is missing.')
+    adapter(a['execution']['capability']).check_available(a,spec)
+
+for _cap in ('sourcing.slides','collection.slides'):
+    REGISTRY[_cap].setdefault('support_modules',[]).extend(['orchestrator.table_layout','orchestrator.product_evidence'])
+
+for _cap in ('images.fetch','images.products','images.catalog','images.collect','images.merge','collection.slides','sourcing.slides','document.compose','pptx.create'):
+    REGISTRY[_cap].setdefault('support_modules',[]).append('orchestrator.image_representation')
+
+for _cap in ('images.products','images.catalog','collection.slides','sourcing.slides','records.merge','sourcing.merge'):
+    REGISTRY[_cap].setdefault('support_modules',[]).append('orchestrator.discovery_evidence')
+    REGISTRY[_cap]['support_modules'].append('orchestrator.subject_contract')
+
+for _cap in ('web.sources.rendered','web.sources.native'):
+    REGISTRY[_cap].setdefault('support_modules',[]).extend([
+        'orchestrator.discovery_evidence','orchestrator.product_photos'])
+
+for _cap in ('blender.scene','blender.mesh_scene','rhino.document'):
+    REGISTRY[_cap].setdefault('support_modules',[]).append('orchestrator.spatial_contract')

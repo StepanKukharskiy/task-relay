@@ -24,6 +24,77 @@ def exists(db):
     return bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='conversation_followups'").fetchone())
 
 
+def message_context(db,ident):
+    """Resolve a saved conversation; no model reconstruction or channel switch."""
+    value=str(ident)
+    if not value.lstrip('-').isdigit() or len(value)>20 or not -9223372036854775808<=int(value)<=9223372036854775807:
+        raise DesktopPlanError('Choose a saved conversation.')
+    number=int(value)
+    root=int(root_for(db,job_id=number) or number)
+    row=db.execute('SELECT * FROM orchestrator_chats WHERE id=?',(root,)).fetchone()
+    if not row:raise DesktopPlanError('That saved conversation is unavailable.')
+    entry=db.execute('''SELECT d.project,i.manifest FROM desktop_plan_requests d
+        JOIN desktop_plan_inputs i ON i.request_id=d.request_id WHERE d.job_id=?''',(root,)).fetchone()
+    return dict(row),dict(entry) if entry else {'project':None,'manifest':'[]'}
+
+
+def message_available(db,ident):
+    row,_=message_context(db,ident)
+    if row['status'] not in ('answered','failed','uncertain','cancelled'):
+        return False
+    if not exists(db):return True
+    return not db.execute('''SELECT 1 FROM conversation_followups f
+        JOIN desktop_plan_requests d ON d.request_id=f.request_id
+        LEFT JOIN orchestrator_chats c ON c.id=d.job_id WHERE f.source_request_id=?
+        AND (d.status='queued' OR c.status IN ('queued','sending','guides_pending'))''',(row['id'],)).fetchone()
+
+
+def message_status(ident,request_id,paths=PATHS):
+    from .desktop_plans import _request_id
+    _request_id(request_id)
+    with closing(_database(paths)) as db:
+        root,_=message_context(db,ident)
+        row=db.execute('''SELECT d.*,f.source_request_id,f.mode FROM desktop_plan_requests d
+            LEFT JOIN conversation_followups f ON f.request_id=d.request_id WHERE d.request_id=?''',(request_id,)).fetchone()
+        if not row:return dict(request_id=request_id,root_id=str(root['id']),status='not_saved')
+        if row['source_request_id']!=root['id'] or row['mode']!='message':
+            raise DesktopPlanError('That message identity belongs to another submission.')
+        return dict(request_id=request_id,root_id=str(root['id']),status=row['status'])
+
+
+def send_message(ident,message,request_id,paths=PATHS):
+    with closing(_database(paths)) as db:
+        root,entry=message_context(db,ident)
+    from .desktop_plans import create
+    result=create(message,'',entry['project'],None,request_id,paths,
+        files=[item['path'] for item in json.loads(entry['manifest'])],entry_mode='conversation',
+        followup={'id':str(root['id']),'message':True})
+    return {**result,'root_id':str(root['id']),'mode':'message'}
+
+
+def bind_message(db,selection,goal,constraints,project,files,request_id,entry_mode,research_mode):
+    if set(selection)!={'id','message'} or selection['message'] is not True:
+        raise DesktopPlanError('Supply a saved conversation and a new message.')
+    root,entry=message_context(db,selection['id'])
+    if (constraints,project,files,entry_mode,research_mode)!=('',entry['project'],
+            [item['path'] for item in json.loads(entry['manifest'])],'conversation','suggest'):
+        raise DesktopPlanError('The message changed its saved conversation inputs.')
+    prior=db.execute('''SELECT d.*,f.source_request_id,f.mode FROM desktop_plan_requests d
+        LEFT JOIN conversation_followups f ON f.request_id=d.request_id WHERE d.request_id=?''',(request_id,)).fetchone()
+    if prior:
+        if prior['source_request_id']!=root['id'] or prior['mode']!='message' or prior['prompt']!=goal:
+            raise DesktopPlanError('That message identity belongs to different content.')
+        return dict(request_id=request_id,root_id=str(root['id']),status=prior['status'])
+    if not message_available(db,root['id']):
+        raise DesktopPlanError('A conversation request is still in progress. Wait for its saved outcome before sending another message.')
+    for item in json.loads(entry['manifest']):
+        from pathlib import Path
+        path=Path(item['path'])
+        if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:
+            raise DesktopPlanError('A saved conversation attachment changed. No message was queued.')
+    return None
+
+
 def selections(db,ident):
     from .orchestrator_chat import response_json
     from .conversation_delete import _ident
@@ -73,6 +144,8 @@ def selected(db,ident,index,digest):
 
 
 def bind(db,selection,goal,constraints,project,files,request_id,entry_mode,research_mode):
+    if 'message' in selection:
+        return bind_message(db,selection,goal,constraints,project,files,request_id,entry_mode,research_mode)
     row,entry,option,mode=selected(db,selection['id'],selection['index'],selection['digest'])
     expected_files=[item['path'] for item in json.loads(entry['manifest'])]
     if ((goal,constraints,project,files,entry_mode,research_mode)!=
@@ -158,14 +231,27 @@ def read_steps(paths,ident):
 
 
 def projection(db,root,paths):
-    if not exists(db):return None
     from . import desktop_workspace,desktop_plans
     rows=db.execute('''SELECT f.*,d.job_id,d.status request_status,d.result,d.prompt FROM conversation_followups f
-        JOIN desktop_plan_requests d ON d.request_id=f.request_id WHERE f.source_request_id=? ORDER BY f.created,f.request_id''',(int(root),)).fetchall()
+        JOIN desktop_plan_requests d ON d.request_id=f.request_id WHERE f.source_request_id=? ORDER BY f.created,f.request_id''',(int(root),)).fetchall() if exists(db) else []
     root_row=db.execute('SELECT status FROM orchestrator_chats WHERE id=?',(int(root),)).fetchone()
     nodes=[{'id':'conversation:'+root,'objective':'Conversation','status':root_row[0] if root_row else 'unavailable','dependencies':[],
             'instruction':'Exact saved conversation. Selecting a recommendation adds a bounded follow-up.'}]
     stages=[];latest_outputs=[];historical_outputs=[]
+    def graph_stage(stage,job_id):
+        execution=execution_for(db,job_id,paths)
+        if not execution:return
+        stage.update(execution=execution,status=execution['status'])
+        key='stage:'+stage['request_id']
+        for task in execution['tasks']:
+            nodes.append({**task,'id':key+':'+task['id'],
+                'dependencies':[key+':'+(d if isinstance(d,str) else d['task']) for d in task.get('dependencies',[])],
+                'stage_request_id':stage['request_id']})
+        latest_outputs.extend({**f,'task':key+':'+f['task']} for f in execution.get('latest_outputs',[]))
+        historical_outputs.extend({**f,'task':key+':'+f['task']} for f in execution.get('historical_outputs',[]))
+    initial=dict(request_id='request:'+root,job_id=root,mode='work')
+    graph_stage(initial,int(root))
+    if initial.get('execution'):stages.append(initial)
     for row in rows:
         stage={'request_id':row['request_id'],'job_id':str(row['job_id']),'mode':row['mode'],'prompt':row['prompt'],'option_index':row['option_index']}
         origin=db.execute('SELECT request_id FROM desktop_plan_requests WHERE job_id=?',(row['choice_source_id'],)).fetchone()
@@ -181,8 +267,9 @@ def projection(db,root,paths):
             # a semantic claim or an artifact-consumption certificate.
             for read in reads:
                 read['dependencies']=[parent];read['stage_request_id']=row['request_id'];nodes.append(read);parent=read['id']
-            nodes.append({'id':key,'objective':'Research answer','status':value['status'],'dependencies':[parent],
+            nodes.append({'id':key,'objective':'Conversation reply' if row['mode']=='message' else 'Research answer','status':value['status'],'dependencies':[parent],
                           'instruction':row['prompt'],'conversation_response':value['status']=='answered','stage_request_id':row['request_id']})
+            graph_stage(stage,row['job_id'])
         elif plans:
             plan=desktop_plans.detail(plans[-1]['id'],paths,shared=True)
             stage.update(plan=plan,status=plan['status'])
@@ -209,20 +296,34 @@ def projection(db,root,paths):
                           'stage_request_id':row['request_id']})
         stages.append(stage)
     return {'tasks':nodes,'stages':stages,'latest_outputs':latest_outputs,'historical_outputs':historical_outputs,
-            'status':(summary(db,int(root)) or {}).get('status'), 'note':'Source links reflect saved page reads, not a guarantee that every claim is correct.'}
+            'status':stages[-1]['status'] if stages and stages[-1].get('execution') else (summary(db,int(root)) or {}).get('status'), 'note':'Source links reflect saved page reads, not a guarantee that every claim is correct.'}
+
+
+def execution_for(db,job_id,paths):
+    """Only an atomically bound graph is a conversation execution, never prose."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='production_events'").fetchone():return None
+    row=db.execute("SELECT run FROM production_events WHERE kind='conversation_graph_bound' AND json_extract(data,'$.request_id')=?",(str(job_id),)).fetchone()
+    if not row:return None
+    from .desktop_workspace import detail
+    return detail(row['run'],paths)
 
 
 def summary(db,root):
-    if not exists(db):return None
+    initial=graph_summary(db,root)
+    if not exists(db):return initial
     rows=db.execute('''SELECT f.mode,f.option_index,f.choice_source_id,f.created,d.job_id,d.status,c.status chat_status FROM conversation_followups f
         JOIN desktop_plan_requests d ON d.request_id=f.request_id
-        LEFT JOIN orchestrator_chats c ON c.id=d.job_id WHERE f.source_request_id=?''',(int(root),)).fetchall()
-    if not rows:return None
+        LEFT JOIN orchestrator_chats c ON c.id=d.job_id WHERE f.source_request_id=? ORDER BY f.created,f.request_id''',(int(root),)).fetchall()
+    if not rows:return initial
     states=[]
+    latest_message=next((row for row in reversed(rows) if row['mode']=='message'),None)
     for row in rows:
+        if row['mode']=='message' and row is not latest_message:continue
         if row['mode']=='legacy_plan' and any(other['choice_source_id']==row['choice_source_id'] and other['option_index']==row['option_index'] and other['created']>row['created'] and other['mode']=='research' for other in rows):
             continue  # Retained failed preparation, replaced by an explicitly selected research stage.
         status=row['chat_status'] or row['status']
+        graph=graph_summary(db,row['job_id'])
+        if graph:status=graph['status']
         family=plan_family(db,row['job_id']);plan=family[-1] if family else None
         if plan:
             status=plan['status']
@@ -231,8 +332,18 @@ def summary(db,root):
                 status=run[0] if run else status
         states.append(status)
     for status in ('uncertain','blocked','failed','needs_input','awaiting_user','ready','sending','active','running','queued','accepted'):
-        if status in states:return {'status':status}
-    return {'status':'completed'}
+        if status in states:return {'status':status,'stamp':max(r['created'] for r in rows)}
+    return {'status':'completed','stamp':max(r['created'] for r in rows)}
+
+
+def graph_summary(db,job_id):
+    from orchestrator.runtime import run_status
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='production_events'").fetchone():return None
+    row=db.execute("SELECT r.id,r.status,e.created FROM production_events e JOIN production_runs r ON r.id=e.run WHERE e.kind='conversation_graph_bound' AND json_extract(e.data,'$.request_id')=?",(str(job_id),)).fetchone()
+    if not row:return None
+    tasks=list(db.execute('SELECT * FROM production_tasks WHERE run=?',(row['id'],)))
+    specs=[json.loads(db.execute('SELECT spec FROM production_assignments WHERE id=?',(t['assignment'],)).fetchone()[0]) for t in tasks]
+    return dict(status=run_status(row['status'],tasks,specs),stamp=row['created'])
 
 
 def proposed_tasks(value):

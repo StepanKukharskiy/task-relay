@@ -15,12 +15,13 @@ from pathlib import Path
 
 from .runtime import safe_file, file_hash
 from .workers import atomic
+from .spatial_contract import validate_spatial, portable_source
 
 PROBE='import bpy; print("BLENDER_STARTUP_OK", bpy.app.version_string, flush=True)'
 SCENE_DESCRIPTION={'objects':'1–500 objects: shape cube/cylinder, position [x,y,z], size [x,y,z] > 0, rotation [rx,ry,rz] radians, color [r,g,b] 0..1',
                    'camera':'position [x,y,z], target [x,y,z], scale 0.1..10000',
                    'resolution':'[width,height], integer 64..1600', 'samples':'integer 1..32',
-                   'version':1}
+                   'version':1,'spatial':'Optional physical coordinate metadata: units Meters/Millimeters/Centimeters/Feet/Inches, basis estimated/measured/nominal, note 1–600 characters. Missing metadata remains unspecified; no implied physical scale.'}
 
 MESH_DESCRIPTION={**SCENE_DESCRIPTION,'version':2,
     'objects':'1–500 cube/cylinder or mesh objects. All: position, size, rotation, color as in primitive scene. Mesh additionally requires vertices and faces.',
@@ -33,7 +34,7 @@ def validator_source(allow_mesh=False):
     """Portable copy of the actual data validator, with no Blender/runtime imports."""
     import inspect
     return ('import json\nimport math\nimport sys\nfrom pathlib import Path\n\n'+
-            inspect.getsource(scene)+'\n'+inspect.getsource(mesh_data)+
+            portable_source()+'\n'+inspect.getsource(scene)+'\n'+inspect.getsource(mesh_data)+
             '\nif __name__ == "__main__":\n'
             '    value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))\n'
             f'    scene(value, allow_mesh={allow_mesh!r})\n'
@@ -46,7 +47,8 @@ def scene(value,allow_mesh=False):
     def vector(v,lo,hi):
         if not isinstance(v,list) or len(v)!=3 or any(type(n) not in (int,float) or not math.isfinite(n) or not lo<=n<=hi for n in v):
             raise ValueError('Invalid bounded Blender scene vector')
-    keys(value,('version','objects','camera','resolution','samples'))
+    keys(value,('version','objects','camera','resolution','samples',*(('spatial',) if isinstance(value,dict) and 'spatial' in value else ())))
+    if 'spatial' in value:validate_spatial(value['spatial'])
     if type(value['version']) is not int or value['version']!=(2 if allow_mesh else 1):raise ValueError('Unsupported scene version')
     objects=value['objects']
     if not isinstance(objects,list) or not 1<=len(objects)<=500:raise ValueError('Use 1–500 scene objects')
@@ -78,7 +80,7 @@ def execute(frozen,control,documents):
     cap=frozen['execution']['capability'];deadline=time.monotonic()+max(1,frozen['limits']['seconds']-5)
     output=workspace/'delivery'
     if output.exists() or output.is_symlink():raise ValueError('Blender output directory already exists; no files were replaced')
-    for name in ('blender_host.py','blender_scene.py'):
+    for name in ('blender_host.py','blender_scene.py','spatial_contract.py'):
         if frozen.get('runtime_sources',{}).get(name)!=file_hash(Path(__file__).with_name(name)):
             raise ValueError('Blender implementation changed after dispatch was frozen')
     payload=None
@@ -110,7 +112,7 @@ def execute(frozen,control,documents):
         atomic(output/'execution.json',{'host_execution':True,'capability':cap,'runs':logs,
             'environment':{'platform':sys.platform,'architecture':platform.machine(),'cwd':str(workspace),'executable':app['executable']},
             'input_hashes':[d['sha256'] for d in documents],
-            'runtime_sources':{k:frozen['runtime_sources'][k] for k in ('blender_host.py','blender_scene.py')},
+            'runtime_sources':{k:frozen['runtime_sources'][k] for k in ('blender_host.py','blender_scene.py','spatial_contract.py')},
             'recorded_at':time.time(), 'application_signature':application_signature(app['executable']),
             'scope':'Fixed Relay code; no arbitrary scripts. Diagnostic success is not scene acceptance.'})
         return receipt['returncode']==0 and receipt['marker_present']
@@ -121,7 +123,7 @@ def execute(frozen,control,documents):
         passed=True
     else:
         data=control/'scene.json';atomic(data,payload)
-        script=output/'scene-script.py';shutil.copyfile(Path(__file__).with_name('blender_scene.py'),script)
+        script=output/'scene-script.py';script.write_text(portable_source()+'\n'+Path(__file__).with_name('blender_scene.py').read_text())
         passed=run(['--python',str(script),'--','build',str(data),str(output)],'RELAY_SCENE_SAVED')
         if passed:passed=run(['--python',str(script),'--','verify-render',str(data),str(output)],'RELAY_SCENE_VERIFIED_RENDERED')
         if passed:

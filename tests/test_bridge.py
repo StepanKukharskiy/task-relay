@@ -397,7 +397,7 @@ class Tests(unittest.TestCase):
                 desktop.open_task(task + '?prompt=run+this')
             run.assert_not_called()
 
-    def test_outbox_retries_after_network_error(self):
+    def test_outbox_holds_ambiguous_network_error_without_replay(self):
         self.watcher.scan()
         self.append(self.event('task_complete'))
         self.watcher.scan()
@@ -405,8 +405,10 @@ class Tests(unittest.TestCase):
         with patch.object(self.telegram, 'send', side_effect=OSError()):
             with self.assertRaises(OSError):
                 self.bridge.flush()
-        self.bridge.flush()
-        self.assertEqual(self.state.db.execute('SELECT sent FROM outbox').fetchone()[0], 1)
+        with patch.object(self.telegram,'send') as sent:self.bridge.flush()
+        sent.assert_not_called()
+        self.assertEqual(self.state.db.execute('SELECT sent FROM outbox').fetchone()[0], 0)
+        self.assertEqual(self.state.db.execute('SELECT status FROM relay_delivery_effects').fetchone()[0],'uncertain')
 
     def test_ipc_handles_fragmented_frames(self):
         left, right = socket.socketpair()
@@ -580,7 +582,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(DesktopFake.starts, [('task-one', 'Adjust the layout')])
         self.assertEqual(list(self.state.media_dir.iterdir()), [])
 
-    def test_image_retry_does_not_repeat_successful_text_or_preview(self):
+    def test_ambiguous_image_upload_does_not_repeat_after_restart(self):
         self.ready_image()
         original_send = self.telegram.send_media
         def fail_original(chat, path, filename, kind, caption):
@@ -594,7 +596,9 @@ class Tests(unittest.TestCase):
             self.state.db.execute('UPDATE media_outbox SET next_attempt=0')
         # Simulate a fresh bridge process using the same persistent state.
         Bridge(self.state, self.telegram, self.config, DesktopFake).flush()
-        self.assertEqual([x[0] for x in self.telegram.media], ['preview', 'original'])
+        self.assertEqual([x[0] for x in self.telegram.media], ['preview'])
+        self.assertEqual(self.state.db.execute("SELECT status FROM media_outbox WHERE kind='original'").fetchone()[0],'uncertain')
+        self.assertTrue(list(self.state.media_dir.iterdir()),'Uncertain upload retains its exact snapshot')
         self.assertEqual(sum('Finished:' in text for _, text in self.telegram.sent), 1)
 
     def test_preview_rejection_still_delivers_original(self):

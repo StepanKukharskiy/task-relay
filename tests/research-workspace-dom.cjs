@@ -16,7 +16,7 @@ function walk(element){return [element,...element.children.flatMap(walk)];}
 const document={activeElement:null,hidden:false,querySelectorAll:()=>[],createElement:tag=>new Element(tag),getElementById:id=>{
   if(!ids.has(id))ids.set(id,new Element('div'));return ids.get(id);
 }};
-const calls=[],drafts=new Map();let lostReply=true;
+const calls=[],drafts=new Map();let lostReply=true,readFailure=false;
 const plan={id:'plan-one',channel:'desktop',status:'started',run:'run-one',request:'Any ideas for an old controller?',project:null};
 const view={name:'run-one',brief:plan.request,channel:'desktop',status:'completed',local:true,tasks:[],controls:[],latest_outputs:[],research:{steps:[],files:[],pages:[],message:'No successful page read or search result is recorded for this job.'}};
 const window={__TAURI__:{core:{invoke:async(command,args)=>{
@@ -25,7 +25,7 @@ const window={__TAURI__:{core:{invoke:async(command,args)=>{
   const {path,value}=args;
   if(path==='workspace-jobs')return {items:[{id:plan.id,kind:'plan',title:plan.request,status:'completed',channel:'desktop'}],scope:'fixture',can_plan:true,total:1,next_offset:null};
   if(path==='workspace-plan')return plan;
-  if(path==='workspace-detail')return view;
+  if(path==='workspace-detail'){if(readFailure)throw Error('Saved job read timed out');return view;}
   if(path==='plan-create') {if(lostReply){lostReply=false;throw Error('Response lost');}return {message:'Saved',plan_id:plan.id};}
   if(path==='workspace-request')return {plan_id:plan.id};
   throw Error('Unexpected request '+path);
@@ -34,7 +34,7 @@ const context=vm.createContext({window,document,localStorage:{getItem:key=>draft
 vm.runInContext(fs.readFileSync('task_relay/assets/companion-workspace.js','utf8'),context);
 (async()=>{
   await window.RelayWorkspace.refreshJobs();
-  await document.getElementById('workspace-job-list').children[0].onclick();
+  await walk(document.getElementById('workspace-job-list')).find(e=>typeof e.onclick==='function' && walk(e).some(c=>c.textContent===plan.request)).onclick();
   let body=document.getElementById('workspace-detail-body');
   assert(walk(body).some(e=>e.textContent==='No successful page read or search result is recorded for this job.'));
   const researchButton=walk(body).find(e=>e.textContent==='Plan a source-backed answer');assert(researchButton);
@@ -51,6 +51,10 @@ vm.runInContext(fs.readFileSync('task_relay/assets/companion-workspace.js','utf8
   assert.equal(submits[0].args.value.research_mode,'sources','A selected recommendation retains the explicit choice without a dropdown');
   assert.equal(drafts.size,0,'A committed receipt clears the pending draft');
   async function refresh(){document.getElementById('workspace-detail-refresh').onclick();await new Promise(resolve=>setImmediate(resolve));body=document.getElementById('workspace-detail-body');}
+  readFailure=true;await refresh();
+  assert.equal(document.getElementById('workspace-detail-feedback').textContent,'Error: Saved job read timed out');
+  readFailure=false;await refresh();
+  assert.equal(document.getElementById('workspace-detail-feedback').textContent,'','A successful automatic refresh clears its stale load warning');
   plan.research_advice={recommended_mode:'none',requirement:'optional',reason:'Explore reuse ideas; documentation can establish supported link interfaces.',questions:['Which existing projects support the link interface?']};
   await refresh();
   assert(walk(body).some(e=>e.textContent==='Orchestrator recommends a quick answer'));

@@ -11,7 +11,7 @@ def validate_assignment(assignment):
         raise ValueError('Invalid output contracts.')
     seen=set()
     for value in contracts:
-        if (not isinstance(value,dict) or set(value)!={'path','format','checks'}
+        if (not isinstance(value,dict) or set(value) not in ({'path','format','checks'}, {'version','path','format','checks','validation'})
             or not isinstance(value['path'],str) or value['path'] in seen
             or not isinstance(value['format'],str) or not re.fullmatch(r'(?:\.[a-zA-Z0-9][a-zA-Z0-9.]{0,18})?',value['format'])
             or value['format'] and not value['path'].lower().endswith(value['format'].lower())
@@ -19,7 +19,22 @@ def validate_assignment(assignment):
             or not isinstance(value['checks'],list) or any(not isinstance(c,str) or c not in CHECKS for c in value['checks'])
             or len(set(value['checks']))!=len(value['checks'])):
             raise ValueError('Invalid declared output contract.')
+        if 'version' in value:
+            validation=value['validation']
+            if (type(value['version']) is not int or value['version']!=2 or not assignment.get('execution')
+                or not isinstance(validation,list) or len(validation)>6
+                or any(not isinstance(c,str) or not c.strip() or len(c)>300 for c in validation)):
+                raise ValueError('Invalid declared semantic output validation.')
         seen.add(value['path'])
+
+
+def review_criteria(assignment):
+    """Required semantic checks supplement, never replace, operation receipts."""
+    criteria=list(assignment['criteria'])
+    for value in assignment.get('output_contracts',[]):
+        for criterion in value.get('validation',[]):
+            if criterion not in criteria:criteria.append(criterion)
+    return criteria
 
 
 def check_delivery(assignment,read):
@@ -36,3 +51,32 @@ def check_delivery(assignment,read):
                 except ValueError:raise ValueError('A requested output is not valid JSON: '+value['path']) from None
             if 'fenced_code' in checks and not any(m[2].strip() for m in re.finditer(r'^(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^\1[ \t]*$',text,re.M)):
                 raise ValueError('A requested output lacks a complete nonempty code example: '+value['path'])
+
+
+def bind_review_criteria(tasks):
+    """Compile inherited checks and retain every proposed extra review requirement."""
+    import copy
+    by_id={t['id']:t for t in tasks};receipts=[]
+    for review in tasks:
+        producer=by_id.get(review.get('review_of'))
+        if not producer or any(k in review for k in ('source_fidelity','design_review','research_audit')):continue
+        before=copy.deepcopy(review['criteria'])
+        extra=[c for c in before if c not in review_criteria(producer)]
+        if extra:
+            if producer.get('execution'):
+                path=producer['outputs'][0]['path']
+                contract=next((c for c in producer.get('output_contracts',[]) if c['path']==path),None)
+                if contract is None:
+                    contract={'version':2,'path':path,'format':'','checks':[],'validation':[]}
+                    producer.setdefault('output_contracts',[]).append(contract)
+                contract.setdefault('version',2);contract.setdefault('validation',[])
+                for check in extra:
+                    if check not in contract['validation']:contract['validation'].append(check)
+            else:
+                producer['criteria'].extend(extra)
+        review['criteria']=review_criteria(producer)
+        if review['criteria']!=before:
+            receipts.append({'task':review['id'],'producer':producer['id'],'before':before,
+                             'value':copy.deepcopy(review['criteria']),
+                             'reason':'inherit exact producer checks; preserve every proposed extra review check'})
+    return receipts

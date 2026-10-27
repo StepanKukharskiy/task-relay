@@ -35,10 +35,11 @@ def execute(frozen, control, documents):
     from task_relay import rhino_host
     from task_relay import host_apps
     grasshopper = frozen['execution']['capability'] == 'rhino.grasshopper'
+    typed = frozen['execution']['capability'] == 'rhino.document'
     from .native_apps import profile
     discover = profile('rhino.grasshopper').discover if grasshopper else rhino
     app = discover()
-    sources = ('rhino_execution.py', 'rhino_contract.py', 'rhino_worker.py') + (('grasshopper_contract.py', 'grasshopper_worker.py') if grasshopper else ())
+    sources = ('rhino_execution.py', 'rhino_contract.py', 'rhino_worker.py') + (('spatial_contract.py','rhino_document.py') if typed else ()) + (('grasshopper_contract.py', 'grasshopper_worker.py') if grasshopper else ())
     if not app['available']:raise ValueError(app['blocker'])
     if frozen.get('rhino_application') != {'signature':application_signature(app['executable']),
             'major':app.get('major',8),'version':app.get('version')}:
@@ -53,14 +54,17 @@ def execute(frozen, control, documents):
     if out.exists() or out.is_symlink():raise ValueError('Rhino delivery exists; no replacement or replay')
     cap = frozen['execution']['capability']
     paths = {i['media_type']:safe_file(workspace, i['path']) for i in frozen['inputs'] if i['media_type'] in (MEDIA, 'text/x-python', 'application/json')}
-    modeling = cap == 'rhino.run_python'
-    scripting = modeling or grasshopper
+    modeling = cap in ('rhino.run_python','rhino.document')
+    scripting = (modeling and not typed) or grasshopper
     script_name = 'definition.py' if grasshopper else 'model.py'
     rendering = cap == 'rhino.render'
     if rendering:
         if file_hash(paths['application/json']) != frozen['execution']['parameters']['manifest_sha256']:
             raise ValueError('Rhino render manifest hash changed')
         manifest = validate_render(json.loads(paths['application/json'].read_text()))
+    if typed:
+        from .rhino_document import validate, checks
+        manifest=validate(json.loads(paths['application/json'].read_text()))
     if scripting:
         host_code.verify_frozen(frozen)
         profile(cap).validate_checks(json.loads(paths['application/json'].read_text()))
@@ -74,6 +78,9 @@ def execute(frozen, control, documents):
     # Exclusive intent precedes every external process and cannot be replayed.
     with (control/'rhino-intent.json').open('x') as stream:json.dump(receipt, stream)
     out.mkdir()
+    if typed:
+        atomic(control/'rhino-document-checks.json',checks(manifest))
+        shutil.copyfile(paths['application/json'],out/'document.json')
     if scripting:shutil.copyfile(paths['text/x-python'], out/script_name)
     modes = ('gh_build','gh_verify') if grasshopper else ('before','model','verify') if modeling else ('inspect',) if cap == 'rhino.inspect' else ('render',) if rendering else ('startup',)
     deadline = time.monotonic()+max(1, frozen['limits']['seconds']-5)
@@ -106,11 +113,12 @@ def execute(frozen, control, documents):
             break
         stage = control/('rhino-'+mode)
         stage.mkdir()
-        module_names = ('rhino_contract','grasshopper_contract','grasshopper_worker','rhino_worker') if grasshopper else ('rhino_contract','rhino_worker')
+        module_names = ('rhino_contract','grasshopper_contract','grasshopper_worker','rhino_worker') if grasshopper else ('rhino_contract','spatial_contract','rhino_document','rhino_worker') if typed else ('rhino_contract','rhino_worker')
         for name in (n+'.py' for n in module_names):
             shutil.copyfile(Path(__file__).with_name(name), stage/name)
         request = dict(mode=mode, token=secrets.token_hex(24), out=str(out), rhino_major=app.get('major',8),
                        baseline=str(control/'rhino-baseline.json'), source=str(paths[MEDIA]) if MEDIA in paths else None)
+        if typed:request.update(document=str(paths['application/json']),checks=str(control/'rhino-document-checks.json'))
         if rendering:request['manifest'] = str(paths['application/json'])
         if scripting:request.update(script=str(paths['text/x-python']), checks=str(paths['application/json']))
         if grasshopper:request.update(grasshopper_libraries=app['grasshopper_libraries'], workspace=str(workspace))
@@ -229,8 +237,8 @@ def execute(frozen, control, documents):
             candidate_hashes=candidate_hashes, attempt=frozen['assignment_id'], selected=False)
         atomic(out/'execution.json', receipt)
     if passed and modeling:
-        receipt['lineage'] = dict(source_scene_sha256=frozen['execution']['parameters']['scene_sha256'],
-            script_sha256=frozen['execution']['parameters']['script_sha256'], candidate_sha256=file_hash(out/'candidate.3dm'),
+        receipt['lineage'] = dict(source_scene_sha256=frozen['execution']['parameters'].get('scene_sha256'),
+            **(dict(document_sha256=file_hash(paths['application/json'])) if typed else dict(script_sha256=frozen['execution']['parameters']['script_sha256'])), candidate_sha256=file_hash(out/'candidate.3dm'),
             attempt=frozen['assignment_id'], selected=False)
         atomic(out/'execution.json', receipt)
     summary = ('Rhino startup '+('passed.' if passed else 'failed; see execution.json.')) if diagnostic else (

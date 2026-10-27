@@ -40,6 +40,9 @@ class Scripted:
         self.frozen=frozen;self.mode=mode;self.calls=[]
     def request(self,path,payload,**kwargs):
         self.calls.append(copy.deepcopy(payload));n=len(self.calls)
+        if self.mode.startswith('cooldown'):
+            if n==2:raise gemini.ProviderError(429)
+            if n>2:n-=1
         if self.mode=='uncertain':raise gemini.ProviderError('Disconnected',uncertain=True)
         if self.mode=='wait' and n==2:time.sleep(30)
         if self.mode=='finish-only':name,args='finish',report(self.frozen)
@@ -218,7 +221,8 @@ class Tests(unittest.TestCase):
         self.assertEqual(result['decision'],'delivered')
         tools=scripted.calls[0]['tools'][0]['functionDeclarations']
         self.assertNotIn('parameters',next(t for t in tools if t['name']=='file_list'))
-        self.assertEqual([t for t in tools if t['name'] not in ('file_list','finish')],[t for t in shared if t['name'] not in ('file_list','finish')])
+        from orchestrator.browser_context import DEFINITION
+        self.assertEqual([t for t in tools if t['name'] not in ('file_list','finish')],[t for t in [*shared,DEFINITION] if t['name'] not in ('file_list','finish')])
         self.assertEqual(definitions(self.frozen),original)
 
     def test_confirmed_rejection_keeps_diagnostic_and_never_retries(self):
@@ -385,9 +389,13 @@ if __name__=='__main__':
         # Exercise the same script entry point as GeminiFactory, with only the
         # provider connection/transport replaced. Importing execute as a package
         # hid script-only relative-import failures before any provider request.
-        script=Path(__file__).resolve().parents[1]/'orchestrator/gemini_worker.py'
+        script=Path(__file__).resolve().parents[1]/('orchestrator/gemini_worker.py' if mode=='cooldown-compat' else 'orchestrator/agent_loop.py')
         sys.argv=[str(script),control,workspace]
+        from orchestrator import provider_cooldown as cooldown
+        from tests.test_provider_cooldown import Clock
+        real=cooldown.Cooldown;clock=Clock()
         with patch.object(executors,'configured_worker',return_value=(CONFIG,BACKEND)), \
-             patch.object(gemini,'Client',return_value=Scripted(frozen,mode)):
+             patch.object(gemini,'Client',return_value=Scripted(frozen,mode)), \
+             patch.object(cooldown,'Cooldown',side_effect=lambda f,c:real(f,c,clock=clock.now,sleep=clock.sleep)):
             runpy.run_path(str(script),run_name='__main__')
     else:unittest.main()

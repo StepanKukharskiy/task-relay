@@ -2,9 +2,11 @@
 import json
 from pathlib import Path
 import sys
+import shlex
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from orchestrator.runtime import Runtime
 from orchestrator.workers import CodexFactory
@@ -15,7 +17,8 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name).resolve()
         cli = self.root / 'fake-codex'
-        cli.write_text('#!' + sys.executable + '''
+        program=cli.with_suffix('.py')
+        program.write_text('''
 import json,sys,time
 from pathlib import Path
 args=sys.argv
@@ -37,6 +40,7 @@ result={'assignment_id':a['assignment_id'],'summary':'Done','decision':'delivere
 Path(args[args.index('-o')+1]).write_text(json.dumps(result))
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':17,'output_tokens':9}}),flush=True)
 ''')
+        cli.write_text('#!/bin/sh\nexec '+shlex.quote(sys.executable)+' '+shlex.quote(str(program))+' "$@"\n')
         cli.chmod(0o700); self.cli = cli; self.factory = CodexFactory(cli)
         self.rt = Runtime(self.root / 'runtime', self.factory)
 
@@ -67,6 +71,47 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':17,'output_tok
         self.assertEqual(receipt['usage'], [{'input_tokens':17,'output_tokens':9}])
         self.assertEqual(len(status['attempts']), 1)
         self.factory.inspect({'id':aid,'control':str(self.root/'runtime/workers'/aid)})
+
+    def test_startup_grace_survives_controller_restart_without_false_uncertainty_or_replay(self):
+        self.rt.create(plan());session=self.rt.claim('demo')
+        launch=json.loads((Path(session['control'])/'launch.json').read_text())
+        with patch('orchestrator.workers.time.time',return_value=launch['created']+1),patch.object(self.factory,'submit') as submit:
+            status=self.rt.tick('demo')
+            self.assertEqual(status['tasks'][0]['status'],'launching')
+            submit.assert_not_called()
+        self.rt.close();self.rt=Runtime(self.root/'runtime',self.factory)
+        with patch('orchestrator.workers.time.time',return_value=launch['created']+2):
+            self.assertEqual(self.rt.tick('demo')['tasks'][0]['status'],'launching')
+        with patch('orchestrator.workers.time.time',return_value=launch['created']+31),patch.object(self.factory,'submit') as submit:
+            status=self.rt.tick('demo')
+            self.assertEqual(status['tasks'][0]['status'],'uncertain')
+            self.assertEqual(len(status['attempts']),1)
+            self.assertEqual(status['attempts'][0]['id'],session['id'])
+            submit.assert_not_called()
+
+    def test_final_receipt_arriving_during_process_probe_is_collected_without_uncertainty(self):
+        from orchestrator.workers import atomic
+        self.rt.create(plan());session=self.rt.claim('demo');control=Path(session['control'])
+        atomic(control/'started.json',dict(token=session['id'],supervisor_pid=31337))
+        def finish_during_probe(*args):
+            atomic(control/'done.json',dict(token=session['id'],exit_code=0,reason=None))
+            return False
+        with patch('orchestrator.workers.process_matches',side_effect=finish_during_probe):
+            receipt=self.factory.inspect(session)
+        self.assertEqual(receipt['status'],'finished')
+        self.assertEqual(receipt['token'],session['id'])
+
+    def test_missing_or_foreign_terminal_receipt_cannot_confirm_completion(self):
+        from orchestrator.workers import atomic
+        self.rt.create(plan());session=self.rt.claim('demo');control=Path(session['control'])
+        atomic(control/'started.json',dict(token=session['id'],supervisor_pid=31337))
+        with patch('orchestrator.workers.process_matches',return_value=False):
+            self.assertEqual(self.factory.inspect(session)['status'],'uncertain')
+        def foreign_receipt(*args):
+            atomic(control/'done.json',dict(token='different-attempt',exit_code=0))
+            return False
+        with patch('orchestrator.workers.process_matches',side_effect=foreign_receipt),self.assertRaisesRegex(ValueError,'identity mismatch'):
+            self.factory.inspect(session)
 
     def test_cancel_is_confirmed_by_process_owner(self):
         t = task(); t['instruction'] = 'wait'; self.rt.create(plan([t])); self.rt.tick('demo')

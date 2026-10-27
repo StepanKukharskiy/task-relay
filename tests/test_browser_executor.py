@@ -106,7 +106,7 @@ class Tests(unittest.TestCase):
             result=run(frozen,self.control,db,self.root,client=client,config_reader=lambda:(CONFIG,frozen['backend']),driver_context=nullcontext(Driver()))
         self.assertEqual(result['decision'],'delivered');self.assertEqual(len(client.calls),8)
         self.assertIn('No date-specific fares',(self.ws/frozen['outputs'][0]['path']).read_text())
-        self.assertEqual({t['name'] for t in client.calls[6]['tools'][0]['functionDeclarations']},{'file_write','finish'})
+        self.assertEqual({t['name'] for t in client.calls[6]['tools'][0]['functionDeclarations']},{'file_write','file_append','finish'})
         self.assertEqual([t['name'] for t in client.calls[7]['tools'][0]['functionDeclarations']],['finish'])
         self.assertIn('Host UTC time at worker start:',client.calls[0]['systemInstruction']['parts'][0]['text'])
 
@@ -252,6 +252,6 @@ if __name__=='__main__':
         control,workspace,mode=sys.argv[2:];frozen=json.loads((Path(workspace)/'.relay/ASSIGNMENT.json').read_text())
         driver=Driver();driver.fail=mode=='uncertain'
         client=ScriptedBrowser(frozen)
-        with closing(sqlite3.connect(Path(control)/'fixture-journal.sqlite')) as db:
+        with closing(sqlite3.connect(Path(control).parent.parent/'state.sqlite')) as db:
             run(frozen,control,db,Path(control),client=client,config_reader=lambda:(CONFIG,frozen['backend']),driver_context=nullcontext(driver))
     else:unittest.main()

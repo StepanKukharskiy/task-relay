@@ -14,8 +14,12 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('import-file'); p.add_argument('path', type=Path); p.add_argument('--purpose', required=True)
     p = sub.add_parser('create'); p.add_argument('plan', type=Path)
+    p = sub.add_parser('create-owner'); p.add_argument('proposal',type=Path);p.add_argument('--scheduled',action='store_true',help='Queue in the existing desktop production service')
+    p = sub.add_parser('revise-owner'); p.add_argument('previous'); p.add_argument('run'); p.add_argument('request',type=Path);p.add_argument('--scheduled',action='store_true')
     for name in ('replace-future', 'add-future'):
         p = sub.add_parser(name); p.add_argument('run'); p.add_argument('assignment', type=Path)
+    p = sub.add_parser('add-futures'); p.add_argument('run'); p.add_argument('assignments', type=Path)
+    p.add_argument('--request-id', required=True)
     p = sub.add_parser('template'); p.add_argument('name', choices=['competition','carousel','office-anime'])
     p.add_argument('--id', required=True); p.add_argument('--inputs', type=Path, required=True)
     p.add_argument('--model', required=True); p.add_argument('--reasoning', default='high')
@@ -46,10 +50,33 @@ def main():
                 result = {'artifact': runtime.register(args.path, args.purpose)}
         elif args.command == 'create':
             result = {'run': runtime.create(json.loads(args.plan.read_text()))}
+        elif args.command == 'create-owner':
+            from .job_owner import create
+            proposal=json.loads(args.proposal.read_text())
+            if args.scheduled:
+                from task_relay import persistent_jobs
+                from task_relay.bridge import State
+                from .storage import database_path
+                state=State(database_path(args.root))
+                try:result={'run':persistent_jobs.start(state,proposal)}
+                finally:state.db.close()
+            else:result={'run':create(runtime,**proposal)}
+        elif args.command == 'revise-owner':
+            from .job_owner import revise
+            if args.scheduled:
+                from task_relay import persistent_jobs
+                from task_relay.bridge import State
+                from .storage import database_path
+                state=State(database_path(args.root))
+                try:result={'run':persistent_jobs.revise(state,args.previous,args.run,args.request.read_text())}
+                finally:state.db.close()
+            else:result={'run':revise(runtime,args.previous,args.run,args.request.read_text())}
         elif args.command == 'replace-future':
             runtime.replace_future(args.run, json.loads(args.assignment.read_text())); result = runtime.status(args.run)
         elif args.command == 'add-future':
             runtime.add_future(args.run, json.loads(args.assignment.read_text())); result = runtime.status(args.run)
+        elif args.command == 'add-futures':
+            result=runtime.add_futures(args.run,json.loads(args.assignments.read_text()),request_id=args.request_id)
         elif args.command == 'replacement-preview':
             from .artifact_replacements import preview
             result=preview(runtime,args.old_decision,args.new_decision)

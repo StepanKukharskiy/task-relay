@@ -61,6 +61,38 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.rt.task('demo','produce')['status'],'uncertain')
         self.assertEqual(self.rt.task('demo','next')['attempts'],0)
 
+    def test_advisories_continue_after_independent_review_without_user_selection(self):
+        self.graph()
+        finding=dict(category='advisory',code='finish_difference',message='Black finish differs from reference; disclosed alternative',evidence='Saved original and candidate photo comparison')
+        self.finish('produce',[finding])
+        self.finish('review',[finding],decision='accept')
+        self.assertEqual(self.rt.task('demo','produce')['status'],'completed')
+        self.assertEqual(self.rt.task('demo','next')['attempts'],1)
+        self.assertEqual(self.rt.db.execute('SELECT count(*) FROM production_decisions').fetchone()[0],0)
+        self.assertEqual(self.rt.db.execute("SELECT count(*) FROM production_events WHERE kind='result_advisories_recorded'").fetchone()[0],2)
+
+    def test_advisory_preserves_explicit_user_gate(self):
+        plan=fixture.pair(gate='Choose the product before purchase')
+        self.rt.create(plan);self.rt.tick('demo')
+        finding=dict(category='advisory',code='finish',message='Disclosed finish difference',evidence='Saved photo')
+        self.finish('produce',[finding]);self.finish('review',decision='accept')
+        self.assertEqual(self.rt.task('demo','produce')['status'],'awaiting_user')
+        self.assertEqual(self.rt.decision_purpose(self.rt.task('demo','produce')),'Choose the product before purchase')
+
+    def test_advisory_cannot_hide_missing_output(self):
+        self.graph()
+        finding=dict(category='advisory',code='minor',message='Optional refinement',evidence='Saved preview')
+        self.finish('produce',[finding],missing='output.txt')
+        self.assertEqual(self.rt.task('demo','produce')['status'],'blocked')
+        self.assertEqual(self.rt.task('demo','next')['attempts'],0)
+
+    def test_advisory_does_not_override_requirement_permission_or_uncertainty(self):
+        advisory=dict(category='advisory',code='minor',message='Optional refinement',evidence='Saved preview')
+        for category,want in [('requirements','block'),('authorization','block'),('integrity','block'),('uncertainty','reconcile'),('quality','user_review')]:
+            with self.subTest(category=category):
+                issue=dict(category=category,code='required',message='Unresolved issue',evidence='Exact saved evidence')
+                self.assertEqual(outcomes.disposition([advisory,issue]),want)
+
     def test_every_category_uses_same_policy_and_malformed_findings_fail_closed(self):
         for category,want in [('quality','user_review'),('execution','block'),('integrity','block'),('authorization','block'),('uncertainty','reconcile')]:
             finding=dict(category=category,code='test',message='Observed issue',evidence='Saved report')

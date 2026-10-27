@@ -80,12 +80,17 @@ class Tests(unittest.TestCase):
         value['subjects'][0]['query']='changed';(self.ws/'sources.json').write_text(json.dumps(value))
         with self.assertRaisesRegex(ValueError,'assignment'):validate_captures(self.f,self.ws)
 
-    def test_stale_page_and_thumbnail_are_rejected_before_export(self):
+    def test_export_uses_exact_saved_image_evidence_after_page_changes(self):
         self.driver.pages[self.page['tab']]['images'][0]['src']='https://images.example.org/changed.jpg'
-        with self.assertRaisesRegex(ValueError,'changed'):self.session.call('stale','browser_image_source',self.args())
+        result=self.session.call('export-saved','browser_image_source',self.args())
+        manifest=json.loads((self.ws/'sources.json').read_text())
+        self.assertEqual(manifest['candidates'][0]['download_url'],'https://images.example.org/oak.jpg')
+        self.assertEqual(manifest['candidates'][0]['observation'],self.page['observation'])
+        with self.assertRaisesRegex(ValueError,'stale'):
+            self.session.call('wrong-token','browser_image_source',{**self.args(),'observation':'not-the-observation'})
         for url in ('data:image/png;base64,abc','https://encrypted-tbn0.gstatic.com/a','https://tse1.mm.bing.net/a','http://images.example.org/a','https://127.0.0.1/a'):
             with self.subTest(url=url),self.assertRaises(ValueError):images.observed_image(dict(src=url,href=''), 'https://example.test/photo')
-        self.assertFalse((self.ws/'sources.json').exists())
+        self.assertTrue((self.ws/'sources.json').exists())
 
     def test_google_explicit_original_and_publisher_links_are_decoded(self):
         url='https://www.google.com/imgres?'+urlencode(dict(imgurl='https://images.example.org/oak.jpg',imgrefurl='https://example.test/photo'))
@@ -105,8 +110,9 @@ class Tests(unittest.TestCase):
         from pptx import Presentation
         deck=Presentation(io.BytesIO(result))
         self.assertEqual(deck.slides[0].shapes[0].image.blob,photo())
-        self.assertIn('https://example.test/photo',deck.slides[0].notes_slide.notes_text_frame.text)
-        self.assertIn('Unknown',deck.slides[0].notes_slide.notes_text_frame.text)
+        self.assertEqual(deck.slides[0].notes_slide.notes_text_frame.text,'')
+        self.assertEqual(image_sources.unpack(raw)[1]['images/oak.jpg']['source_url'],'https://example.test/photo')
+        self.assertIn('Unknown',image_sources.unpack(raw)[1]['images/oak.jpg']['license'])
 
     def test_download_failure_is_a_gap_and_duplicate_candidates_are_rejected(self):
         value=self.exported();calls=[]
@@ -138,7 +144,7 @@ class Tests(unittest.TestCase):
         from tests.test_mixed_execution import LocalRegistered,Client as TextClient,operation
         from tests.test_orchestrator import FakeFactory,plan
         value=self.exported();source=self.ws/'sources.json'
-        def fetch(url,*args):return photo(),'image/jpeg',url
+        def fetch(url,*args,**kwargs):return photo(),'image/jpeg',url
         rt=Runtime(self.root/'runtime',ExecutionFactory(FakeFactory(),LocalRegistered(TextClient())))
         try:
             aid=rt.register(source,'Observed images',path='sources.json')
@@ -151,6 +157,27 @@ class Tests(unittest.TestCase):
             self.assertEqual(image_sources.unpack(Path(artifact['blob']).read_bytes())[0]['images/oak.jpg'],photo())
             receipt=json.loads(rt.status('demo')['attempts'][0]['receipt'])
             self.assertEqual(receipt['operation']['validation']['provider'],'browser-sources')
+        finally:rt.close()
+
+    def test_registered_webp_fetch_preserves_original_and_pptx_image_bytes(self):
+        import zipfile
+        from orchestrator.runtime import Runtime
+        from orchestrator.adapters import ExecutionFactory
+        from tests.test_mixed_execution import LocalRegistered,Client as TextClient,operation
+        from tests.test_orchestrator import FakeFactory,plan
+        from tests.test_webp_photo_conversion import photo as webp_photo
+        original=webp_photo();self.exported();source=self.ws/'sources.json'
+        rt=Runtime(self.root/'webp-runtime',ExecutionFactory(FakeFactory(),LocalRegistered(TextClient())))
+        try:
+            aid=rt.register(source,'Observed product image',path='sources.json')
+            inp=dict(artifact=aid,path='sources.json',purpose='Exact observed references',authority='Untrusted browser evidence',media_type='application/json')
+            task=operation('images','images.fetch',[inp]);task['execution']['parameters']={}
+            task['outputs']=[dict(path='photos.zip',purpose='Photos and source originals',media_type='application/zip')]
+            with patch.object(image_sources,'download',side_effect=lambda url,*args,**kwargs:(original,'image/webp',url)):
+                rt.create(plan([task]));rt.tick('demo');rt.tick('demo');rt.tick('demo')
+            artifact=rt.output('demo','images','photos.zip');images,credits,m=image_sources.unpack(Path(artifact['blob']).read_bytes())
+            self.assertEqual(list(images),['images/oak.png']);self.assertEqual(credits['images/oak.png']['source_original']['sha256'],hashlib.sha256(original).hexdigest())
+            with zipfile.ZipFile(artifact['blob']) as archive:self.assertEqual(archive.read('originals/oak.webp'),original)
         finally:rt.close()
 
     def test_public_downloader_rejects_private_dns_and_cross_host_redirects(self):

@@ -42,8 +42,10 @@ def prepare(runtime,ident,request,backend,policy):
         producer['limits']=executors.limits_for(backend)
         producer['user_gate']='User visually reviews the captured viewports'
         producer['selection_outputs']=[name for path in policy['screenshots'] for name in (path,path+'.json')]
-        producer['instruction']+=' Capture the granted PNG viewports and their provenance using browser_screenshot before writing the report. Keep attribution visible; do not claim visual inspection.'
+        producer['instruction']+=' Capture the granted PNG viewports and their provenance using browser_screenshot before writing the report. Keep attribution visible.'
+        if 'visual_actions' not in policy:producer['instruction']+=' Do not claim visual inspection; pixels are not supplied.'
         reviewer['browser']['screenshots']=[]
+        reviewer['browser'].pop('visual_actions',None)
         reviewer['instruction']+=' PNG file_read gives metadata only. Check provenance and file identity; visual acceptance remains with the user.'
         for path in policy['screenshots']:
             for name,mime in ((path,'image/png'),(path+'.json','application/json')):

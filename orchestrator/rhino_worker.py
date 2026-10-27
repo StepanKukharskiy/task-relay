@@ -54,6 +54,17 @@ def material_state(material):
     return result
 
 
+def opaque_user_data(value):
+    # OpenNURBS stores all ordinary key/value user strings in one native
+    # ON_UserStringList attached to the object. It is embedded metadata, not an
+    # external dependency. Other entries remain opaque and unsupported.
+    # https://github.com/mcneel/opennurbs/blob/8.x/opennurbs_userdata.cpp
+    count=value.UserData.Count
+    strings=int(getattr(value,'UserStringCount',0)>0)
+    if count<strings:raise ValueError('Inconsistent native metadata inventory')
+    return count-strings
+
+
 def snapshot(doc):
     import Rhino
     objects = {}
@@ -82,8 +93,10 @@ def snapshot(doc):
             layer_index=attr.LayerIndex, material_index=attr.MaterialIndex)
         if obj.IsReference or obj.ObjectType == Rhino.DocObjects.ObjectType.InstanceReference:
             dependencies.append(dict(kind='reference_or_block', object=str(obj.Id)))
-        if geo.UserData.Count or attr.UserData.Count:
-            dependencies.append(dict(kind='custom_user_data', object=str(obj.Id)))
+        geometry_data=opaque_user_data(geo);attribute_data=opaque_user_data(attr)
+        if geometry_data or attribute_data:
+            dependencies.append(dict(kind='custom_user_data', object=str(obj.Id),
+                                     geometry_entries=geometry_data,attribute_entries=attribute_data))
     materials = {}
     for mat in doc.Materials:
         if mat.IsDeleted:continue
@@ -163,7 +176,6 @@ def preview(candidate, destination, resolution, named_view=None, owned=None):
         vp.ChangeToParallelProjection(True)
         vp.SetCameraDirection(Rhino.Geometry.Vector3d(-1, 1, -0.75), True)
     vp.DisplayMode = Rhino.Display.DisplayModeDescription.FindByName('Shaded')
-    if not named_view:vp.ZoomExtents()
     view.Redraw()
     # A view created during startup has not yet received a native paint event.
     # Pump Rhino's UI before the single capture; this never reruns the model script.
@@ -171,14 +183,33 @@ def preview(candidate, destination, resolution, named_view=None, owned=None):
     while time.time() < paint_deadline:
         Rhino.RhinoApp.Wait()
         time.sleep(.02)
+    if not named_view:
+        # Fit after the native maximize/layout events, not the old window size.
+        if not vp.ZoomExtents():raise ValueError('Cannot fit native preview geometry')
+    # Rhino crops the viewport when capture and native window aspects differ.
+    # Keep its actual aspect, then center the complete capture in the requested
+    # raster. This also preserves an explicitly selected named view's framing.
+    size = vp.Size
+    scale = min(float(resolution[0])/size.Width, float(resolution[1])/size.Height)
+    capture_size = [max(1, int(round(size.Width*scale))), max(1, int(round(size.Height*scale)))]
     capture = Rhino.Display.ViewCapture()
-    capture.Width, capture.Height = resolution
+    capture.Width, capture.Height = capture_size
     capture.DrawGrid = False
     capture.DrawAxes = False
     bitmap = capture.CaptureToBitmap(view)
     if bitmap is None:raise ValueError('Rhino viewport capture failed')
-    try:bitmap.Save(str(destination), System.Drawing.Imaging.ImageFormat.Png)
+    try:
+        canvas = System.Drawing.Bitmap(*resolution)
+        try:
+            graphics = System.Drawing.Graphics.FromImage(canvas)
+            try:
+                graphics.Clear(bitmap.GetPixel(0,0))
+                graphics.DrawImageUnscaled(bitmap, (resolution[0]-bitmap.Width)//2, (resolution[1]-bitmap.Height)//2)
+            finally:graphics.Dispose()
+            canvas.Save(str(destination), System.Drawing.Imaging.ImageFormat.Png)
+        finally:canvas.Dispose()
     finally:bitmap.Dispose()
+    return dict(viewport=[size.Width,size.Height],capture=capture_size,resolution=resolution,framing='contain')
 
 
 def render(request):
@@ -257,7 +288,10 @@ def perform(request):
         if doc is None:raise ValueError('Cannot create/open modeling document')
         try:
             if not source:doc.ModelUnitSystem = getattr(Rhino.UnitSystem, checks['units'])
-            load_code(request['script'])
+            if request.get('document'):
+                from rhino_document import preflight
+                preflight(json.loads(read_text(request['document'])))
+            else:load_code(request['script'])
             before = snapshot(doc)
             if before['dependencies']:raise ValueError('Rhino editing requires a self-contained model without blocks or custom user data')
             if before['units'] != checks['units']:raise ValueError('Edit must preserve the selected model units')
@@ -272,12 +306,17 @@ def perform(request):
         try:
             if not source:doc.ModelUnitSystem = getattr(Rhino.UnitSystem, checks['units'])
             scriptcontext.doc = doc
-            code = load_code(request['script'])
-            namespace = dict(__name__='__main__', __file__=request['script'], Rhino=Rhino,
-                             rhinoscriptsyntax=rhinoscriptsyntax, scriptcontext=scriptcontext, doc=doc)
-            eval(code, namespace)
+            if request.get('document'):
+                from rhino_document import build
+                build(doc,json.loads(read_text(request['document'])))
+            else:
+                code = load_code(request['script'])
+                namespace = dict(__name__='__main__', __file__=request['script'], Rhino=Rhino,
+                                 rhinoscriptsyntax=rhinoscriptsyntax, scriptcontext=scriptcontext, doc=doc)
+                eval(code, namespace)
             if scriptcontext.doc != doc:raise ValueError('Modeling script replaced the assigned document context')
-            if snapshot(doc)['dependencies']:raise ValueError('Unsupported model dependencies')
+            dependencies=snapshot(doc)['dependencies']
+            if dependencies:raise ValueError('Unsupported model dependencies: '+json.dumps(dependencies[:10],sort_keys=True))
             options = Rhino.FileIO.FileWriteOptions()
             options.FileVersion = request['rhino_major']
             if not doc.Write3dmFile(str(os.path.join(out, 'candidate.3dm')), options):raise ValueError('Rhino native save failed')
@@ -289,16 +328,25 @@ def perform(request):
         candidate = os.path.join(out, 'candidate.3dm')
         doc = Rhino.RhinoDoc.OpenHeadless(str(candidate))
         if doc is None:raise ValueError('Cannot independently reopen saved Rhino candidate')
-        try:after = snapshot(doc)
-        finally:doc.Dispose()
+        typed_errors=[]
+        original=scriptcontext.doc if request.get('document') else None
+        try:
+            after = snapshot(doc)
+            if request.get('document'):
+                from rhino_document import verify
+                scriptcontext.doc=doc
+                typed_errors=verify(doc,json.loads(read_text(request['document'])))
+        finally:
+            if request.get('document'):scriptcontext.doc=original
+            doc.Dispose()
         before = json.loads(read_text(request['baseline']))
-        errors = compare(before, after, checks)
+        errors = compare(before, after, checks)+typed_errors
         if after['dependencies']:errors.append('Candidate has unsupported dependencies')
         warnings=dimension_warnings(after, checks)
         write(os.path.join(out, 'checks.json'), dict(before=before, after=after, errors=errors, warnings=warnings, passed=not errors))
         if errors:raise ValueError('; '.join(errors))
-        preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'], checks['preview'].get('named_view'), request.get('_owned_visible_docs'))
-        return {'candidate_sha256':file_hash(candidate)}
+        captured=preview(candidate, os.path.join(out, 'preview.png'), checks['preview']['resolution'], checks['preview'].get('named_view'), request.get('_owned_visible_docs'))
+        return {'candidate_sha256':file_hash(candidate),'preview':captured}
     raise ValueError('Unknown Rhino worker phase')
 
 

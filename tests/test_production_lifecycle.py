@@ -39,7 +39,9 @@ class Tests(unittest.TestCase):
         self.click(self.stage_card()['token']);self.worker().tick()
         producer=self.rt.task('demo','produce')['latest']
         card,mid=self.control('pause','pause');self.press(card,mid);self.press(card,mid)
-        self.assertEqual(self.rt.status('demo')['status'],'paused')
+        self.assertEqual(self.rt.status('demo')['settlement']['terminal_outcome'],'paused')
+        self.assertEqual(pc.inspect(self.state,'demo')[0]['settlement']['terminal_outcome'],'paused')
+        self.control('resume','resume-while-draining')
         self.reopen();self.factory.finish(producer);self.worker().tick()
         self.assertEqual(self.factory.calls,[producer])
         self.assertEqual(self.rt.task('demo','produce')['status'],'awaiting_review')
