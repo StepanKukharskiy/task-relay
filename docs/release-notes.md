@@ -19,4 +19,4 @@ This is a locally signed beta, without Apple Developer ID notarization. Native a
 
 ## Validation scope
 
-Controlled checks cover template selection and draft isolation, canvas UI contracts, packaging, updater recovery and the complete offline lifecycle matrix. Results are recorded during release preparation. These fixtures do not establish live provider quality, clean-host installation or successful execution of the template on every machine.
+The complete 35-group offline lifecycle matrix passed with a source-matched receipt. Template selection and draft isolation, canvas/editor UI contracts, package contents, updater recovery, installer maintenance and platform boundary checks also passed. All 478 bundled runtime files match reviewed source, and the Mac update preserves signing-certificate continuity. These fixtures do not establish live provider quality, clean-host installation or successful execution of the template on every machine.

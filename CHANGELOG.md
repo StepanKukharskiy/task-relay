@@ -6,14 +6,18 @@ using the existing workflow validator and save path. Selection does not dispatch
 work, inherit historical results or grant native/paid execution. Desktop and Python
 packages include node icons, schemas, request limits and bundled template data.
 
-Focused template/canvas, packaging and updater checks passed. Release CI exposed
-a named preparation alias regression after Blender adopted path references; the
-shared compiler now normalizes both path and hash references without assuming
-equal bytes for future outputs. Public-release lifecycle qualification and
-publication remain pending. Windows identity queries now confirm process exit
-when an identity read races with termination; live-process query errors remain
-uncertain. Billing-recovery fixtures use a portable registered text operation.
-Windows native execution remains unqualified.
+Release qualification complete: the full 35-group offline lifecycle matrix and
+source-matched receipt passed, alongside publication, canvas/editor, updater,
+installer and native host boundary checks. All 478 desktop runtime files match
+the reviewed source; the update ZIP retains the previous signing certificate.
+The Mac beta includes a DMG and in-app update manifest; enable Include beta
+releases to discover it. These checks do not claim live provider quality or
+clean-host installation. Windows native execution remains unqualified.
+
+Release review also fixed named native preparation aliases across path/hash
+references and a Windows process-exit identity-query race. Access denial on a
+live or unknown process still propagates. Offline fixtures use portable text
+operations and an explicitly unexecuted renderer, preserving original grants.
 
 ## Animation render budget (2026-10-26)
 
