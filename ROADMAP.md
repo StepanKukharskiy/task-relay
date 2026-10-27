@@ -10,7 +10,10 @@ Focused template/canvas, packaging and updater checks passed. Release CI exposed
 a named preparation alias regression after Blender adopted path references; the
 shared compiler now normalizes both path and hash references without assuming
 equal bytes for future outputs. Public-release lifecycle qualification and
-publication remain pending. Windows native execution remains unqualified.
+publication remain pending. Windows identity queries now confirm process exit
+when an identity read races with termination; live-process query errors remain
+uncertain. Billing-recovery fixtures use a portable registered text operation.
+Windows native execution remains unqualified.
 
 ## Animation render budget (2026-10-26)
 

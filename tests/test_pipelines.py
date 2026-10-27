@@ -412,7 +412,8 @@ class Tests(unittest.TestCase):
 
     def rejected_planning_fixture(self,status=429):
         from task_relay.gemini import ProviderError
-        caps=['rhino.startup','rhino.run_python','rhino.inspect']
+        # Billing/continuation contracts need no installed native application.
+        caps=['text.bundle']
         p=self.create([self.stage('model','production','selection',caps),self.stage('finish')])
         self.answer(dict(kind='plan_production',template='custom',project=None,reference_pack_id=None,research_ids=[],planning_only=False,step_capabilities=caps,deliverables={'model':'Exact model output'}))
         def reject(*_):raise ProviderError(status,detail={'message':'Prepayment depleted; billing changed'} if status==402 else None)
