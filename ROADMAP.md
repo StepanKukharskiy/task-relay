@@ -10,8 +10,9 @@ Every template card highlights the software tools used by that workflow.
 This release also includes explicit Local Python model tools, retained output
 media types and saved preparation asset paths, selected-node preparation scope,
 and exact local-media failure receipts. Template selection grants no execution.
-Focused tests and public release qualification are recorded separately; release
-qualification is pending until the full source-matched CI gate completes.
+Focused template/import, canvas/editor and runtime checks pass. Public release
+qualification is recorded separately in source-matched CI receipts; publication
+requires the complete offline lifecycle gate and verified package/update assets.
 
 ## Selected-node preparation scope (2026-10-29)
 
