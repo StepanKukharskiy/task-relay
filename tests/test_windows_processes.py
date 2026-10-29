@@ -216,7 +216,14 @@ os._exit(0)
                 atomic(control/'cancel.json',{'token':'fixture'})
                 if parent.poll() is None:parent.kill();parent.wait(15)
                 if started:
-                    eventually(lambda:not windows.matches(started['supervisor_pid'],started['supervisor_identity']),20)
+                    def exited():
+                        try:return not windows.matches(started['supervisor_pid'],started['supervisor_identity'])
+                        except PermissionError:
+                            # A terminating process can deny an identity read
+                            # before its handle signals exit. Unknown is not exit;
+                            # keep polling, and still fail at the normal deadline.
+                            return False
+                    eventually(exited,20)
 
 
 if __name__=='__main__':unittest.main()

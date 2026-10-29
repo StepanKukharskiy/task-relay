@@ -75,6 +75,40 @@ def pending(state, channel, limit=20, *, exclude_ids=()):
     return result
 
 
+def uncertain_messages_reply(db, key):
+    """Exact multipart identity held by Messages' existing no-replay boundary."""
+    return any(r[0].rsplit(':',1)[0]==key for r in db.execute(
+        "SELECT id FROM messages_delivery WHERE status='uncertain' AND substr(id,1,?)=?",
+        (len(key)+1,key+':')))
+
+
+def reply_retained(state, event_id):
+    """Read-only proof that the existing senders hold this reply, not acceptance.
+
+    App maintenance may retain these rows across restart. Age, a disabled channel,
+    missing receipts and a submitting transport are never proof of a safe hold.
+    """
+    from .channel_policy import event_allowed
+    tables={r[0] for r in state.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if not {'relay_event_channels','relay_request_channels','relay_channel_bindings','outbox'} <= tables:
+        return False
+    channel=event_channel(state,event_id)
+    if channel=='telegram':
+        if not event_allowed(state.db,channel,event_id):return True
+        return 'relay_delivery_effects' in tables and bool(state.db.execute(
+            "SELECT 1 FROM relay_delivery_effects WHERE event_id=? AND status='uncertain' AND id LIKE 'text:%' LIMIT 1",
+            (event_id,)).fetchone())
+    if channel=='messages' and {'messages_orchestrator_exports','messages_delivery'} <= tables:
+        row=state.db.execute('SELECT delivery_key FROM messages_orchestrator_exports WHERE event_id=?',(event_id,)).fetchone()
+        if not row:return False
+        key=row[0]
+        # The exporter must already recognize this exact reply as exported, and
+        # Pilot.deliver must hold its remaining parts behind an uncertain part.
+        if not state.db.execute('SELECT 1 FROM messages_delivery WHERE id=?',(key+':1',)).fetchone():return False
+        return uncertain_messages_reply(state.db,key)
+    return False
+
+
 class ScopedState:
     """Conversation preferences are separate; projects, jobs and workers are shared."""
     def __init__(self, state, channel):

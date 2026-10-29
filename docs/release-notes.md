@@ -1,6 +1,13 @@
-# Task Relay 0.13.320
+# Task Relay 0.13.321
 
-Mac beta with a portable cells-to-timber reel template and the latest canvas preparation fixes.
+Mac beta fixing updates blocked by historical, already-held replies. Includes the latest UI, canvas, nodes and both bundled templates.
+
+## Updater fix
+
+- Historical replies with existing delivery holds or uncertain-delivery receipts no longer block installation and recovery.
+- Original reply contents, sent flags, attempts and receipts are preserved. Updating does not resend them or mark them delivered.
+- Active sends, deliverable pending replies and running/queued work still block installation. The updater checks again after shutdown.
+- A blocked older updater needs a one-time maintenance installation to acquire this fix; do not clear reply history or retry uncertain messages to enable an upgrade.
 
 ## Templates
 
@@ -19,7 +26,7 @@ Mac beta with a portable cells-to-timber reel template and the latest canvas pre
 
 ## Install or upgrade
 
-Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.320-arm64.dmg.
+Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.321-arm64.dmg.
 Existing compatible apps can use Settings → App updates → Include beta releases → Check for updates, then download and install. The update ZIP and manifest include the desktop UI and runtime; a Python wheel alone does not update the app.
 
 This is a locally signed beta without Apple Developer ID notarization. Provider accounts, native applications and the local media/Python runtimes require their own setup. Windows and Intel Mac installers are not included. Existing jobs, artifact versions and uncertain attempts remain in the selected data folder.
