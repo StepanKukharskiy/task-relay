@@ -1,3 +1,20 @@
+## 0.13.321 — Updates with retained replies (2026-10-29)
+
+The app updater now distinguishes replies already held by the delivery system
+from replies that can still be sent. Existing Telegram history holds, uncertain
+Telegram sends and exact exported Messages replies with uncertain parts no
+longer prevent installation or recovery. Checks are read-only: original reply
+text, sent flags, multipart boundaries, attempts and receipts remain unchanged.
+Active sends, unheld pending replies, unknown delivery state and running/queued
+work still block replacement; shutdown repeats admission before changing code.
+No reply is resent or marked delivered to enable an update.
+
+Focused installer, interruption, no-replay and channel checks pass. A read-only
+check against the affected installed data passes. Public release qualification
+uses the complete source-matched lifecycle gate; installed update evidence is
+retained separately. Earlier updater versions need one maintenance installation
+if their old empty-outbox check already blocks the upgrade.
+
 ## 0.13.320 — Reel template and preparation fixes (2026-10-29)
 
 Jobs → Templates now includes Support-first CA · cells to timber reel. It copies

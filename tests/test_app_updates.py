@@ -196,6 +196,13 @@ class NativeRecoveryFixtures(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory).resolve(); data=root/'data';data.mkdir()
             paths=Paths(root/'runtime',data,root/'work',root/'generated')
+            from task_relay.bridge import State
+            from task_relay import channel_policy
+            state=State(paths.state)
+            with state.db:
+                state.db.execute("INSERT INTO outbox(id,text) VALUES ('retained-reply','Exact original reply')")
+                channel_policy.begin_telegram_delivery_window(state.db,10)
+            state.db.close()
             app=root/'Task Relay.app'; (app/'Contents').mkdir(parents=True)
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'com.taskrelay.desktop'}))
             (app/'Contents/payload').write_text('previous code')
@@ -218,6 +225,7 @@ class NativeRecoveryFixtures(unittest.TestCase):
             self.assertEqual(app.stat().st_ino,inode)
             with closing(sqlite3.connect(paths.state)) as db:
                 self.assertEqual(db.execute('SELECT value FROM history').fetchone()[0],'newer retained record')
+                self.assertEqual(db.execute("SELECT text,sent FROM outbox WHERE id='retained-reply'").fetchone(),('Exact original reply',0))
 
     def test_stale_telegram_heartbeat_is_not_readiness(self):
         import time

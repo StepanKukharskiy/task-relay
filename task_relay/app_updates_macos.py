@@ -141,15 +141,25 @@ class MacUpdater:
             'browser_jobs': ('queued', 'submitting', 'running'), 'internal_jobs': ('queued', 'running'),
             'task_creations': ('queued', 'connecting', 'creating', 'created_pending', 'naming', 'opening', 'submitting'),
             'media_outbox': ('sending',), 'messages_delivery': ('sending',), 'desktop_creations': ('queued',),
+            'relay_delivery_effects': ('submitting',),
             'desktop_commands': ('queued', 'submitting', 'sending', 'processing'),
         }
         with closing(sqlite3.connect(self.paths.state.as_uri() + '?mode=ro', uri=True, timeout=5)) as db:
+            from types import SimpleNamespace
+            from .relay_channels import reply_retained, uncertain_messages_reply
+            db.row_factory=sqlite3.Row
+            db.execute('BEGIN')  # One consistent read of queues, routes and holds.
+            retained={}
             for table in ('outbox', 'outbox_parts'):
                 columns = [r[1] for r in db.execute('PRAGMA table_info(' + table + ')')]
                 if not columns: continue
-                if 'sent' not in columns: raise UpdateError('Delivery storage changed; update requires review.')
-                if db.execute('SELECT 1 FROM ' + table + ' WHERE sent=0 LIMIT 1').fetchone():
-                    raise UpdateError('Wait for pending replies to finish before installing.')
+                key='id' if table=='outbox' else 'event_id'
+                if not {'sent',key} <= set(columns): raise UpdateError('Delivery storage changed; update requires review.')
+                for row in db.execute('SELECT DISTINCT '+key+' FROM '+table+' WHERE sent=0'):
+                    if row[0] not in retained:
+                        retained[row[0]]=reply_retained(SimpleNamespace(db=db),row[0])
+                    if not retained[row[0]]:
+                        raise UpdateError('Wait for pending replies that can still be delivered to finish before installing.')
             for table, states in checks.items():
                 col = 'state' if table == 'production_attempts' else 'status'
                 columns = [r[1] for r in db.execute('PRAGMA table_info(' + table + ')')]
@@ -157,6 +167,10 @@ class MacUpdater:
                 if col not in columns: raise UpdateError('Task storage changed; update requires review.')
                 if db.execute('SELECT 1 FROM ' + table + ' WHERE ' + col + ' IN (' + ','.join('?' for _ in states) + ') LIMIT 1', states).fetchone():
                     raise UpdateError('Wait for running and queued work to finish, then install again.')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='messages_delivery'").fetchone():
+                for row in db.execute("SELECT id FROM messages_delivery WHERE status='pending'"):
+                    if not uncertain_messages_reply(db,row[0].rsplit(':',1)[0]):
+                        raise UpdateError('Wait for pending replies that can still be delivered to finish before installing.')
         if any((self.paths.messages / name).exists() for name in ('state.sqlite', 'providers.sqlite')):
             raise UpdateError('Legacy Messages storage needs a reviewed handoff before app updates.')
 

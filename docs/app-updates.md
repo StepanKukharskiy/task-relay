@@ -21,6 +21,10 @@ Its protocol 2 manifest prevents older installers from replacing the app without
 migrating those commands. Subsequent compatible protocol 2 releases can use
 Install and restart.
 
+Older apps whose empty-outbox check already blocks installation need a one-time
+reviewed maintenance installation to acquire this fix. Clearing the outbox or
+resending an uncertain message is not an update prerequisite.
+
 ## Release contract
 
 A DMG, wheel, or source archive alone is not an app update. Publish these two
@@ -62,7 +66,12 @@ manifest channel. Packaging neither publishes assets nor changes the app.
 Approval binds the prepared candidate, current app digest/root inode, exact
 service definitions and loaded states, and selected data/workspace/output paths.
 Changed identities, external service owners, administrator-only app locations,
-legacy separate Messages storage, and active/queued work block installation.
+legacy separate Messages storage, active/queued work and deliverable pending
+replies block installation. Replies already held by Telegram history/uncertainty
+or an exact exported Messages uncertainty can remain saved across installation
+and recovery. Admission reads their existing holds and receipts in one database
+snapshot; it does not delete replies, mark them sent, resolve uncertainty or retry
+transport. Active submitting/sending states still block even for a held reply.
 Desktop mutations serialize with installation. After shutdown, service/setup
 locks and another idle check catch work admitted during preflight.
 
