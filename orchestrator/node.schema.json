@@ -233,6 +233,10 @@
     "model": {
       "type": "object",
       "properties": {
+        "tools": {
+          "type": "string",
+          "enum": ["files", "python"]
+        },
         "provider": {
           "type": "string",
           "enum": [

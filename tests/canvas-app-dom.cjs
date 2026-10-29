@@ -32,7 +32,7 @@ const window={scrollTo(){},__TAURI__:{core:{invoke:async(_,r)=>{calls.push(_==='
  if(_==='workspace_open_artifact_link'){assert.deepEqual(JSON.parse(JSON.stringify(r)),{artifact:'page',sha256:'source-hash',url:'https://www.perplexity.ai/search/saved-thread'});if(savedLinkFailure)throw Error('Controlled browser opening failure');return;}
  if(r.path==='workflow-export'){assert.equal(r.value.include_files,false);assert.deepEqual(JSON.parse(JSON.stringify(r.value.source)),{kind:'canvas',id:'work-image',revision:'graph-version'});return {path:r.value.path,nodes:2};}
  if(r.path==='workflow-import-preview')return {title:'Imported photos',nodes:2,files:[],missing_files:[],sha256:'package-hash'};
- if(r.path==='workflow-import'){assert.equal(r.value.sha256,'package-hash');return {id:'imported-draft',title:'Imported photos',workflow:{schema_version:1,kind:'workflow',inputs:{},tasks:[]},revision:'new',missing_inputs:[]};}
+ if(r.path==='workflow-import'){assert(['package-hash','bundled-sha'].includes(r.value.sha256));return {id:'imported-draft',title:'Imported photos',workflow:{schema_version:1,kind:'workflow',inputs:{},tasks:[]},revision:'new',missing_inputs:[]};}
  if(r.path==='workspace-job-delete-preview' && r.value.id==='stopped')return {id:'canvas:stopped',title:'Stopped image',kind:'canvas',runs:['stopped'],files:1,delete_action:'job-delete',digest:'stopped-digest',blockers:[],stopped_uncertain_attempts:['old']};
  if(r.path==='job-delete'){assert.equal(r.value.acknowledge_uncertain,true);assert.equal(r.value.digest,'stopped-digest');items.splice(items.findIndex(i=>i.id==='stopped'),1);return {status:'complete'};}
  if(r.path==='workspace-job-delete-preview')return {id:r.value.id,title:'Saved conversation',kind:'chat',delete_action:'conversation-delete',digest:'exact-digest',blockers:r.value.id==='parent'?['This job is not finished.']:[]};
@@ -56,7 +56,8 @@ const window={scrollTo(){},__TAURI__:{core:{invoke:async(_,r)=>{calls.push(_==='
  if(r.path==='node-catalog')return {operations:[{id:'gemini.image',title:'Gemini image',inputs:{files:{kind:'artifacts',accepts:['image/png']}}}]};
  if(r.path==='node-result-draft')return {id:'new-draft',title:'Edit image',origin:r.value,workflow:{tasks:[]}};
  if(r.path==='node-drafts')return {items:draftItems};
- if(r.path==='node-templates')return {items:[{id:'cellular-aggregation',title:'Cellular aggregation · from Chat',description:'Research, build, animate and present.',requirements:'Configure connections; Run reviews paid and native execution.'}]};
+ if(r.path==='node-templates')return {items:[{id:'cellular-aggregation',title:'Cellular aggregation · from Chat',description:'Research, build, animate and present.',requirements:'Configure connections; Run reviews paid and native execution.',tools:['Perplexity','Codex','Blender','Gemini','PowerPoint export']},{id:'support-first-ca',title:'Support-first CA · cells to timber reel',description:'Cells to timber reel.',requirements:'Includes starter files.',tools:['Codex','Python','Blender','Gemini','HyperFrames','FFmpeg']}]};
+ if(r.path==='node-template' && r.value.id==='support-first-ca')return {title:'Support-first CA · cells to timber reel',package:{path:'/bundled/support-first-ca.workflow.zip',sha256:'bundled-sha',files:{}}};
  if(r.path==='node-template'){assert.equal(r.value.id,'cellular-aggregation');return {title:'Cellular aggregation · from Chat',workflow:JSON.parse(fs.readFileSync('task_relay/assets/job-templates/cellular-aggregation.workflow.json','utf8')),execution_authorized:false};}
  if(r.path==='node-draft-save'){assert.equal(r.value.id,null);assert.equal(r.value.revision,null);assert.equal(r.value.workflow.tasks.length,11);return {id:'template-copy',...r.value,id:'template-copy',revision:'new-template',missing_inputs:[]};}
 
@@ -412,11 +413,21 @@ const button=(e,name)=>walk(e).find(n=>n.tagName==='button'&&n.textContent.trim(
  await button(body,'Templates').onclick();await flush();
  const templateDialog=cls(document.body,'workflow-template-dialog')[0];
  assert.match(templateDialog.textContent,/Cellular aggregation · from Chat/);
+ assert.match(templateDialog.textContent,/Support-first CA · cells to timber reel/);
+ assert.equal(cls(templateDialog,'workflow-template-tools').length,2);
+ assert.deepEqual(cls(templateDialog,'workflow-template-tools')[1].children.map(n=>n.textContent),['Codex','Python','Blender','Gemini','HyperFrames','FFmpeg']);
  assert.equal(calls.slice(templateStart).filter(r=>r.path==='node-draft-save').length,0);
  await button(templateDialog,'Use template').onclick();await flush();
  assert.equal(edited.id,'template-copy');assert.equal(edited.workflow.tasks.length,11);
  assert.equal(calls.slice(templateStart).filter(r=>r.path==='node-draft-save').length,1);
  assert(!calls.slice(templateStart).some(r=>/node-run|node-compose|node-connect/.test(r.path)),'template selection never executes or configures providers');
+ await button(body,'Templates').onclick();await flush();
+ const bundledDialog=cls(document.body,'workflow-template-dialog')[0];
+ await button(cls(bundledDialog,'section-card')[1],'Use template').onclick();await flush();
+ assert.equal(edited.id,'imported-draft');
+ assert.deepEqual(calls.filter(r=>r.path==='workflow-import').at(-1).value,{path:'/bundled/support-first-ca.workflow.zip',sha256:'bundled-sha',files:{}});
+ assert.equal(calls.slice(templateStart).filter(r=>r.path==='node-draft-save').length,1,'bundled inputs use one atomic import, not another draft save');
+ assert(!calls.slice(templateStart).some(r=>/node-run|node-compose|node-connect/.test(r.path)));
 
 
  console.log('Canvas app passed: chronological merged Jobs, searchable list, full canvas with toggled panels, exact bindings, late response and read-only navigation.');

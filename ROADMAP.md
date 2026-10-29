@@ -1,3 +1,77 @@
+## 0.13.320 — Reel template and preparation fixes (2026-10-29)
+
+Jobs → Templates now includes Support-first CA · cells to timber reel. It copies
+four reviewed starter inputs into a fresh editable workflow through the existing
+atomic workflow importer. The saved CA graph, Blender script, scene checks and
+brief are portable; private artifact IDs, revision history, approvals and the
+previous reel are excluded. Final export requires the exact completed preview.
+Every template card highlights the software tools used by that workflow.
+
+This release also includes explicit Local Python model tools, retained output
+media types and saved preparation asset paths, selected-node preparation scope,
+and exact local-media failure receipts. Template selection grants no execution.
+Focused tests and public release qualification are recorded separately; release
+qualification is pending until the full source-matched CI gate completes.
+
+## Selected-node preparation scope (2026-10-29)
+
+Running a model node separately now derives preparation schemas only from directly
+connected registered operations. A downstream model retains its own declared
+interface and no longer makes its binary capabilities a prerequisite for an
+upstream text-only node. Registered consumers still bind their schemas, inputs
+and limits; complete workflow admission still rejects unsupported workers.
+Twenty-two focused canvas/schema/host-script tests passed, including a composed
+runtime/restart path. No full matrix was required for this bounded compiler fix.
+Installed app 0.13.319 completed the formerly blocked text node and its downstream
+media preparation, preview and export. Prior attempts remain preserved; detailed
+execution evidence stays private.
+
+## Local media failure receipts (2026-10-28)
+
+HyperFrames preview/render and template media failures now carry their exact
+execution identity. Read-only compatibility can recognize an old failed receipt
+only with matching frozen dispatch, assignment, inputs, limits, runtime, stopped
+supervisor and terminal guardian outcomes. Missing or conflicting evidence remains
+uncertain; success is never inferred. Normal scheduler reconciliation retains the
+original journals without replay. Author guidance now describes the pinned
+renderer’s inline timeline registration requirement. Nineteen focused receipt and
+composed runtime tests passed. Installed app 0.13.318 reconciled the historical
+preview failure without replay. The corrected live composition, preview and final
+12-second 1080×1920 H.264/AAC export completed through the app; earlier attempts
+remain preserved. This is targeted qualification and one live graph, not a full matrix.
+
+## Saved preparation asset paths (2026-10-28)
+
+Separately running a canvas consumer now retains asset paths from its completed
+registered preparation. The shared binder verifies the exact producing contract,
+artifact identities, hashes and media types before naming future inputs. Saved
+JSON/source bytes and prior assignments remain unchanged. Uncertain producers,
+changed assets, ambiguous bindings and path collisions reject. Focused composed
+fixtures cover both authored HyperFrames and template media preparation; the
+actual blocked preview was also checked read-only without dispatch.
+
+## Canvas output type retention (2026-10-28)
+
+Canvas result reuse now reads the media type from the exact producing assignment,
+using the existing shared artifact binding validator. It no longer replaces a
+historical WAV's declared type with application/octet-stream because its filename
+ends in .bin. Exact artifact hashes and producing run/task/path checks remain.
+New audio/wav outputs receive a .wav suffix. Prior files and attempts are unchanged.
+Focused checks cover saved binary handoff, incompatible consumer rejection and
+hash mismatch; installation/live composition are recorded separately.
+
+## Explicit local Python on canvas model nodes (2026-10-28)
+
+Model setup now offers Files & images or Local Python in the existing inspector.
+The explicit choice selects the existing provider-code executor and freezes its
+verified runtime identity; model, authentication and task limits stay unchanged.
+Missing, disabled or changed runtimes fail closed. Saved graphs retain the choice;
+ordinary file-only nodes do not gain Python implicitly. This enables binary outputs
+such as a soundtrack within a composed graph, without a separate controller.
+
+Focused contract, binary handoff and editor checks are recorded separately from
+installed/live results in private qualification notes. No full-matrix claim.
+
 ## 0.13.318 — Canvas and bundled job template (2026-10-27)
 
 Release preparation includes the accumulated canvas, node editor and runtime changes.

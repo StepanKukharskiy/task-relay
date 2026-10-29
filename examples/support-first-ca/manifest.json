@@ -1,0 +1,37 @@
+{
+  "format": "relay-workflow",
+  "includes_files": true,
+  "inputs": [
+    {
+      "bytes": 5580,
+      "id": "input-1",
+      "media_type": "application/json",
+      "name": "scene-checks.json",
+      "sha256": "bc9a776eca31cedeec39241222f5f18406773ebf66a8e819142bf96e4708c76e"
+    },
+    {
+      "bytes": 89386,
+      "id": "input-2",
+      "media_type": "text/x-python",
+      "name": "support-first-lattice.py",
+      "sha256": "25e66d66755d99ed3f0e6b1d585e70856a1dabf73baaf02a1059173f4d09d68b"
+    },
+    {
+      "bytes": 1612,
+      "id": "input-3",
+      "media_type": "text/markdown",
+      "name": "brief.md",
+      "sha256": "4be9af010540afee610073a92d60674e6505344d30080d6f193a60e7e58cb6b6"
+    },
+    {
+      "bytes": 364077,
+      "id": "input-4",
+      "media_type": "application/json",
+      "name": "ca-graph.json",
+      "sha256": "ae1e6fbca5351c9bda89746e1a33a1b1673fd0168ab47ae2aa62785405ffca66"
+    }
+  ],
+  "title": "Support-first CA · cells to timber reel",
+  "version": 1,
+  "workflow_sha256": "5764f0a053f9c80846ffe9d741ae2c36830b2564d995bddc0d260f70f7c6c14c"
+}

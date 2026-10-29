@@ -151,6 +151,11 @@ class RuntimeTests(unittest.TestCase):
         frozen=json.loads(self.rt.db.execute('SELECT frozen FROM production_attempts').fetchone()[0]);ws=Path(frozen['workspace'])
         self.assertFalse(json.loads((ws/'delivery/verification.json').read_text())['passed'])
         self.assertTrue((ws/'delivery/project.zip').exists());self.assertFalse((ws/'.relay/result.json').exists())
+        control=Path(json.loads(self.rt.db.execute('SELECT session FROM production_attempts').fetchone()[0])['control'])
+        terminal=json.loads((control/'operation.json').read_text())
+        self.assertEqual(terminal['execution'],frozen['execution'])
+        from orchestrator.operation_lifecycle import terminal as inspect_terminal
+        self.assertEqual(inspect_terminal(frozen,control)['effect'],'confirmed')
 
     def finish_source(self):
         aid=self.rt.task('demo','produce')['latest'];self.agent.finish(aid)
@@ -158,6 +163,31 @@ class RuntimeTests(unittest.TestCase):
         (Path(frozen['workspace'])/'project.json').write_text(json.dumps(fixture()))
         self.rt.tick('demo');review=self.rt.task('demo','review')['latest'];self.agent.finish(review,decision='accept');self.rt.tick('demo')
         return aid
+
+    def test_historical_failure_reconciles_without_replay_or_rewriting_journals(self):
+        import time
+        from orchestrator.contracts import digest
+        self.rt.create(plan([operation([self.source])]))
+        with patch.object(project,'run_project',side_effect=ValueError('missing timeline')) as render:
+            self.rt.tick('demo')
+            row=self.rt.db.execute('SELECT * FROM production_attempts').fetchone()
+            frozen=json.loads(row['frozen']);control=Path(json.loads(row['session'])['control'])
+            receipt=json.loads((control/'operation.json').read_text());receipt.pop('execution')
+            (control/'operation.json').write_text(json.dumps(receipt))
+            (control/'operation-dispatch.json').write_text(json.dumps({'binding':digest(frozen)}))
+            done=json.loads((control/'done.json').read_text());done['finished']=time.time()
+            (control/'done.json').write_text(json.dumps(done))
+            command=control/'hyperframes-work/command-1';command.mkdir()
+            (command/'guard.json').write_text('{}');(command/'outcome.json').write_text('{"returncode":1}')
+            with patch('orchestrator.local_media_receipts.historical_failure',return_value=None):self.rt.tick('demo')
+            self.assertEqual(self.rt.status('demo')['status'],'uncertain')
+            before=(control/'operation.json').read_bytes()
+            self.rt.tick('demo');self.rt.tick('demo')
+            self.assertEqual(self.rt.status('demo')['status'],'blocked')
+            self.assertEqual(render.call_count,1)
+            self.assertEqual(before,(control/'operation.json').read_bytes())
+            saved=json.loads(self.rt.db.execute('SELECT receipt FROM production_attempts').fetchone()[0])
+            self.assertFalse(saved['local_failure_binding']['replayed'])
 
     def test_confirmed_failure_routes_back_to_author_as_new_attempt(self):
         g=graph();corrections.compile(g['tasks']);self.rt.create(g);self.rt.tick('demo')
@@ -197,11 +227,16 @@ class PlanningTests(unittest.TestCase):
         catalog += [workers.entry(dict(type=p+'-agent',model='fixture')) for p in executors.PROVIDERS]
         for provider in executors.PROVIDERS:
             options=json.loads(row['options']);payload=json.loads(row['context'])
-            options.update(backend=dict(type=provider+'-agent',model='fixture'),worker_catalog=catalog,tools=['files']);payload['options']=options
+            # Qualify each provider with its own available workers. The mixed
+            # catalog deliberately favors the smallest compatible capability set.
+            available=[entry for entry in catalog if entry['backend']['type'].startswith(provider+'-')]
+            options.update(backend=dict(type=provider+'-agent',model='fixture'),worker_catalog=available,tools=['files']);payload['options']=options
             candidate={**row,'options':json.dumps(options),'context':json.dumps(payload)};result=self.project_response()
             for task in result['plan']['tasks']:
                 if task.get('execution'):continue
-                task.pop('tools',None);task['worker']={'requires':['files.binary','code.execute'] if task.get('review_of')=='preview' else ['files.text']}
+                task.pop('tools',None)
+                binary=task.get('review_of')=='preview'
+                task['worker']={'requires':['files.binary','code.execute'] if binary else ['files.text']}
             _,resolved=planning.validate_result(json.dumps(result),candidate)
             self.assertEqual(resolved['tasks'][0]['worker']['executor'],provider+'-agent')
             self.assertEqual(resolved['tasks'][3]['worker']['executor'],provider+'-code')

@@ -157,6 +157,9 @@ dialog .actions { justify-content: flex-end; margin: 18px 0 0; }
 }
 
 /* Destinations share one shell; disclosures contain settings and review details. */
+.workflow-template-tools-label { margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.workflow-template-tools { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0 0 14px; padding: 0; }
+.workflow-template-tools li { padding: 5px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 13px; font-weight: 600; }
 .workspace-frame { display: grid; grid-template-columns: 184px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { background: #f0f2f5; border-right: 1px solid var(--divider); padding: 24px 14px 18px; display: flex; flex-direction: column; gap: 30px; position: sticky; top: 0; height: 100vh; }
 .sidebar .brand { padding: 0 6px; }

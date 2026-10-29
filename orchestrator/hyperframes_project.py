@@ -178,7 +178,7 @@ def execute(frozen,control,documents):
         if sum(p.stat().st_size for p in out.iterdir())>frozen['limits']['output_bytes']:raise ValueError('HyperFrames delivery exceeds its byte budget')
     except Exception as exc:
         receipt.update(passed=False,error=str(exc),recorded_at=time.time());atomic(out/'verification.json',receipt)
-        atomic(control/'operation.json',dict(outcome='failed',reason=str(exc),usage={},**receipt));raise
+        atomic(control/'operation.json',dict(outcome='failed',reason=str(exc),execution=frozen['execution'],usage={},**receipt));raise
     summary=cap+' completed for the exact authored project; independent review and human selection remain required.'
     details=dict(outcome='completed',summary=summary,execution=frozen['execution'],usage={},**receipt)
     atomic(control/'operation.json',details)

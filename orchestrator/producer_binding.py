@@ -159,6 +159,45 @@ def reference(item):
 def same_source(a,b):return reference(a)==reference(b)
 
 
+def bind_saved_assets(plan,rt):
+    """Keep a sealed preparation's asset paths when its consumer runs separately.
+
+    Only future assignment paths change. Saved documents, artifacts and producing
+    assignments remain untouched; names come from the exact completed producer.
+    """
+    import json
+    from .runtime import file_hash
+    for task in plan['tasks']:
+        capability=task.get('execution',{}).get('capability')
+        if not prepared_schemas.REGISTRY.get(capability,{}).get('assets'):continue
+        documents=[i for i in task['inputs'] if i.get('media_type')=='application/json']
+        if len(documents)!=1 or 'artifact' not in documents[0]:continue
+        artifact=rt.artifact(documents[0]['artifact'])
+        if not artifact.get('attempt'):continue
+        row=rt.db.execute('SELECT * FROM production_attempts WHERE id=?',(artifact['attempt'],)).fetchone()
+        if not row:raise ValueError('Saved preparation producer is missing')
+        frozen=json.loads(row['frozen']);contract=frozen.get('operation_contract',{})
+        if contract.get('id')!='operation.preparation':continue
+        if (row['state']!='completed' or row['run']!=artifact['run'] or row['task']!=artifact['task']
+            or contract.get('version')!=1 or contract.get('parameters',{}).get('target')!=capability
+            or contract.get('output')!=artifact['path'] or file_hash(artifact['blob'])!=artifact['sha256']):
+            raise ValueError('Saved preparation requires its exact completed producer')
+        paths={}
+        for item in task['inputs']:
+            if item is documents[0] or 'artifact' not in item:continue
+            original=[i for i in frozen['inputs'] if i.get('artifact')==item['artifact']]
+            if len(original)!=1:raise ValueError('Saved preparation asset is missing or ambiguous')
+            source=original[0];current=rt.artifact(item['artifact'])
+            if (source.get('sha256')!=current['sha256'] or file_hash(current['blob'])!=current['sha256']
+                or source.get('media_type')!=item.get('media_type')):
+                raise ValueError('Saved preparation asset version or media type changed')
+            paths[item['path']]=source['path']
+        names=[paths.get(i['path'],i['path']) for i in task['inputs']]
+        if len(set(names))!=len(names) or set(names)&{o['path'] for o in task['outputs']}:
+            raise ValueError('Saved preparation asset paths conflict')
+        for item,name in zip(task['inputs'],names):item['path']=name
+
+
 def compatible_native(capability, choices):
     from .execution import REGISTRY
     # Provider variants explicitly register their source interface separately

@@ -65,3 +65,27 @@ class Handoff(unittest.TestCase):
         p=self.compile(w)
         self.assertNotIn('operation_contract',p['tasks'][0])
         self.assertNotIn('content_contract',p['tasks'][0]['outputs'][0])
+
+    def test_model_consumer_capabilities_do_not_block_selected_text_producer(self):
+        w=workflow()
+        w['tasks'][1]=dict(schema_version=3,id='later',operation='model',objective='Later media task',
+            inputs={'notes':{'task':'geometry','output':'geometry'}},
+            input_definitions={'notes':dict(type='artifact',label='Notes',media_type='application/json',required=True)},
+            outputs=[dict(name='image',media_type='image/png',purpose='Image')],
+            model=dict(provider='codex',id='gpt-6.1-sol'))
+        selected=runs.scope_execution(self.rt,dict(workflow=w,title='Fixture'),
+            dict(scope='geometry',values={}),lambda ident:None)
+        self.assertIsNone(selected['schema_workflow'])
+        p=self.compile(selected['workflow'],schema_workflow=selected['schema_workflow'])
+        self.assertEqual([t['id'] for t in p['tasks']],['geometry'])
+        self.assertNotIn('operation_contract',p['tasks'][0])
+        with self.assertRaisesRegex(ValueError,'No eligible worker'):self.compile(w)
+
+    def test_selected_registered_consumer_still_supplies_contract(self):
+        w=workflow()
+        selected=runs.scope_execution(self.rt,dict(workflow=w,title='Fixture'),
+            dict(scope='geometry',values={}),lambda ident:None)
+        self.assertIsNotNone(selected['schema_workflow'])
+        p=self.compile(selected['workflow'],schema_workflow=selected['schema_workflow'])
+        self.assertEqual([t['id'] for t in p['tasks']],['geometry'])
+        self.assertEqual(p['tasks'][0]['operation_contract']['parameters']['target'],'blender.mesh_scene')

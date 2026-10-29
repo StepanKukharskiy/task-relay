@@ -1,0 +1,416 @@
+{
+  "inputs": {},
+  "kind": "workflow",
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "build",
+      "inputs": {
+        "checks_sha256": {
+          "artifact": "input-1"
+        },
+        "permissions": {
+          "value": "unrestricted_host"
+        },
+        "scene_sha256": {
+          "value": null
+        },
+        "script_sha256": {
+          "artifact": "input-2"
+        }
+      },
+      "objective": "Build open CA timber lattice and growth timeline",
+      "operation": "blender.run_python",
+      "schema_version": 3
+    },
+    {
+      "id": "growth_settings",
+      "input_definitions": {
+        "build_receipt": {
+          "label": "Build Receipt",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "checks": {
+          "label": "Checks",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "scene": {
+          "label": "Scene",
+          "media_type": "application/x-blender",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "build_receipt": {
+          "output": "execution",
+          "task": "build"
+        },
+        "checks": {
+          "output": "checks",
+          "task": "build"
+        },
+        "scene": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Prepare growth render settings. Use registered blender.animate preparation fragments; one JSON output, code owns envelope and exact scene hash. Bind exact scene from build.candidate once. Require successful literal build receipt. mode=final,frame_start=1,frame_end=108,fps=24,camera=PavilionEye,resolution=[576,1024],samples=4,tracks=[]. No Blender execution or invented hashes. Do not resubmit uncertain work.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "application/json",
+          "name": "manifest",
+          "purpose": "Growth animation manifest"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "growth",
+      "inputs": {
+        "manifest_sha256": {
+          "output": "manifest",
+          "task": "growth_settings"
+        },
+        "scene_sha256": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "objective": "Render cell growth",
+      "operation": "blender.animate",
+      "schema_version": 3
+    },
+    {
+      "id": "mapping_settings",
+      "input_definitions": {
+        "build_receipt": {
+          "label": "Build Receipt",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "checks": {
+          "label": "Checks",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        },
+        "scene": {
+          "label": "Scene",
+          "media_type": "application/x-blender",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "build_receipt": {
+          "output": "execution",
+          "task": "build"
+        },
+        "checks": {
+          "output": "checks",
+          "task": "build"
+        },
+        "scene": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Prepare mapping render settings. Use registered blender.animate preparation fragments; one JSON output, code owns envelope and exact scene hash. Bind exact scene from build.candidate once. Require successful literal build receipt. mode=final,frame_start=109,frame_end=216,fps=24,camera=PavilionEye,resolution=[576,1024],samples=4,tracks=[]. No Blender execution or invented hashes. Do not resubmit uncertain work.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "application/json",
+          "name": "manifest",
+          "purpose": "Mapping animation manifest"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "mapping",
+      "inputs": {
+        "manifest_sha256": {
+          "output": "manifest",
+          "task": "mapping_settings"
+        },
+        "scene_sha256": {
+          "output": "candidate",
+          "task": "build"
+        }
+      },
+      "objective": "Render cells becoming timber",
+      "operation": "blender.animate",
+      "schema_version": 3
+    },
+    {
+      "id": "visual",
+      "inputs": {
+        "aspect_ratio": {
+          "value": "9:16"
+        },
+        "files": {
+          "value": [
+            {
+              "output": "after",
+              "task": "build"
+            }
+          ]
+        },
+        "max_output_tokens": {
+          "value": 4096
+        },
+        "model": {
+          "value": "gemini-3.1-flash-image"
+        },
+        "prompt": {
+          "value": "Use this actual Blender image as the sole geometry and camera reference. Create a cinematic architectural photograph of this open, finely braced natural-timber pavilion in an autumn park under soft overcast light. Preserve the slender square members, diagonal connections, four support positions, porous canopy, complete silhouette, openings and pedestrian-height camera. This is a lightweight spatial lattice, NOT stacked horizontal solid timber courses: do not fill its gaps or replace it with a different structure. Keep the whole pavilion visible. Add restrained autumn foliage, a natural pedestrian path and 2–3 correctly scaled people without hiding the structure. Realistic wood grain, joints and grounded contact shadows; no blue signal diagram colours. No text, logos, watermark or named architect. Photographic interpretation only, not structural proof."
+        }
+      },
+      "objective": "Gemini · pavilion site photograph",
+      "operation": "gemini.image",
+      "schema_version": 3
+    },
+    {
+      "id": "music",
+      "input_definitions": {
+        "brief": {
+          "label": "Brief",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "cells": {
+          "label": "Cells",
+          "media_type": "application/json",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "brief": {
+          "artifact": "input-3"
+        },
+        "cells": {
+          "artifact": "input-4"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high",
+        "tools": "python"
+      },
+      "objective": "Create a NEW 12s original rhythmic ambient soundtrack with local Python standard library only. Read the exact supplied graph (cells and links) and brief. Do not reuse old audio or repeat the growth sequence. Stage1 0–4.5s: derive onset times from 35 birth generations; birth counts control velocity, mean height controls pentatonic register, horizontal spread controls stereo width. Stage2 4.5–9s: derive new events from member reveal groups by child cell index (103 groups); counts control wooden-tick activity, vertical/diagonal orientation and length control pitch/timbre. Map these to a restrained 96BPM grid while retaining stage-specific event activity; no looped phrase copy. Stage3 9–12s: cadence derived from aggregate graph proportions, fade last1s. Author harmonious scale/chord choices explicitly; do not claim all musical choices emerge. 48kHz stereo PCM16 WAV, peak <=.85, no clipping. Deliver WAV, compact recipe JSON with exact input SHA256, measured peak/RMS, both stage feature/event schedules, and self-contained synthesis Python source. Demonstrate data sensitivity offline with fixed seed: remove final generation and its incident links; recompute features/events and assert changed schedules (no second WAV needed). Keep code compact, execute synthesis once, no packages/network/Blender/paid calls. Use actual sealed output paths and report only performed checks.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "audio/wav",
+          "name": "soundtrack",
+          "purpose": "Graph-derived original soundtrack"
+        },
+        {
+          "media_type": "application/json",
+          "name": "recipe",
+          "purpose": "Source hashes, geometry-to-music mapping and measured audio"
+        },
+        {
+          "media_type": "text/x-python",
+          "name": "synthesis",
+          "purpose": "Reproducible pavilion sonification script"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "explanations",
+      "input_definitions": {
+        "brief": {
+          "label": "Brief",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "brief": {
+          "artifact": "input-3"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Write concise Markdown captions for the supplied 12-second reel brief: 0–4.5s, Codex + Python / Cellular automata growth; 4.5–9s, Blender / CA links become timber; 9–12s, Gemini / Architectural visualization. Label the bundled graph as a saved support-first CA study, with 6549 cells and 13082 links. Do not imply structural certification, invent a creator credit, or execute tools.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "text/markdown",
+          "name": "captions",
+          "purpose": "Step explanations and timings"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "assembly",
+      "input_definitions": {
+        "brief": {
+          "label": "Brief",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "captions": {
+          "label": "Captions",
+          "media_type": "text/markdown",
+          "required": true,
+          "type": "artifact"
+        },
+        "growth": {
+          "label": "Growth",
+          "media_type": "video/mp4",
+          "required": true,
+          "type": "artifact"
+        },
+        "mapping": {
+          "label": "Mapping",
+          "media_type": "video/mp4",
+          "required": true,
+          "type": "artifact"
+        },
+        "music": {
+          "label": "Music",
+          "media_type": "audio/wav",
+          "required": true,
+          "type": "artifact"
+        },
+        "timber": {
+          "label": "Timber",
+          "media_type": "image/png",
+          "required": true,
+          "type": "artifact"
+        },
+        "visual": {
+          "label": "Visual",
+          "media_type": "image/png",
+          "required": true,
+          "type": "artifact"
+        }
+      },
+      "inputs": {
+        "brief": {
+          "artifact": "input-3"
+        },
+        "captions": {
+          "output": "captions",
+          "task": "explanations"
+        },
+        "growth": {
+          "output": "animation",
+          "task": "growth"
+        },
+        "mapping": {
+          "output": "animation",
+          "task": "mapping"
+        },
+        "music": {
+          "output": "soundtrack",
+          "task": "music"
+        },
+        "timber": {
+          "output": "after",
+          "task": "build"
+        },
+        "visual": {
+          "output": "result",
+          "task": "visual"
+        }
+      },
+      "model": {
+        "id": "gpt-6.1-sol",
+        "provider": "codex",
+        "reasoning": "high"
+      },
+      "objective": "Author a complete registered hyperframes.preview JSON project from the connected assets and brief. Create a 12-second 1080×1920 reel at 30 fps, with audio enabled. Play growth at 0–4.5s, mapping at 4.5–9s, then the Gemini still at 9–12s with a 0.8-second dissolve. Use the supplied soundtrack throughout, exactly once; no repeated growth sequence or additional music. Show the concise connected software/step captions as editable plain text without panels, legible against each shot; preserve full-frame geometry and camera. Use the timber still only if needed for the transition, never as a replacement for either animation. No creator website or invented credits. Register a paused seekable timeline inline in index.html according to the supplied HyperFrames contract; use only declared local libraries, font and connected media. Let the framework own clip visibility and playback. Bind every asset to its exact input path using registered preparation tools; no rendering, generation, sourcing or audio synthesis in this node. Label the final image as AI visualization, not geometry proof. Retain the original 12-second timing and separate exact preview/export stages.",
+      "operation": "model",
+      "outputs": [
+        {
+          "media_type": "application/json",
+          "name": "project",
+          "purpose": "Reel with required music and step explanations"
+        }
+      ],
+      "schema_version": 3
+    },
+    {
+      "id": "preview",
+      "inputs": {
+        "files": {
+          "value": [
+            {
+              "output": "project",
+              "task": "assembly"
+            },
+            {
+              "output": "animation",
+              "task": "growth"
+            },
+            {
+              "output": "animation",
+              "task": "mapping"
+            },
+            {
+              "output": "after",
+              "task": "build"
+            },
+            {
+              "output": "result",
+              "task": "visual"
+            },
+            {
+              "output": "soundtrack",
+              "task": "music"
+            }
+          ]
+        }
+      },
+      "objective": "Preview reel · music and steps",
+      "operation": "hyperframes.preview",
+      "schema_version": 3
+    },
+    {
+      "id": "export",
+      "inputs": {
+        "preview_sha256": {
+          "output": "verification",
+          "task": "preview"
+        },
+        "project_sha256": {
+          "output": "project_zip",
+          "task": "preview"
+        }
+      },
+      "objective": "Export final reel",
+      "operation": "hyperframes.render",
+      "schema_version": 3
+    }
+  ]
+}

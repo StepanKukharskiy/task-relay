@@ -27,6 +27,13 @@ user's guides and selected storyboard. Never substitute the media.compose templa
 Use inline styles/scripts or separate local files. index.html is the entrypoint.
 Give its single root data-composition-id, matching data-width/data-height/data-duration.
 Register a paused seekable timeline, or use paused WAAPI plus data-no-timeline.
+For the pinned HyperFrames checker, timeline registration must appear in an inline
+script in index.html: window.__timelines["ROOT_ID"] = timeline. Registration only
+in an external JavaScript file is not recognized by its static check. Alternatively,
+use the root data-no-timeline attribute with paused WAAPI animations. Do not invent
+a playback controller or manually change timed clip visibility; the framework owns it.
+Give every editable text element a stable id, and load the supplied local font with
+@font-face instead of relying on a system font name.
 Use local declared libraries (including GSAP) and media; no CDN, package installation,
 Node programs, package.json, hyperframes.json, server code or shell commands. The
 framework controls timed clip visibility and audio/video playback. No wall-clock,

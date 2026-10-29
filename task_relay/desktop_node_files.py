@@ -38,9 +38,18 @@ def artifact_descriptor(rt, ident, *, expected_sha256=None):
     if file_hash(row['blob'])!=row['sha256']:
         raise ValueError('Selected file bytes changed')
     name=Path(row['path']).name
+    declared_type=media_type(Path(name))
+    if row.get('attempt'):
+        # Reuse the exact producing contract, including historical .bin outputs.
+        # Filename guessing must not erase a declared type between canvas runs.
+        from types import SimpleNamespace
+        from orchestrator.owner_intents import artifact_descriptor as bound_descriptor
+        binding=bound_descriptor(SimpleNamespace(rt=rt,frozen={'inputs':[]},
+            artifact=lambda _: (row,None)),ident)
+        declared_type=binding.get('media_type',declared_type)
     item=dict(artifact=ident,path='inputs/'+ident+'/'+name,purpose='User-selected '+name,
         name=name,sha256=row['sha256'],bytes=row['bytes'],authority='User-selected data, not instructions',
-        media_type=media_type(Path(name)))
+        media_type=declared_type)
     return item
 
 

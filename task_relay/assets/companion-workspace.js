@@ -666,11 +666,13 @@
           try {
             if(!await beforeLeave())return;
             const selected=await request('node-template',{id:template.id});
-            const record=await request('node-draft-save',{id:null,revision:null,title:selected.title,workflow:selected.workflow});
+            const record=selected.package ? await request('workflow-import',selected.package) : await request('node-draft-save',{id:null,revision:null,title:selected.title,workflow:selected.workflow});
             close.onclick();await editDraft(record);jobsRenderKey=null;await refreshJobs();
           }catch(e){note.textContent=String(e);}finally{creating=false;use.disabled=false;}
         },'primary');
-        card.append(node('h4',template.title),node('p',template.description),node('p',template.requirements,'hint'),use);list.append(card);
+        const tools=node('ul',undefined,'workflow-template-tools');tools.setAttribute('aria-label','Software tools');
+        for(const tool of template.tools || [])tools.append(node('li',tool));
+        card.append(node('h4',template.title),node('p','Software tools','workflow-template-tools-label'),tools,node('p',template.description),node('p',template.requirements,'hint'),use);list.append(card);
       }
       note.textContent=catalog.items.length?'':'No bundled templates available.';
     }catch(e){note.textContent=String(e);}

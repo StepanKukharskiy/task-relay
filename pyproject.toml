@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "task-relay"
-version = "0.13.318"
+version = "0.13.320"
 description = "Local project execution relay with durable task and artifact receipts"
 readme = "README.md"
 license = "Apache-2.0"
@@ -30,4 +30,4 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 orchestrator = ["*.rb", "*.schema.json"]
-task_relay = ["assets/*.png", "assets/*.html", "assets/*.css", "assets/*.js", "assets/vendor/*.js", "assets/vendor/*.LICENSE", "assets/vendor/*.txt", "assets/requirements-claude*.txt", "assets/macos/*.swift", "assets/perplexity-extension.json", "assets/desktop-request-limits.json", "assets/node-icons/*.svg", "assets/node-icons/*.png", "assets/node-icons/*.md", "assets/job-templates/*.json"]
+task_relay = ["assets/*.png", "assets/*.html", "assets/*.css", "assets/*.js", "assets/vendor/*.js", "assets/vendor/*.LICENSE", "assets/vendor/*.txt", "assets/requirements-claude*.txt", "assets/macos/*.swift", "assets/perplexity-extension.json", "assets/desktop-request-limits.json", "assets/node-icons/*.svg", "assets/node-icons/*.png", "assets/node-icons/*.md", "assets/job-templates/*.json", "assets/job-templates/*.zip"]

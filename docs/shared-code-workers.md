@@ -14,6 +14,15 @@ frozen runtime cannot be reapproved automatically if its receipt is missing.
 generating content. The provider must already be connected with an exact text model.
 OpenRouter automatic/free model routing is excluded from these workers.
 
+## Canvas selection
+
+A model node’s inspector exposes **Tools** under its model settings. **Files &
+images** retains the normal file worker. **Local Python · isolated** stores
+`model.tools: "python"` and selects the existing code profile for that same
+provider/model. Settings → Apps and tools verifies the local runtime before use.
+The saved graph contains the choice, not credentials or an inferred permission.
+A disabled or changed runtime blocks admission; no fallback executor is selected.
+
 ## Worker profiles
 
 Gemini, OpenAI, Qwen, DeepSeek and OpenRouter share the same declared-file adapter

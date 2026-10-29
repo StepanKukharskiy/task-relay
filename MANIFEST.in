@@ -18,6 +18,7 @@ global-exclude *.pyc
 include task_relay/assets/desktop-request-limits.json
 include task_relay/assets/node-icons/*.svg
 include task_relay/assets/job-templates/*.json
+include task_relay/assets/job-templates/*.zip
 include orchestrator/*.schema.json
 include task_relay/assets/node-icons/*.png
 include task_relay/assets/node-icons/*.md

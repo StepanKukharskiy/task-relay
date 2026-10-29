@@ -212,7 +212,7 @@ def suffix(media):
     from .document_authoring import REGISTRY
     return (REGISTRY[media]['extensions'][0] if media in REGISTRY else
             { 'text/plain':'.txt','text/markdown':'.md','application/json':'.json',
-              'image/jpeg':'.jpg' }.get(media) or MIME_TYPES.guess_extension(media) or '.bin')
+              'image/jpeg':'.jpg','audio/wav':'.wav' }.get(media) or MIME_TYPES.guess_extension(media) or '.bin')
 
 
 def ports(spec):

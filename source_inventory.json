@@ -146,6 +146,7 @@
         "task_relay/assets/macos/*.swift",
         "task_relay/assets/node-icons/*.svg",
         "task_relay/assets/job-templates/*.json",
+        "task_relay/assets/job-templates/*.zip",
         "task_relay/assets/node-icons/*.png",
         "task_relay/assets/node-icons/*.md"
       ]
@@ -317,7 +318,10 @@
       "release": false,
       "patterns": [
         "examples/*.node.json",
-        "examples/*.workflow.json"
+        "examples/*.workflow.json",
+        "examples/support-first-ca/*.json",
+        "examples/support-first-ca/*.md",
+        "examples/support-first-ca/*.py"
       ]
     }
   ],
