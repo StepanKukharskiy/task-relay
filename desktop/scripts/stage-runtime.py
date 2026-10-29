@@ -21,6 +21,8 @@ def main():
     if app.exists():
         shutil.rmtree(app)
     app.mkdir(parents=True)
+    shutil.copy2(ROOT / 'desktop/scripts/relay', app.parent / 'relay')
+    (app.parent / 'relay').chmod(0o755)
     for name in sources:
         target = app / name
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -148,7 +148,8 @@
         "task_relay/assets/job-templates/*.json",
         "task_relay/assets/job-templates/*.zip",
         "task_relay/assets/node-icons/*.png",
-        "task_relay/assets/node-icons/*.md"
+        "task_relay/assets/node-icons/*.md",
+        "task_relay/assets/skills/*/SKILL.md"
       ]
     },
     {
@@ -310,7 +311,8 @@
         "docs/universal-architecture-decision.md",
         "docs/universal-interface-consolidation.md",
         "docs/universal-runtime.md",
-        "docs/worker-operation-tools.md"
+        "docs/worker-operation-tools.md",
+        "docs/local-management.md"
       ]
     },
     {

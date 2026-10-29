@@ -22,3 +22,4 @@ include task_relay/assets/job-templates/*.zip
 include orchestrator/*.schema.json
 include task_relay/assets/node-icons/*.png
 include task_relay/assets/node-icons/*.md
+include task_relay/assets/skills/*/SKILL.md
