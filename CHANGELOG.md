@@ -1,3 +1,21 @@
+## 0.13.322 — Local management and agent skill (2026-10-29)
+
+The bundled app now exposes a local management launcher for discovery, diagnostics,
+exact-candidate updates and exact-attempt recovery. Structured JSON reuses the
+existing app updater; signature continuity, compatibility probes, backups,
+active-work checks and no-replay behavior remain enforced. Copied update helpers
+can inspect and recover their own current attempt even if the app UI cannot open;
+other attempts, app copies and data bindings are rejected. Receipt inspection is
+bounded and excludes job contents and credentials.
+
+The relay-manage skill ships in the app and Python packages, with an explicit
+installation command that preserves edited skills and unrelated agent settings.
+A broken saved desktop binding is reported rather than selecting another data
+folder. The launcher uses bundled isolated Python with bytecode writes disabled.
+Documentation distinguishes app maintenance from source-package updates and
+conversation-reuse plugins. Focused contracts pass; public lifecycle qualification
+and installed checks are recorded separately before release publication.
+
 ## 0.13.321 — Updates with retained replies (2026-10-29)
 
 The app updater now distinguishes replies already held by the delivery system

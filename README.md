@@ -131,6 +131,15 @@ Python 3.11+, extract it and run `sh install.sh --terminal-setup`. Keep its inst
 environment in place. CLI commands honor the data binding previously selected in
 the companion; explicit environment overrides take precedence.
 
+For local Codex/agent maintenance, the app includes a [documented management
+command and companion skill](docs/local-management.md). Discovery and diagnostics
+are local; updates and recovery use the existing signed-app controller. Install
+the skill explicitly without changing unrelated agent settings:
+
+```sh
+"/Applications/Task Relay.app/Contents/Resources/resources/runtime/relay" manage skill-install --destination "$HOME/.codex/skills/relay-manage"
+```
+
 The development source route remains available:
 
 Start on **macOS with Python 3.11 or newer**, a dedicated Telegram bot token and a

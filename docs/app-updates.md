@@ -1,5 +1,8 @@
 # Desktop app updates
 
+For local agents and terminal users, [local management](local-management.md)
+exposes the same updater and retained-helper recovery with structured JSON.
+
 The companion has a separate app updater in Settings → App updates. It checks
 GitHub on first opening the companion when the saved check is over a day old;
 Check for updates refreshes it immediately. Checks only read public release

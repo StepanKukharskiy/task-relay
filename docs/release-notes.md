@@ -1,13 +1,18 @@
-# Task Relay 0.13.321
+# Task Relay 0.13.322
 
-Mac beta fixing updates blocked by historical, already-held replies. Includes the latest UI, canvas, nodes and both bundled templates.
+Mac beta adding documented local management and a companion agent skill. Includes the current UI, canvas, nodes, both templates and the retained-reply updater fix.
 
-## Updater fix
+## Local management
 
-- Historical replies with existing delivery holds or uncertain-delivery receipts no longer block installation and recovery.
-- Original reply contents, sent flags, attempts and receipts are preserved. Updating does not resend them or mark them delivered.
-- Active sends, deliverable pending replies and running/queued work still block installation. The updater checks again after shutdown.
-- A blocked older updater needs a one-time maintenance installation to acquire this fix; do not clear reply history or retry uncertain messages to enable an upgrade.
+- A bundled launcher provides JSON discovery, local diagnostics, update status/check/download/install, receipt inspection and exact-attempt recovery. No source checkout or system Python is needed for the Mac app.
+- The interface uses the existing updater. Signed-package checks, database compatibility probes, backups, service ownership and no-replay safeguards remain unchanged.
+- Retained helpers support recovery when the main app UI cannot open, and reject mismatched attempts or data bindings. New updates must use the installed app.
+- The bundled relay-manage skill guides local coding agents through these operations. Explicit skill installation preserves edited copies and does not register an MCP server or change unrelated agent settings. A separate skill ZIP is included.
+- Read the [local management guide](https://github.com/StepanKukharskiy/task-relay/blob/v0.13.322/docs/local-management.md). Local access remains subject to the user's permissions.
+
+## Retained replies
+
+Historical held or uncertain replies no longer block app updates. Their contents, flags, attempts and receipts remain unchanged; updates never resend them. Active work and deliverable pending replies still block installation. Older already-blocked updaters need one reviewed maintenance installation to acquire that fix.
 
 ## Templates
 
@@ -26,7 +31,7 @@ Mac beta fixing updates blocked by historical, already-held replies. Includes th
 
 ## Install or upgrade
 
-Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.321-arm64.dmg.
+Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.322-arm64.dmg.
 Existing compatible apps can use Settings → App updates → Include beta releases → Check for updates, then download and install. The update ZIP and manifest include the desktop UI and runtime; a Python wheel alone does not update the app.
 
 This is a locally signed beta without Apple Developer ID notarization. Provider accounts, native applications and the local media/Python runtimes require their own setup. Windows and Intel Mac installers are not included. Existing jobs, artifact versions and uncertain attempts remain in the selected data folder.

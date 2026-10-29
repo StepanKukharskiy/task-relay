@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed beside the bundled interpreter; also survives in copied update helpers.
+set -eu
+relay_runtime=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+export TASK_RELAY_DESKTOP_RUNTIME_ROOT="$relay_runtime"
+exec "$relay_runtime/python/bin/python3" -I -B -c 'import sys; sys.path.insert(0,sys.argv.pop(1)); from task_relay.cli import main; main()' "$relay_runtime/app" "$@"

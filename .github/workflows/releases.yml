@@ -102,7 +102,7 @@ jobs:
         with:
           node-version: 22
       - run: node --test tests/companion-updates.test.cjs
-      - run: python -m unittest tests.test_app_updates tests.test_desktop_app_install tests.test_update_retained_replies
+      - run: python -m unittest tests.test_management tests.test_app_updates tests.test_desktop_app_install tests.test_update_retained_replies
       - run: python -m unittest tests.test_migrations tests.test_updates tests.test_update_services tests.test_onboarding tests.test_installer tests.test_bridge.Tests.test_commands_respond_while_scan_and_upload_are_blocked
   draft:
     if: startsWith(github.ref, 'refs/tags/v')
