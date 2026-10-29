@@ -81,6 +81,12 @@ def native_effect(control,result,details):
     intents=[p.name for p in control.glob('*-intent.json')]
     if not intents:return
     confirmed=(details.get('execution')==result.get('execution') and details.get('outcome') in ('completed','failed','rejected'))
+    if not confirmed:
+        from .local_media_receipts import historical_failure
+        proof=historical_failure(control,result,details)
+        if proof:
+            confirmed=True
+            result['local_failure_binding']=proof
     if confirmed:
         result['operation_terminal_confirmed']=True
         return

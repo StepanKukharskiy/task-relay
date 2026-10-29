@@ -280,8 +280,10 @@
               const suggested=select([['','Choose a model'],...choices.map(m=>[m,m]),['__custom','Custom model…']],model,m=>{if(m==='__custom'){custom.open=true;id.focus();}else if(m){id.value=m;commit();}});
               const id=node('input');id.value=model;id.placeholder='Exact model ID';id.spellcheck=false;id.setAttribute('autocorrect','off');id.setAttribute('autocapitalize','none');id.autocomplete='off';
               const reasoning=select(['low','medium','high','xhigh','max','ultra'].map(v=>[v,v]),task.model?.reasoning || 'high',()=>commit());
-              function commit(){model=id.value.trim();if(worker)modelDrafts.set(task.id,{provider,model});edit(w=>{const t=w.tasks.find(t=>t.id===task.id);if(!model){if(worker)delete t.model;else delete t.inputs.model;return;}if(worker)t.model={provider,id:model,...(provider==='codex'?{reasoning:reasoning.value}:{})};else t.inputs.model={value:model};});}
+              const tools=select([['files','Files & images'],['python','Local Python · isolated']],task.model?.tools || 'files',()=>commit());
+              function commit(){model=id.value.trim();if(worker)modelDrafts.set(task.id,{provider,model});edit(w=>{const t=w.tasks.find(t=>t.id===task.id);if(!model){if(worker)delete t.model;else delete t.inputs.model;return;}if(worker)t.model={provider,id:model,...(provider==='codex'?{reasoning:reasoning.value}:{}),...(tools.value==='python'?{tools:'python'}:{})};else t.inputs.model={value:model};});}
               id.onchange=commit;controls.append(field('Model',suggested));custom.append(field('Model ID',id));if(worker && provider==='codex')custom.append(field('Reasoning',reasoning));controls.append(custom);
+              if(worker)custom.append(field('Tools',tools),node('p','Local Python can create files such as audio and spreadsheets. It runs on assigned files with network and subprocess access denied. Code and document tools must be verified in Settings.','hint'));
             }
             const connection=node('details');connection.append(node('summary',provider==='codex'?'Connection · ChatGPT login':'Connection'));controls.append(connection);
             if(provider==='codex')connection.append(node('p','Uses your existing ChatGPT Codex login.','hint'),button('Select qualified Codex runtime',async()=>{

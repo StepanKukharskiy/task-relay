@@ -97,6 +97,12 @@ const opts={node,button,saved,stateLabel:s=>s,leave(){},request:async(a,v={})=>{
  assert.match(root.textContent,/do not need to enter it again/);
  assert(btn(root,'Replace saved API key'));btn(root,'Replace saved API key').onclick();
  assert.equal(field(root,'API key').value,'','saved secret never reaches the UI');
+ field(root,'Tools').value='python';field(root,'Tools').onchange();await flush();
+ field(root,'Model ID').value='fixture-python';field(root,'Model ID').onchange();await flush();
+ await btn(root,'Save').onclick();await flush();
+ assert.deepEqual(backend('node-draft',{id:stored.id}).workflow.tasks[1].model,{provider:'gemini',id:'fixture-python',tools:'python'},'explicit tools survive model edits and save');
+ field(root,'Tools').value='files';field(root,'Tools').onchange();await flush();
+ field(root,'Model ID').value='fixture';field(root,'Model ID').onchange();await flush();
  await btn(root,'Save').onclick();await flush();const updated=backend('node-draft',{id:stored.id});assert.deepEqual(updated.workflow.tasks[1].model,{provider:'gemini',id:'fixture'});assert(!JSON.stringify(updated).includes('fixture-secret'));
  await btn(root,'Run').onclick();await flush();assert.equal(btn(root,'Check run'),undefined);assert.equal(walk(root).find(n=>n.type==='checkbox'),undefined);assert.equal(submissions.length,0,'preview does not authorize payment');
  await btn(root,'Run · paid').onclick();await flush();await btn(root,'Check same submission').onclick();assert.deepEqual(submissions[0],submissions[1]);assert.equal(submissions.length,2);assert.equal(submissions[0].allow_paid,true);dispose();

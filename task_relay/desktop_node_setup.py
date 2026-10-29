@@ -6,8 +6,10 @@ from orchestrator import executors, execution
 
 
 def backend(choice):
-    if not isinstance(choice,dict) or set(choice)-{'provider','id','reasoning'} or not {'provider','id'}<=set(choice):
+    if not isinstance(choice,dict) or set(choice)-{'provider','id','reasoning','tools'} or not {'provider','id'}<=set(choice):
         raise ValueError('Choose a provider and an exact model ID')
+    if choice.get('tools','files') not in ('files','python'):
+        raise ValueError('Choose file tools or isolated Python tools')
     provider=choice['provider']
     if provider=='codex':
         from orchestrator.codex_transport import POLICY
@@ -15,6 +17,10 @@ def backend(choice):
     else:
         if provider not in executors.PROVIDERS or 'reasoning' in choice:raise ValueError('Unsupported model settings')
         result=dict(type=provider+'-agent',model=choice['id'])
+    if choice.get('tools')=='python':
+        from .code_runtime import available
+        runtime=available()
+        result.update(type=provider+'-code',runtime=runtime['id'])
     executors.validate(result)
     return result
 

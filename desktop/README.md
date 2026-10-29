@@ -30,7 +30,9 @@ ports and exact input/result inspection. Solid wires are recorded file bindings;
 dashed wires are prerequisites. Results and History remain separate views.
 The node editor supports adding steps, changing named connections, editing prompts
 and saving new executions. Jobs → Templates creates a fresh editable copy of a
-bundled workflow, including Cellular aggregation · from Chat. Browsing and copying
+bundled workflow, including Cellular aggregation · from Chat and Support-first CA ·
+cells to timber reel. Each template card highlights its software tools. The reel
+template includes starter inputs and requires Preview before final Export. Browsing and copying
 a template never starts work; Run reviews execution and required connections.
 The node picker uses the shared operation definitions with searchable named ports. Historical duplicates are absent from this picker; saved workflows retain
 their original registered definitions. Browsing does not execute operations or

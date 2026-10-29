@@ -156,7 +156,7 @@ def execute(frozen,control,documents):
             raise ValueError('Reel delivery exceeds the total output byte budget')
     except Exception as exc:
         receipt.update(passed=False,error=str(exc),recorded_at=time.time());atomic(out/'verification.json',receipt)
-        atomic(control/'operation.json',dict(outcome='failed',reason=str(exc),usage={},**receipt));raise
+        atomic(control/'operation.json',dict(outcome='failed',reason=str(exc),execution=frozen['execution'],usage={},**receipt));raise
     summary='Local reel rendered and technically verified; independent review and human visual selection remain required.'
     details=dict(outcome='completed',execution=frozen['execution'],summary=summary,usage={},**receipt)
     atomic(control/'operation.json',details)

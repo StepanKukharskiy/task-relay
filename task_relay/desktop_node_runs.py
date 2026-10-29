@@ -121,6 +121,7 @@ def compile_plan(rt,document,values,ident,title,lookup=None,schema_workflow=None
             t['outputs']=copy.deepcopy(source['outputs'])
     from orchestrator import producer_binding, artifact_roles
     producer_binding.compile(plan,review_policy='user')
+    producer_binding.bind_saved_assets(plan,rt)
     for task in tasks:
         artifact_roles.bind(task,rt,[])
     from .record_planning import bind
@@ -499,9 +500,12 @@ def scope_execution(rt,record,value,lookup):
     chosen=nodes if scope=='all' else [next(t for t in nodes if t['id']==scope)]
     schema_workflow=None
     if scope!='all' and chosen[0]['operation']=='model':
-        # Only connected consumers and their prerequisites inform this
-        # producer's schema; unrelated incomplete canvas nodes stay editable.
-        required={l['task'] for l in resolved['connections'] if l['source'].get('task')==scope}
+        # Registered consumers supply preparation contracts. A model consumer
+        # owns its declared interface; compiling it here can incorrectly make
+        # its execution capabilities a prerequisite for this selected node.
+        registered={n['id'] for n in nodes if n['operation'] in execution.REGISTRY}
+        required={l['task'] for l in resolved['connections']
+                  if l['source'].get('task')==scope and l['task'] in registered}
         if required:
             required.add(scope)
             while True:

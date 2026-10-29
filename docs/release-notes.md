@@ -1,22 +1,29 @@
-# Task Relay 0.13.318
+# Task Relay 0.13.320
 
-Mac beta with the latest canvas workspace, editable nodes and a bundled job template.
+Mac beta with a portable cells-to-timber reel template and the latest canvas preparation fixes.
 
-## What changed
+## Templates
 
-- Jobs, Chat, Results and History share the latest canvas interface, with editable nodes, named input/output connections, saved versions and workflow import/export.
-- Jobs → Templates now includes **Cellular aggregation · from Chat**. Use template creates a fresh editable 11-node job: Perplexity research → Codex preparation → Blender pavilion and growth animation → Gemini visualization → editable PowerPoint. Configure the required connections and review Run before execution; selecting a template does not start work or authorize paid calls.
-- Includes the accumulated registered-operation, evidence handoff, native execution, recovery and Blender animation improvements since 0.13.155. Historical attempts and uncertain submissions retain their original records and limits.
-- Desktop and Python packages include node icons, node schemas, request limits and template assets alongside the updated UI.
+- **Support-first CA · cells to timber reel** is available in Jobs → Templates. It includes the saved CA graph, Blender script, scene checks and brief, copied into a new editable 11-node job. Use Codex, isolated Python, Blender, Gemini, HyperFrames and FFmpeg to build the two animation stages, graph-derived music, AI visualization and a 12-second vertical reel. Complete Preview before selecting Export final reel.
+- Every template card now highlights its software tools, including **Cellular aggregation · from Chat**.
+- Template selection does not run tools, grant paid/native execution or import previous results and approvals. The supplied CA study is not a structural qualification.
+
+## Latest fixes
+
+- Model nodes can explicitly choose isolated Local Python for binary outputs such as soundtracks.
+- Reusing saved outputs preserves their declared media types, including historical WAV files with generic filenames.
+- Running a consumer separately retains exact asset paths from its completed preparation, with hashes and producer identities checked.
+- A selected text model node only derives preparation schemas from directly connected registered operations; downstream model capabilities no longer incorrectly block it.
+- Local media failures retain exact execution identities. Older failed receipts reconcile only with matching stopped-execution evidence, without replay or rewriting history.
+- HyperFrames author guidance clarifies inline timeline registration, stable text IDs and supplied local fonts.
 
 ## Install or upgrade
 
-For Apple Silicon Macs running macOS 14 or later, download Task-Relay-0.13.318-arm64.dmg. Quit Task Relay, replace the app in Applications and reopen it, keeping the same data folder.
+Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.320-arm64.dmg.
+Existing compatible apps can use Settings → App updates → Include beta releases → Check for updates, then download and install. The update ZIP and manifest include the desktop UI and runtime; a Python wheel alone does not update the app.
 
-Existing compatible apps can use Settings → App updates: enable **Include beta releases**, then **Check for updates → Download update → Install and restart**. The release includes the signed app update ZIP and matching manifest; a wheel alone does not update the desktop interface.
-
-This is a locally signed beta, without Apple Developer ID notarization. Native applications and provider connections require their own installation and setup. Windows and Intel Mac installers are not included.
+This is a locally signed beta without Apple Developer ID notarization. Provider accounts, native applications and the local media/Python runtimes require their own setup. Windows and Intel Mac installers are not included. Existing jobs, artifact versions and uncertain attempts remain in the selected data folder.
 
 ## Validation scope
 
-The complete 35-group offline lifecycle matrix passed with a source-matched receipt. Template selection and draft isolation, canvas/editor UI contracts, package contents, updater recovery, installer maintenance and platform boundary checks also passed. All 478 bundled runtime files match reviewed source, and the Mac update preserves signing-certificate continuity. These fixtures do not establish live provider quality, clean-host installation or successful execution of the template on every machine.
+Release publication requires the complete source-matched offline lifecycle gate plus focused template/import, canvas/editor, preparation, media receipt, package and updater checks. Controlled checks do not establish clean-host installation or successful provider execution on every machine. No live template execution is part of release qualification.
