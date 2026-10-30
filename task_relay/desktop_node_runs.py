@@ -1,5 +1,5 @@
 """Canvas admission into Runtime. No alternate scheduler, owner or message delivery."""
-import copy,json,uuid
+import copy,json,re,uuid
 from contextlib import closing
 from types import SimpleNamespace
 from .relay_paths import PATHS
@@ -451,6 +451,29 @@ def load_canvas_execution(value):
         return scope_execution(rt,record,value,lookup),'canvas-'+ident.hex
 
 
+def stopped_author_receipt(frozen,receipt,attempt):
+    """A new local author may replace an unknown model reply, never an effect.
+
+    AgentFactory's exact terminal receipt audits outstanding code/operation
+    intents. Only model-response uncertainty is eligible; missing local outcomes
+    still need recovery. Nothing here collects files or resumes the old session.
+    """
+    backend=frozen.get('backend',{})
+    if backend.get('type') not in ('codex-agent','codex-code'):return False
+    try:tools=executors.validate(backend)
+    except ValueError:return False
+    pending=receipt.get('pending_requests')
+    return (not any(frozen.get(k) for k in ('execution','work_tools','job_owner','browser','computer'))
+            and frozen.get('worker',{}).get('executor')==backend['type']
+            and frozen.get('worker',{}).get('backend')==backend
+            and frozen.get('tools')==tools
+            and receipt.get('backend')==backend and receipt.get('token')==attempt
+            and type(receipt.get('exit_code')) is int
+            and isinstance(pending,list)
+            and all(isinstance(p,str) and re.fullmatch(r'api-[0-9]{2,}',p) for p in pending)
+            and not receipt.get('operation'))
+
+
 def canvas_execution_holds(rt,record,scope):
     """Preview explicit replacement authorization, never recover an old effect."""
     if not record.get('canvas'):return []
@@ -477,17 +500,10 @@ def canvas_execution_holds(rt,record,scope):
             op=frozen.get('execution',{}).get('capability')
             api=(selected.get('operation')==op and op in (*PROVIDERS,'gemini.text')
                  and not receipt.get('pending_requests') and isinstance(details,dict) and not details.get('remote'))
-            # A stopped file-only author can be replaced explicitly even when its
-            # last provider response is unknown. Never collect that response or
-            # continue its thread; the receipt digest binds it to confirmation.
-            author=(selected.get('operation')=='model' and not frozen.get('execution')
-                    and frozen.get('backend',{}).get('type')=='codex-agent'
-                    and frozen.get('worker',{}).get('executor')=='codex-agent'
-                    and frozen.get('tools')==['files']
-                    and receipt.get('backend')==frozen.get('backend')
-                    and receipt.get('token')==row['id']
-                    and receipt.get('exit_code') is not None
-                    and not details)
+            # Confirmation binds the entire retained receipt, including unknown
+            # model replies, without continuing the old worker or tool calls.
+            author=(selected.get('operation')=='model'
+                    and stopped_author_receipt(frozen,receipt,row['id']))
             if (scope=='all' or row['task']!=scope or receipt.get('local_terminal') is not True
                 or receipt.get('status')!='uncertain' or not (api or author)):
                 raise ValueError('Wait for running or uncertain canvas work, or Run an eligible stopped node separately to confirm a new attempt')
