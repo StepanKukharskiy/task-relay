@@ -81,6 +81,9 @@ def dispatch(action, value):
 
 
 def _dispatch(action, value):
+    if action=='node-author-save':
+        from .authoring import save
+        return save(value)
     if action in ('workflow-export','workflow-import-preview','workflow-import'):
         from .workflow_transfer import dispatch as transfer
         return transfer(action,value)

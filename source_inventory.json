@@ -312,7 +312,8 @@
         "docs/universal-interface-consolidation.md",
         "docs/universal-runtime.md",
         "docs/worker-operation-tools.md",
-        "docs/local-management.md"
+        "docs/local-management.md",
+        "docs/job-authoring.md"
       ]
     },
     {

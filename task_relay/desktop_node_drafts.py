@@ -10,7 +10,7 @@ from .host import HOST
 from .relay_paths import PATHS
 
 
-def dispatch(action, value):
+def dispatch(action, value, *, authoring=None):
     root = PATHS.data / 'node-drafts'
     if not isinstance(value, dict):
         raise ValueError('Expected draft settings')
@@ -56,18 +56,32 @@ def dispatch(action, value):
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.lock').open('a') as lock:
         HOST.lock(lock)
-        ident = ident or uuid.uuid4().hex
+        ident = ident or (uuid.UUID(authoring['request_id']).hex if authoring else uuid.uuid4().hex)
         path = root / (ident + '.json')
         old = read(path)
+        if authoring and old and old.get('authoring')==authoring:
+            return dict(id=ident,**old,execution_authorized=False,reused=True)
+        if value['id'] is None and old is not None:raise ValueError('Creation identity already used; open the saved draft')
         if value['id'] is not None and old is None:raise ValueError('This draft no longer exists. Start a new job instead.')
         if value['revision'] != (old['revision'] if old else None):
             raise ValueError('This draft changed elsewhere. Reopen it before saving.')
-        revision = hashlib.sha256(json.dumps(dict(title=title, workflow=document), sort_keys=True).encode()).hexdigest()
+        identity=dict(title=title,workflow=document)
+        if authoring:identity['authoring']=authoring
+        revision = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         record = dict(title=title, workflow=document, revision=revision)
+        if authoring:record['authoring']=authoring
         if old and old.get('origin'):record['origin']=old['origin']
         if record.get('origin',{}).get('mode')=='input':
             from .desktop_node_runs import project_result_sources
             projected=project_result_sources(record)
         else:projected=record
+        if old:
+            history=root/'history'/ident
+            if not re.fullmatch('[a-f0-9]{64}',old['revision']) or any(p.is_symlink() for p in (root,history.parent,history)):
+                raise ValueError('Invalid draft history location; preserve it for inspection')
+            history.mkdir(parents=True,exist_ok=True)
+            archived=history/(old['revision']+'.json')
+            if not archived.exists():write(archived,old)
+            elif read(archived)!=old:raise ValueError('Draft revision history differs; preserve it for inspection')
         write(path, record)
     return dict(id=ident, **projected, missing_inputs=checked['missing_inputs'], execution_authorized=False)
