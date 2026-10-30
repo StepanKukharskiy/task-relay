@@ -1,3 +1,18 @@
+## 0.13.324 — Explicit replacement of stopped Python authors (2026-10-30)
+
+A selected Codex node using Files or isolated Local Python can admit an explicitly
+confirmed fresh attempt when its matching terminal receipt records only unknown
+model replies. The shared canvas guard checks the frozen executor, tool profile
+and exact receipt; missing stop evidence, unfinished code/native effects, broader
+authority and whole-job replacement remain blocked. Confirmation binds the old
+attempt digest, admission remains atomic and repeated submissions remain idempotent.
+Old assignments, files and uncertain receipts are preserved without replay.
+
+Focused synthetic tests cover both author profiles, real worker receipt inspection,
+composed single-node replacement, stale confirmation and interrupted admission.
+Public release qualification and installed checks are recorded separately. No
+live retry, provider call, Blender or Gemini execution is part of this fix.
+
 ## 0.13.323 — Local job authoring and agent skill (2026-10-30)
 
 The documented `relay author` interface exposes saved drafts and owning canvases,

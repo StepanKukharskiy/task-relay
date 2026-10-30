@@ -109,6 +109,14 @@ reviewed node and code digest. Uncertainty acknowledgment authorizes a separate
 attempt; it does not claim the previous attempt failed. The existing admission
 controller rejects changed inputs, stale previews and insufficient approvals.
 
+From 0.13.324, a stopped Codex node with Files or isolated Local Python tools can
+offer a separate attempt when its exact terminal receipt records only unknown
+model replies. Run that node individually and explicitly acknowledge the retained
+attempt. Its assignments, files, receipts and unknown response stay unchanged;
+the new attempt does not resume its session or replay its calls. Missing stop
+evidence, unfinished Python/native effects, broader tool authority and whole-job
+replacement remain blocked. Updating Relay does not itself retry the job.
+
 Successful start means admitted, not completed. Keep its run ID and inspect it
 with `run-status`. Relay's service owns dispatch; the CLI does not start a second
 scheduler or automatically retry work. An exact repeated admission uses the same
