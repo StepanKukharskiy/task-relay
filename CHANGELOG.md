@@ -1,3 +1,21 @@
+## 0.13.323 — Local job authoring and agent skill (2026-10-30)
+
+The documented `relay author` interface exposes saved drafts and owning canvases,
+selected operation contracts (including preparation schemas and runtime guidance),
+workflow schemas, selected input files and explicit scoped run admission. Edits
+preview against the exact saved revision and current contracts, retain the exact
+user request and prior revision, and recognize completed retries without starting
+work. Existing canvas validation, artifact bindings, updater locks and run admission
+own the behavior; no separate scheduler or domain controller is introduced.
+
+The bundled relay-author skill guides ordinary job work through that interface.
+It distinguishes maintenance, authoring and execution, and avoids source inspection
+unless diagnosing a defect or developing Relay itself. Portable ZIP template import
+still uses the app. Focused synthetic tests cover stale/tampered previews, contract
+changes, exact retry recognition, retained history, updater locks and a composed
+single-node rerun with fake workers. Release and installed checks are recorded
+separately; no live provider execution is authorized by these checks.
+
 ## 0.13.322 — Local management and agent skill (2026-10-29)
 
 The bundled app now exposes a local management launcher for discovery, diagnostics,

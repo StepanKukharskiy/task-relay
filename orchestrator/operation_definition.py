@@ -175,7 +175,7 @@ def output_presentation(port, label=None):
                 'preview' if path.stem=='preview' and media.startswith('image/') else 'primary')
 
 
-def catalog(*, grant=None, include_legacy=False):
+def catalog(*, grant=None, include_legacy=False, operations=None):
     """Default picker excludes historical duplicates and private record schemas.
 
     This is an interface inventory, not installation or execution authorization.
@@ -186,8 +186,13 @@ def catalog(*, grant=None, include_legacy=False):
     if grant is not None:native &= set(grant.get('operations',[]))
     content={name for (name,version),family in operation_contracts.REGISTRY.items()
              if version==1 and family.get('planning_interface') and family['planning_interface'].get('expose') is not False}
+    names=native|content|{'model','review'}
+    if operations is not None:
+        if not isinstance(operations,list) or not operations or any(not isinstance(n,str) or n not in names for n in operations):
+            raise ValueError('Choose registered operation names')
+        names &= set(operations)
     rows=[]
-    for operation in sorted(native|content|{'model','review'}):
+    for operation in sorted(names):
         display=presentation(operation,grant)
         if display['legacy'] and not include_legacy:continue
         row=dict(**display,definition=definition(operation,grant))

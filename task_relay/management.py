@@ -31,11 +31,11 @@ def paths():
     return resolve(env)
 
 
-def install_skill(destination):
+def install_skill(destination, *, source=SKILL):
     target = Path(destination).expanduser().absolute()
     if any(p.is_symlink() for p in (target, *target.parents)):
         raise ValueError('Choose a skill destination without symbolic links.')
-    source = (SKILL / 'SKILL.md').read_bytes()
+    source = (source / 'SKILL.md').read_bytes()
     if target.exists():
         if (target.is_dir() and {p.name for p in target.iterdir()} == {'SKILL.md'}
                 and (target / 'SKILL.md').is_file() and not (target / 'SKILL.md').is_symlink()

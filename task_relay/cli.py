@@ -5,6 +5,7 @@ import sys
 
 
 COMMANDS = {
+    'author': 'task_relay.author_cli',
     'manage': 'task_relay.management',
     'work-state': 'task_relay.work_state_cli',
     'chatgpt-plugin': 'task_relay.chatgpt_plugin',
@@ -37,13 +38,13 @@ COMMANDS = {
 def main(argv=None):
     from .desktop_binding import apply_binding
     selected_args = list(sys.argv[1:] if argv is None else argv)
-    # Management validates saved bindings itself and must remain available when a
-    # source-release redirection or a desktop binding needs diagnosis/recovery.
-    if not selected_args or selected_args[0] != 'manage':
+    # Local interfaces validate bindings themselves; maintenance must also remain
+    # available when source redirection or a binding needs diagnosis/recovery.
+    if not selected_args or selected_args[0] not in ('manage','author'):
         apply_binding()
     from .updates import redirect
     from .releases import VERSION
-    if not selected_args or selected_args[0] != 'manage':
+    if not selected_args or selected_args[0] not in ('manage','author'):
         redirect(selected_args)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', action='version', version='task-relay ' + VERSION)

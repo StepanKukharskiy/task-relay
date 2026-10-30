@@ -140,6 +140,15 @@ the skill explicitly without changing unrelated agent settings:
 "/Applications/Task Relay.app/Contents/Resources/resources/runtime/relay" manage skill-install --destination "$HOME/.codex/skills/relay-manage"
 ```
 
+For creating and editing saved canvas jobs, use the separate [local authoring
+interface and relay-author skill](docs/job-authoring.md). It exposes operation
+contracts, revision-bound edits and explicit scoped run previews without requiring
+agents to read the application source:
+
+```sh
+"/Applications/Task Relay.app/Contents/Resources/resources/runtime/relay" author skill-install --destination "$HOME/.codex/skills/relay-author"
+```
+
 The development source route remains available:
 
 Start on **macOS with Python 3.11 or newer**, a dedicated Telegram bot token and a

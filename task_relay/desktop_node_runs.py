@@ -419,7 +419,7 @@ def read_canvas(value):
         return canvas_document(Runtime(PATHS.data/'orchestrator',connection=db,read_only=True),value['run'])
 
 
-def save_canvas(value):
+def save_canvas(value, *, authoring=None):
     if set(value)!={'run','revision','title','workflow'}:raise ValueError('Supply the canvas document and revision')
     if not isinstance(value['title'],str) or not 1<=len(value['title'].strip())<=180:raise ValueError('Choose a title of 1–180 characters')
     if len(json.dumps(value['workflow']).encode())>500000:raise ValueError('Canvas is too large')
@@ -427,10 +427,14 @@ def save_canvas(value):
         rt=Runtime(PATHS.data/'orchestrator',connection=db)
         with rt.transaction():
             old=canvas_document(rt,value['run'])
+            if authoring and old.get('authoring')==authoring:
+                return dict(old,execution_authorized=False,reused=True)
             if old['revision']!=value['revision']:raise ValueError('Canvas changed; reopen before saving')
             checked=node_spec.resolve_workflow(value['workflow'],artifact=canvas_lookup(rt,value['run']))
             record=dict(old,title=value['title'].strip(),workflow=checked['document'],
                 values={k:v for k,v in old['values'].items() if k in checked['document']['inputs']})
+            record.pop('authoring',None)
+            if authoring:record['authoring']=authoring
             record.pop('revision');record['revision']=contracts.digest(record)
             rt.event(value['run'],None,None,'canvas_workflow_saved',record)
     return dict(record,missing_inputs=checked['missing_inputs'],execution_authorized=False)
