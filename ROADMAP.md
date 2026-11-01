@@ -1,7 +1,9 @@
 ## 0.13.327 — Automatic local startup and bundled agent skills (2026-11-01)
 
-Release candidate: source implementation complete; qualification pending. Opening the desktop
-app after provider setup (including Later) attempts local startup once. Explicit
+Implemented and installed. The full offline release matrix passed on CI (463 tests
+in 36 groups, no skipped cases), with its source receipt verified against a clean
+export of the merged release code. Opening the desktop app after provider setup
+(including Later) attempts local startup once. Explicit
 Stop pauses app-open and login startup until Start; older stop receipts remain
 respected. Failed or interrupted starts require an explicit retry, and loaded
 unhealthy or externally owned services remain subject to diagnostics/handoff.

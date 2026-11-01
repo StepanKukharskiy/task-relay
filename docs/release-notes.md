@@ -42,3 +42,9 @@ This is a locally signed beta without Apple Developer ID notarization. Provider 
 ## Validation scope
 
 Release publication requires the complete source-matched offline lifecycle gate plus focused template/import, canvas/editor, preparation, media receipt, package and updater checks. Controlled checks do not establish clean-host installation or successful provider execution on every machine. No live template execution is part of release qualification.
+
+## Verification
+
+The full offline lifecycle matrix passed: 463 tests across 36 groups, no skipped cases. Its retained receipt matches the merged public source. Connector/publication, update, native-host and browser/media checks also passed. The installed Mac app was verified against all 491 packaged sources, showed a healthy local worker and both bundled skills ready, and preserved every original held reply/delivery record.
+
+These controlled checks do not claim live model quality or account availability. The existing optional Messages permission requirement remains host-specific.
