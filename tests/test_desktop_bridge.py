@@ -25,6 +25,18 @@ class DesktopBridgeTests(unittest.TestCase):
                                 env=self.env, timeout=10)
         return result, json.loads(result.stdout)
 
+    def test_skill_installation_is_independent_of_service_and_broken_data_binding(self):
+        self.env.update(HOME=str(self.root), CODEX_HOME=str(self.root/'.codex'))
+        binding = self.root/'Library/Application Support/Task Relay Desktop/binding.json'
+        binding.parent.mkdir(parents=True); binding.write_text('{broken')
+        process, frame = self.request('agent-skills-sync', {})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertTrue(frame['value']['ready'])
+        for name in ('relay-manage', 'relay-author'):
+            self.assertTrue((self.root/'.agents/skills'/name/'SKILL.md').is_file())
+        self.assertEqual(binding.read_text(), '{broken')
+        self.assertFalse((self.root/'data').exists())
+
     def test_companion_actions_are_allowed_by_packaged_host(self):
         root = Path(__file__).resolve().parents[1]
         source = (root/'desktop/src-tauri/src/lib.rs').read_text()

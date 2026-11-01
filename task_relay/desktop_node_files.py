@@ -63,10 +63,19 @@ def select_artifact(rt, ident, *, expected_sha256=None):
 
 def dispatch(action,value):
     if action=='node-files':
-        if value:raise ValueError('File listing takes no settings')
+        selected=value.get('artifacts')
+        if value and (set(value)!={'artifacts'} or not isinstance(selected,list) or len(selected)>2000
+                      or any(not isinstance(a,str) or not a or len(a)>160 for a in selected)):
+            raise ValueError('Choose exact selected artifact IDs')
         with closing(_database()) as db:
             if not db.execute("SELECT 1 FROM sqlite_master WHERE name='production_events'").fetchone():return {'files':[]}
-            return {'files':[json.loads(r[0]) for r in db.execute("SELECT data FROM production_events WHERE kind='node_file_selected' ORDER BY id DESC LIMIT 200")]}
+            if selected is not None:
+                rows=db.execute("SELECT data FROM production_events WHERE kind='node_file_selected' AND json_extract(data,'$.artifact') IN (SELECT value FROM json_each(?)) ORDER BY id DESC",(json.dumps(selected),))
+            else:rows=db.execute("SELECT data FROM production_events WHERE kind='node_file_selected' ORDER BY id DESC LIMIT 200")
+            files={}
+            for row in rows:
+                item=json.loads(row[0]);files.setdefault(item['artifact'],item)
+            return {'files':list(files.values())}
     if set(value)!={'paths'} or not isinstance(value['paths'],list) or not 1<=len(value['paths'])<=20:
         raise ValueError('Choose between one and twenty files')
     paths=[Path(p) for p in value['paths'] if isinstance(p,str)]

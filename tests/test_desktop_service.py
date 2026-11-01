@@ -17,6 +17,7 @@ class FakeHost:
         self.loaded = False
         self.fail_bootstrap = False
         self.commands = []
+        self.disabled = False
 
     def require_macos(self, _):
         pass
@@ -32,6 +33,9 @@ class FakeHost:
         elif args[0] == 'bootout':
             self.loaded = False
             code = 0
+        elif args[0] in ('enable', 'disable'):
+            self.disabled = args[0] == 'disable'
+            code = 0
         else:
             raise AssertionError(args)
         return type('Result', (), {'returncode': code})()
@@ -41,7 +45,7 @@ class DesktopServiceTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.runtime = self.root / 'runtime'
         python = self.runtime / 'python/bin/python3'
         python.parent.mkdir(parents=True)
@@ -77,6 +81,85 @@ class DesktopServiceTests(unittest.TestCase):
         service=DesktopService(sleep=lambda _:None)
         with patch.object(service,'_loaded',side_effect=[True,True,False]):
             self.assertTrue(service._wait_unloaded())
+
+    def setup_ready(self):
+        from task_relay.credentials import save
+        save(self.paths.data / 'onboarding.json', {'provider': 'later'})
+
+    def ready(self, seconds):
+        self.tick(seconds)
+        self.heartbeat()
+
+    def test_app_open_starts_without_telegram_but_not_before_setup(self):
+        service = self.service(self.ready)
+        self.assertFalse(service.auto_start()['automatic_start'])
+        self.setup_ready()
+        with patch('task_relay.bridge.DATA', self.paths.data):
+            result = service.auto_start()
+        self.assertTrue(result['healthy'])
+        self.assertTrue(result['automatic_start'])
+        service.auto_start()
+        self.assertEqual(self.host.commands.count('bootstrap'), 1)
+
+    def test_explicit_stop_survives_reopening_and_start_reenables_login(self):
+        self.setup_ready()
+        service = self.service(self.ready)
+        with patch('task_relay.bridge.DATA', self.paths.data):
+            service.auto_start()
+            service.stop()
+            self.assertTrue(self.host.disabled)
+            self.assertFalse(self.service().auto_start()['automatic_start'])
+            self.assertEqual(self.host.commands.count('bootstrap'), 1)
+            service.start()
+        self.assertFalse(self.host.disabled)
+        self.assertEqual(self.host.commands.count('bootstrap'), 2)
+
+    def test_failed_auto_start_is_not_repeated_on_reopen(self):
+        self.setup_ready()
+        self.host.fail_bootstrap = True
+        with patch('task_relay.bridge.DATA', self.paths.data):
+            with self.assertRaises(DesktopServiceError):
+                self.service().auto_start()
+        self.assertFalse(self.service().auto_start()['automatic_start'])
+        self.assertEqual(self.host.commands.count('bootstrap'), 1)
+
+    def test_stop_record_from_older_release_is_respected(self):
+        self.setup_ready()
+        self.service()._write_new()
+        self.service()._receipt('old', 'stop', 'stopped', 'Previous explicit stop')
+        self.assertFalse(self.service().auto_start()['automatic_start'])
+        self.assertNotIn('bootstrap', self.host.commands)
+
+    def test_unhealthy_loaded_service_is_not_restarted_automatically(self):
+        self.setup_ready()
+        self.service()._write_new()
+        self.host.loaded = True
+        self.assertFalse(self.service().auto_start()['automatic_start'])
+        self.assertNotIn('bootstrap', self.host.commands)
+        self.assertNotIn('bootout', self.host.commands)
+
+    def test_incomplete_handoff_and_corrupt_preferences_block_auto_start(self):
+        self.setup_ready()
+        folder = self.paths.data / 'companion-handoffs'
+        folder.mkdir()
+        (folder / 'fixture.json').write_text('{}')
+        with patch('task_relay.desktop_handoff.Handoff._load', return_value={'channel': 'relay', 'phase': 'switching'}):
+            self.assertFalse(self.service().auto_start()['automatic_start'])
+        with self.assertRaises(DesktopServiceError):
+            self.service().auto_start()
+        from task_relay.credentials import save
+        save(self.paths.data / 'desktop-startup.json', {'version': 2, 'enabled': True})
+        self.assertFalse(self.service().auto_start()['automatic_start'])
+        self.assertNotIn('bootstrap', self.host.commands)
+
+    def test_saved_bad_telegram_credential_does_not_block_local_start(self):
+        self.paths.data.mkdir()
+        config = self.paths.data / 'config.json'
+        config.write_text('{broken saved config')
+        config.chmod(0o600)
+        with patch('task_relay.bridge.DATA', self.paths.data):
+            self.assertTrue(self.service(self.ready).start()['healthy'])
+        self.assertEqual(config.read_text(), '{broken saved config')
 
     def test_start_waits_for_fresh_poll_and_stop_preserves_definition(self):
         def ready(seconds):

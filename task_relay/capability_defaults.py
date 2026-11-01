@@ -11,7 +11,7 @@ import time
 
 from .relay_paths import PATHS
 
-CAPABILITIES = {'text': ('gemini', 'openai', 'qwen', 'deepseek', 'openrouter'),
+CAPABILITIES = {'text': ('gemini', 'openai', 'qwen', 'deepseek', 'openrouter', 'codex'),
                 'image': ('gemini', 'openai', 'openrouter','runway','higgsfield'), 'video': ('gemini','runway','higgsfield'),
                 'mesh': ('meshy',)}
 INSTRUCTIONS = '''Use snapshot.capabilities.model_defaults for new work when the user
@@ -104,6 +104,9 @@ def clear_text(db, provider=None):
 def models(provider, cap, config):
     from . import gemini, api_providers as api
     from .providers import CANDIDATES
+    if provider == 'codex':
+        from .codex_chat import MODELS
+        return list(dict.fromkeys(([config['model']] if config else []) + list(MODELS)))
     from .cloud_providers import PROVIDERS
     if provider in PROVIDERS: return PROVIDERS[provider]['models'].get(cap, [])
     current = (config.get('model', api.SPECS[provider]['model']) if cap == 'text' and provider != 'gemini'
@@ -137,8 +140,12 @@ def snapshot(paths=PATHS):
     configs = {}
     for name in dict.fromkeys(p for providers in CAPABILITIES.values() for p in providers):
         try:
-            config = credentials.configuration(paths.data / (name + '.json'))
-        except credentials.CredentialError:
+            if name == 'codex':
+                from .codex_chat import read_config
+                config = read_config(paths)
+            else:
+                config = credentials.configuration(paths.data / (name + '.json'))
+        except ValueError:
             config = None
         if config: configs[name] = overlay(name, config, paths.state)
     rows = []

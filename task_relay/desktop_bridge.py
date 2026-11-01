@@ -4,7 +4,9 @@ import json
 import sys
 
 from .desktop_binding import DesktopBindingError, apply_binding, connect, disconnect
-apply_binding()
+# Installing bundled instructions must work even when an old data binding is broken.
+if not (len(sys.argv) == 2 and sys.argv[1] == 'agent-skills-sync'):
+    apply_binding()
 
 from . import launcher
 from .desktop_macos import DesktopService, DesktopServiceError
@@ -25,6 +27,11 @@ def _cleanup_paths():
 
 
 def dispatch(action, value):
+    if action == 'agent-skills-sync':
+        if value != {}:
+            raise ValueError('Skill installation takes no settings.')
+        from .agent_skills import sync
+        return sync()
     if action=='node-catalog':
         from orchestrator.operation_definition import catalog
         if not isinstance(value,dict) or set(value)-{'include_legacy'} or type(value.get('include_legacy',False)) is not bool:
@@ -312,6 +319,8 @@ def _dispatch(action, value):
         return launcher.update_check()
     if action == 'service-start':
         return DesktopService().start()
+    if action == 'service-auto-start':
+        return DesktopService().auto_start()
     if action == 'service-stop':
         return DesktopService().stop()
     if action == 'messages-start':

@@ -1,5 +1,6 @@
 """Shared check/snapshot/render operations for authored front-end projects."""
 import html
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import shutil
@@ -7,6 +8,7 @@ import stat
 import time
 import zipfile
 from . import hyperframes_contract as contract
+from . import animation_runtime
 from .runtime import safe_file,file_hash
 from .workers import atomic
 from .reel_document import verify_probe
@@ -39,6 +41,8 @@ def materialize(value,workspace,project,runtime):
         target=project/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(text,encoding='utf-8')
     for name,source in value['assets'].items():
         target=project/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(safe_file(workspace,source),target)
+    for name,raw in animation_runtime.files(value).items():
+        target=project/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
     font=project/'assets/relay-font.ttf'
     if not font.exists():font.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(runtime['paths']['font'],font)
     atomic(project/'relay-project.json',value)
@@ -51,7 +55,7 @@ def restore(bundle,receipt,project,maximum=75000000):
             or receipt.get('checks',{}).get('project_sha256')!=file_hash(bundle)):
         raise ValueError('Render requires the exact project ZIP from a passed preview receipt')
     expected=receipt['checks']['project_files'];project.mkdir();total=0;seen=set()
-    if not isinstance(expected,dict) or not 1<=len(expected)<=82:raise ValueError('Invalid preview file inventory')
+    if not isinstance(expected,dict) or not 1<=len(expected)<=84:raise ValueError('Invalid preview file inventory')
     with zipfile.ZipFile(bundle) as z:
         for item in z.infolist():
             name=item.filename
@@ -72,20 +76,65 @@ def restore(bundle,receipt,project,maximum=75000000):
     if set(inventory(project))!=set(expected):raise ValueError('Preview project is missing files')
     value=contract.validate(contract.load((project/'relay-project.json').read_text()))
     required=set(value['files'])|set(value['assets'])|{'relay-project.json','assets/relay-font.ttf'}
+    for name,raw in animation_runtime.files(value).items():
+        required.add(name)
+        if (project/name).read_bytes()!=raw:raise ValueError('Preview animation dependency differs from the pinned runtime')
     if set(expected)!=required:raise ValueError('Preview inventory differs from its authored project')
     for name,text in value['files'].items():
         if (project/name).read_bytes()!=text.encode():raise ValueError('Source in preview ZIP differs from authored manifest')
     return value
 
 
+def policy_document(raw,policy,bootstrap=''):
+    """Insert policy before author resources without changing document parsing mode.
+
+    A meta tag before the author's doctype makes HyperFrames relocate head scripts
+    behind body scripts. Keep a full document's doctype/head intact; wrap fragments.
+    """
+    class Structure(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.tags=[];self.doctypes=[]
+        def source_offset(self):
+            line,column=self.getpos()
+            return sum(len(s) for s in raw.splitlines(keepends=True)[:line-1])+column
+        def handle_starttag(self,tag,attrs):
+            start=self.source_offset()
+            self.tags.append((tag,start,start+len(self.get_starttag_text())))
+        def handle_decl(self,decl):
+            if decl.lower().startswith('doctype'):
+                start=self.source_offset();self.doctypes.append((start,raw.index('>',start)+1))
+    structure=Structure();structure.feed(raw)
+    meta='<meta http-equiv="Content-Security-Policy" content="'+html.escape(policy,quote=True)+'">'+bootstrap
+    head=next((item for item in structure.tags if item[0]=='head'),None)
+    if head:
+        if any(tag!='html' and start<head[1] for tag,start,end in structure.tags):
+            raise ValueError('Project HTML has author content before its head; cannot safely insert resource policy')
+        return raw[:head[2]]+meta+raw[head[2]:]
+    document=next((item for item in structure.tags if item[0]=='html'),None)
+    if document:
+        if any(start<document[1] for tag,start,end in structure.tags):
+            raise ValueError('Project HTML has author content before its html element')
+        return raw[:document[2]]+'<head>'+meta+'</head>'+raw[document[2]:]
+    for start,end in reversed(structure.doctypes):raw=raw[:start]+raw[end:]
+    return '<!DOCTYPE html><html><head>'+meta+'</head><body>'+raw+'</body></html>'
+
+
 def envelope(source,target):
     """Preserve delivered source; apply resource policy only to the disposable runtime copy."""
     shutil.copytree(source,target)
     policy="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    value=json.loads((source/'relay-project.json').read_text()) if (source/'relay-project.json').is_file() else {'version':1}
+    class Root(HTMLParser):
+        ident=None
+        def handle_starttag(self,tag,attrs):
+            if 'data-composition-id' in dict(attrs):self.ident=dict(attrs)['data-composition-id']
     for path in target.rglob('*.html'):
         raw=path.read_text()
-        # A policy before all author source cannot be relaxed by a later meta tag.
-        path.write_text('<!DOCTYPE html><meta http-equiv="Content-Security-Policy" content="'+html.escape(policy,quote=True)+'">\n'+raw)
+        root=Root();root.feed(raw)
+        bootstrap=animation_runtime.initialization(value,root.ident) if path==target/'index.html' else ''
+        # First in head: enforced before resources, without a second doctype.
+        path.write_text(policy_document(raw,policy,bootstrap))
 
 
 def sheet(paths,target,labels):
@@ -132,14 +181,14 @@ def run_project(value,source,work,out,runtime,seconds,maximum,*,render=False):
     sheet(images,out/'contact-sheet.png',[str(t)+'s' for t in value['samples']])
     if not render:archive(frames,out/'frames.zip')
     if inventory(source)!=before:raise ValueError('Authored source changed during execution')
-    checks.update(sample_times=value['samples'],project_files=before,visual_review='not_performed',
+    checks.update(sample_times=value['samples'],project_files=before,animation_runtime=animation_runtime.receipt(value),visual_review='not_performed',
         check_log=check[-12000:],source_policy='Authored source preserved; disposable runtime HTML has an added resource policy.')
     return checks
 
 
 def execute(frozen,control,documents):
     workspace=Path(frozen['workspace']);control=Path(control);out=workspace/'delivery';cap=frozen['execution']['capability']
-    for module in (contract,__import__(__name__,fromlist=['']),media_host):
+    for module in (contract,__import__(__name__,fromlist=['']),media_host,animation_runtime):
         key=('task_relay/' if module is media_host else '')+Path(module.__file__).name
         if frozen['runtime_sources'].get(key)!=file_hash(Path(module.__file__)):raise ValueError('HyperFrames implementation changed after dispatch')
     runtime=available()

@@ -140,6 +140,57 @@ class DesktopService:
         finally:
             temp.unlink(missing_ok=True)
 
+    def _startup_choice(self, enabled):
+        from .credentials import save
+        save(self.paths.data / 'desktop-startup.json', {'version': 1, 'enabled': enabled})
+
+    def auto_start(self):
+        """One UI-open attempt, never recovery of a failed/uncertain start."""
+        from .onboarding import saved
+        from . import api_providers, credentials
+        current = self.status()
+        def held(reason):
+            return {**current, 'automatic_start': False, 'message': reason}
+        if current['loaded'] or current['owner'] == 'other' or (current['bound_source'] and current['owner'] != 'desktop'):
+            return held('Existing service state was preserved. Use connection diagnostics or reviewed handoff if needed.')
+        choice = saved(self.paths.data / 'desktop-startup.json')
+        if choice and (choice.get('version') != 1 or choice.get('enabled') is not True):
+            return held('Automatic startup is paused. Choose Start Relay to resume.')
+        if not choice:
+            history = self.paths.data / 'desktop-service-receipts.jsonl'
+            if history.exists():
+                # Older releases recorded explicit stops without a preference.
+                # Missing completion is not permission to repeat a start.
+                try:
+                    with history.open('rb') as stream:
+                        raw = stream.read(1_000_001)
+                    if len(raw) > 1_000_000:
+                        raise ValueError
+                    records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+                    last = records[-1] if records else {}
+                    if last.get('action') != 'start' or last.get('phase') != 'ready':
+                        return held('Saved service history requires an explicit Start Relay choice.')
+                except (OSError, ValueError, AttributeError):
+                    return held('Service startup history is unreadable. Inspect diagnostics before choosing Start Relay.')
+        # Preserve receipts, including handoffs interrupted after writing the new
+        # definition. Owning the plist alone is not proof of completed handoff.
+        from .desktop_handoff import Handoff
+        handoff = Handoff(paths=self.paths)
+        for path in handoff.folder.glob('*.json'):
+            record = handoff._load(path.stem)
+            if record['channel'] == 'relay' and record['phase'] not in ('complete', 'restored'):
+                return held('Finish reviewing or recovering the saved Relay handoff before automatic startup.')
+        setup = saved(self.paths.data / 'onboarding.json')
+        from .codex_chat import read_config
+        try: codex_ready = bool(read_config(self.paths))
+        except ValueError: codex_ready = False
+        ready = setup.get('provider') == 'later' or codex_ready or any(
+            credentials.status(self.paths.data / (name + '.json'))['available']
+            for name in ('gemini', *api_providers.SPECS))
+        if not ready:
+            return held('Choose a provider or Later to finish local setup.')
+        return {**self.start(), 'automatic_start': True}
+
     def start(self, timeout=25):
         self.host.require_macos('Desktop Relay service')
         from .desktop_binding import FILE
@@ -154,6 +205,9 @@ class DesktopService:
         if self._loaded():
             status = self.status()
             if status['healthy']:
+                if self._command(['enable', f'gui/{os.getuid()}/{LABEL}']).returncode:
+                    raise DesktopServiceError('Relay is running, but macOS could not enable its login startup.')
+                self._startup_choice(True)
                 return {**status, 'message': 'Desktop service is already running.'}
             raise DesktopServiceError('A Relay service is loaded but has no fresh local worker. Inspect its logs before retrying; it was not restarted.')
         created = owner == 'none'
@@ -165,7 +219,13 @@ class DesktopService:
         self.logs.mkdir(parents=True, exist_ok=True, mode=0o700)
         started = self.clock()
         attempt = str(uuid.uuid4())
+        # Commit the no-retry choice before dispatch. A crash or failed attempt
+        # requires explicit Start, even after the app is reopened.
+        self._startup_choice(False)
         self._receipt(attempt, 'start', 'intent', 'Bootstrapping the owned service.')
+        if self._command(['enable', f'gui/{os.getuid()}/{LABEL}']).returncode:
+            self._receipt(attempt, 'start', 'failed', 'macOS rejected enabling the owned service.')
+            raise DesktopServiceError('macOS could not enable Relay. Automatic startup is paused; inspect service diagnostics.')
         result = self._command(['bootstrap', f'gui/{os.getuid()}', str(self.path)])
         if result.returncode:
             if created and self._owner()[0] == 'desktop':
@@ -176,6 +236,7 @@ class DesktopService:
             current = self.status()
             if current['healthy'] and current['last_service'] >= started:
                 self._receipt(attempt, 'start', 'ready', 'A fresh local service worker was observed.')
+                self._startup_choice(True)
                 return {**current, 'message': 'Relay is running locally. Provider execution and messenger delivery still need their own checks.'}
             self.sleep(.25)
         self._command(['bootout', f'gui/{os.getuid()}', str(self.path)])
@@ -191,13 +252,18 @@ class DesktopService:
         self.host.require_macos('Desktop Relay service')
         if self._owner()[0] != 'desktop':
             raise DesktopServiceError('The desktop app does not own this service; nothing was stopped.')
-        if not self._loaded():
-            return {**self.status(), 'message': 'Desktop service is already stopped.'}
+        self._startup_choice(False)
         attempt = str(uuid.uuid4())
-        self._receipt(attempt, 'stop', 'intent', 'Stopping the owned service.')
+        self._receipt(attempt, 'stop', 'intent', 'Disabling login startup and stopping the owned service.')
+        if self._command(['disable', f'gui/{os.getuid()}/{LABEL}']).returncode:
+            self._receipt(attempt, 'stop', 'failed', 'macOS rejected disabling login startup; the service was not stopped.')
+            raise DesktopServiceError('macOS could not disable login startup. Automatic app startup is paused; inspect service diagnostics before stopping.')
+        if not self._loaded():
+            self._receipt(attempt, 'stop', 'stopped', 'Service was already stopped; automatic startup is paused.')
+            return {**self.status(), 'message': 'Desktop service is already stopped.'}
         self._command(['bootout', f'gui/{os.getuid()}', str(self.path)])
         if not self._wait_unloaded():
             self._receipt(attempt, 'stop', 'failed', 'launchd kept the service loaded.')
             raise DesktopServiceError('macOS could not stop the owned service. It remains loaded.')
-        self._receipt(attempt, 'stop', 'stopped', 'Owned service unloaded; its definition remains for next login.')
-        return {**self.status(), 'message': 'Desktop service stopped. It will start again at the next login unless removed.'}
+        self._receipt(attempt, 'stop', 'stopped', 'Owned service unloaded; login and app-open startup are paused.')
+        return {**self.status(), 'message': 'Relay stopped. Choose Start Relay to enable background startup again.'}

@@ -44,6 +44,8 @@ class FixtureHost(Host):
                 if not self.hold_loaded:
                     self.loaded[label] = False
                 code = 0
+            elif operation in ('enable', 'disable'):
+                code = 0
             else:
                 raise AssertionError(args)
         return type('Result', (), {'returncode': code})()
@@ -53,7 +55,7 @@ class HandoffTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.runtime = self.root / 'Task Relay.app/Contents/Resources/resources/runtime'
         self.paths = Paths(self.runtime / 'app', self.root / 'data', self.root / 'work', self.root / 'generated')
         for name in ('python/bin/python3', 'app/task_relay/bridge.py', '../../../MacOS/task-relay-desktop'):
@@ -174,6 +176,20 @@ class HandoffTests(unittest.TestCase):
         plan = self.handoff.prepare('relay')
         self.assertEqual(self.handoff.apply(plan['id'], plan['digest'])['phase'], 'complete')
         self.assertTrue(service.status()['healthy'])
+
+    def test_app_open_starts_stopped_bound_service_only_after_reviewed_handoff(self):
+        from task_relay.credentials import save
+        service, _ = self.old_service(loaded=False)
+        (self.root / 'binding.json').write_text('{}')
+        save(self.paths.data / 'onboarding.json', {'provider': 'later'})
+        plan = self.handoff.prepare('relay')
+        self.assertFalse(service.auto_start()['automatic_start'])
+        self.assertFalse(service._loaded())
+        self.assertEqual(self.handoff.apply(plan['id'], plan['digest'])['phase'], 'complete')
+        self.assertFalse(service._loaded())  # Handoff itself preserves stopped state.
+        self.assertTrue(service.auto_start()['healthy'])
+        with closing(sqlite3.connect(self.paths.state)) as db:
+            self.assertEqual(db.execute('SELECT status FROM messages_delivery').fetchone()[0], 'uncertain')
 
     def test_failed_candidate_restores_prior_owner_and_is_not_reapplied(self):
         service, prior = self.old_service()

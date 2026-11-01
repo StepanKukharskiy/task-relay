@@ -2,6 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 class Element {
  constructor(tag){this.tagName=tag;this.children=[];this.attributes={};this.dataset={};this.style={};this.hidden=false;this.value='';this._text='';this.clientWidth=1000;this.clientHeight=700;this.offsetHeight=27;this.offsetTop=80;this.isConnected=true;const c=new Set();this.classList={add:(...v)=>v.forEach(x=>c.add(x)),remove:(...v)=>v.forEach(x=>c.delete(x)),contains:x=>c.has(x),toggle(x,on){on?c.add(x):c.delete(x);}};}
+ get firstChild(){return this.children[0] || null;}
  get textContent(){return this._text+this.children.map(n=>n.textContent).join(' ');}
  set textContent(v){this._text=String(v);this.children=[];}
  append(...nodes){for(const n of nodes){n.remove();n.parentElement=this;this.children.push(n);}}
@@ -282,10 +283,40 @@ const opts={node,button,saved,stateLabel:s=>s,leave(){},request:async(a,v={})=>{
  walk(chatPanel).find(e=>e.attributes['aria-label']==='Expand Chat to full width').onclick();assert(chatPanel.classList.contains('panel-expanded'));
  walk(chatPanel).find(e=>e.attributes['aria-label']==='Restore Chat width').onclick();assert(!chatPanel.classList.contains('panel-expanded'));
  await cls(root,'canvas-node-run')[0].onclick();await flush();
- assert.equal(tracked,1);assert.equal(cls(root,'job-chat-panel')[0],chatPanel);assert.equal(chatPanel.hidden,false);
+ assert.equal(tracked,2,'opening a saved canvas also refreshes its state');assert.equal(cls(root,'job-chat-panel')[0],chatPanel);assert.equal(chatPanel.hidden,false);
  assert.equal(cls(root,'workflow-inspector')[0].hidden,false);assert.equal(cls(root,'workflow-step')[0].attributes['aria-pressed'],'true');
  assert(btn(root,'Run'));assert.equal(btn(root,'Run workflow'),undefined);assert.equal(btn(root,'History'),undefined);
  assert(resultRenders>0);assert.equal(btn(root,'Results').attributes['aria-pressed'],'true','completion opens Results');assert(root.textContent.includes('Saved cup output'));dispose();
+ // A completed canvas keeps polling after a timeout and reflects external work.
+ const timers=new Map();let timerId=0,refreshes=0;
+ const realTimer=ctx.setTimeout,realClear=ctx.clearTimeout;
+ ctx.setTimeout=(fn,delay)=>{timers.set(++timerId,{fn,delay});return timerId;};ctx.clearTimeout=id=>timers.delete(id);
+ const tick=async()=>{const [id,timer]=timers.entries().next().value;timers.delete(id);await timer.fn();await flush();};
+ const refreshCalls=[];
+ dispose=window.RelayNodeEditor.mount(root,{...opts,record:{...canvasRecord,display:liveView},request:async(a,v)=>{refreshCalls.push(a);return reviewRequest(a,v);},
+   trackRun:async()=>{refreshes++;if(refreshes===1)throw Error('Fixture read timeout');return {...liveView,status:'active',executing_runs:['external-execution'],tasks:liveView.tasks.map(t=>({...t,status:'running'}))};}
+ });await flush();
+ assert.match(root.textContent,/Fixture read timeout/);assert.equal(timers.size,1);assert.equal([...timers.values()][0].delay,5000);
+ await tick();assert.equal(refreshes,2);assert(!root.textContent.includes('Fixture read timeout'));assert.equal(cls(root,'workflow-node')[0].attributes['aria-busy'],'true');
+ assert.equal([...timers.values()][0].delay,2000);
+ field(root,'Job title').value='Unsaved local title';field(root,'Job title').oninput();
+ await tick();assert.equal(field(root,'Job title').value,'Unsaved local title','refresh preserves unsaved edits');
+ assert(!refreshCalls.some(a=>['node-run-start','node-save','node-run-advance'].includes(a)),'refresh does not admit work or save revisions');
+ dispose();assert.equal(timers.size,0);ctx.setTimeout=realTimer;ctx.clearTimeout=realClear;
+ // Workflow-bound imported images become cards and retain exact source wires.
+ const importedRecord=JSON.parse(JSON.stringify(canvasRecord));
+ importedRecord.workflow.inputs={photos:{type:'array',required:true,label:'Reference photos'}};
+ importedRecord.workflow.tasks[0].inputs.files={workflow:'photos'};
+ importedRecord.values={photos:[{artifact:'picked-a'},{artifact:'picked-b'}]};
+ const pickedFiles=[{artifact:'picked-a',sha256:'a',name:'courtyard.png',media_type:'image/png'},{artifact:'picked-b',sha256:'b',name:'timber.png',media_type:'image/png'}];
+ const lookedUp=[];
+ dispose=window.RelayNodeEditor.mount(root,{...opts,record:importedRecord,request:async(a,v)=>{
+   if(a==='node-files'){lookedUp.push(v);return {files:v.artifacts?pickedFiles:[]};}return reviewRequest(a,v);
+ },outputThumbnail:()=>node('img')});await flush();
+ assert(lookedUp.some(v=>v.artifacts?.join(',')==='picked-a,picked-b'));
+ const importedCards=cls(root,'workflow-node').filter(c=>c.textContent.includes('Imported file'));
+ assert.equal(importedCards.length,2);assert(importedCards.some(c=>c.textContent.includes('courtyard.png')));
+ assert.equal(cls(root,'canvas-image-strip').length,2);dispose();
  // Reopening a finished workflow selects its final output without a click.
  dispose=window.RelayNodeEditor.mount(root,{...opts,record:{...canvasRecord,display:liveView},renderResults:(task,panel)=>panel.append(node('p','Finished output'))});await flush();
  assert.equal(cls(root,'workflow-inspector')[0].hidden,false);assert.equal(btn(root,'Results').attributes['aria-pressed'],'true');

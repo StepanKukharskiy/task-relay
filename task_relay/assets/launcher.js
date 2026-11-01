@@ -877,10 +877,10 @@ if (nativeDesktop) document.addEventListener('click', async event => {
 
 function updateProviderFields() {
   const name = $('provider-name').value;
-  $('key-field').hidden = name === 'later';
-  $('model-field').hidden = name === 'later';
+  $('key-field').hidden = name === 'later' || name === 'codex';
+  $('model-field').hidden = name === 'later' || name === 'codex';
   $('endpoint-field').hidden = name !== 'qwen';
-  $('provider-key-link').hidden = name === 'later';
+  $('provider-key-link').hidden = name === 'later' || name === 'codex';
   if (urls[name]) $('provider-key-link').href = urls[name];
 }
 
@@ -914,9 +914,10 @@ $('provider-name').addEventListener('change', () => {
 });
 $('provider-form').addEventListener('submit', event => {
   event.preventDefault();
+  const noKey = ['codex', 'later'].includes($('provider-name').value);
   submit(event.currentTarget, 'provider', {
-    name: $('provider-name').value, key: $('provider-key').value,
-    model: $('provider-model').value, endpoint: $('provider-endpoint').value
+    name: $('provider-name').value, key: noKey ? '' : $('provider-key').value,
+    model: noKey ? '' : $('provider-model').value, endpoint: noKey ? '' : $('provider-endpoint').value
   }, 'provider-feedback', () => { $('provider-key').value = ''; });
 });
 $('telegram-form').addEventListener('submit', event => {

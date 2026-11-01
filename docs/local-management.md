@@ -26,6 +26,27 @@ job execution or service changes. They report configuration, native signature,
 service health and update admission. A failed optional Telegram/provider setup
 check does not automatically establish that app installation is blocked.
 
+### Local startup (0.13.327)
+
+Telegram is optional. Relay's local worker can process explicitly submitted Jobs
+without a bot or pairing. Missing or unreadable Telegram credentials hold remote
+delivery while preserving the saved configuration and reply receipts. Settings
+reports a credential problem separately from local service health.
+
+After choosing a provider or Later, opening the desktop app attempts to start its
+owned background service. Stop Relay pauses both app-open and login startup until
+Start Relay is chosen again. Failed or interrupted startup is not automatically
+repeated on reopening. A loaded but unhealthy worker requires diagnosis, and an
+existing service owned by another installation requires reviewed handoff.
+
+The text headed “Current executable” and “Companion executable” is a handoff
+review, not proof that a service started. Handoff itself preserves stopped state;
+the app's separate startup step follows a completed handoff unless startup is
+paused. Incomplete or unreadable handoff receipts block automatic startup.
+“Check connection” opens local diagnostics; configuring Telegram cannot repair
+a failed local worker. Preserve the data folder and inspect the service error
+before another start attempt.
+
 The launcher disables Python bytecode writes and ignores Python environment/path
 injection. Do not run a system interpreter inside the signed bundle or edit its
 contents. Data, project and output paths follow explicit Relay environment
@@ -34,13 +55,26 @@ saved binding is reported rather than silently selecting another database.
 
 ## Agent skill
 
-The `relay-manage` skill is bundled in both the app and Python distributions.
-Inspect its location, or explicitly install an editable copy into the agent's
-skill directory:
+The `relay-manage` and `relay-author` skills ship inside Relay. Starting with
+0.13.327, opening the Mac app installs them offline into `~/.agents/skills`, the
+user-level discovery location for local ChatGPT Desktop / Codex skills. Existing
+copies in `$CODEX_HOME/skills` or `~/.codex/skills` are reused to avoid duplicates.
+Exact copies are recorded for automatic future updates; edited, linked or unrelated
+copies are preserved and reported in Settings → ChatGPT / Codex skills. Partial
+managed installs recover from a write-ahead receipt without overwriting edits.
+Neither Telegram nor the background worker is needed for skill installation.
+
+Start a new agent chat to use them; restart the agent if they do not appear.
+Local client policy and filesystem access still apply. This does not install the
+separate Relay conversation-reuse plugin or grant access to cloud ChatGPT chats.
+See [OpenAI's local skill discovery documentation](https://learn.chatgpt.com/docs/build-skills).
+
+To check or repair both bundled skills explicitly, run `"$RELAY" manage skills-sync`.
+To inspect or install a copy at a custom location:
 
 ```sh
 "$RELAY" manage skill
-"$RELAY" manage skill-install --destination "$HOME/.codex/skills/relay-manage"
+"$RELAY" manage skill-install --destination "$HOME/.agents/skills/relay-manage"
 ```
 
 For a custom Codex home or another agent, supply that agent's skill directory.
@@ -64,6 +98,7 @@ job contents and raw database records. Do not publish it automatically.
 | `discover` | Local installation, bindings and skill discovery |
 | `diagnose` | Local configuration and app checks |
 | `skill` | Locate the bundled skill |
+| `skills-sync` | Install/update bundled local skills, preserving personal edits |
 | `skill-install --destination PATH` | Explicitly copy the skill without overwriting existing work |
 | `update-status` | Read cached candidate/current attempt; no network |
 | `update-check [--beta]` | Fetch public release metadata; no package installation |

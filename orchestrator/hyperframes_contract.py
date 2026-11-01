@@ -3,6 +3,7 @@
 The files are real front-end source, not a Relay layout or animation schema.
 """
 import math
+import re
 from pathlib import PurePosixPath
 from html.parser import HTMLParser
 from .reel_contract import load
@@ -16,7 +17,7 @@ ASSET_TYPES=('image/png','image/jpeg','image/webp','image/svg+xml','video/mp4','
     'text/javascript','application/javascript','text/css','text/plain')
 TEXT_SUFFIXES={'.html','.css','.js','.mjs','.json','.svg','.glsl','.wgsl','.txt','.md'}
 ASSET_SUFFIXES=TEXT_SUFFIXES|{'.png','.jpg','.jpeg','.webp','.mp4','.webm','.mp3','.wav','.m4a','.ogg','.ttf','.otf','.woff','.woff2'}
-DESCRIPTION='''HyperFrames project version 1: {version:1,width:1080,height:1920,fps:30,
+DESCRIPTION='''HyperFrames project version 2: {version:2,animation_runtime:"gsap",width:1080,height:1920,fps:30,
 duration:14,audio:false,samples:[0.8,3,7,13.8],files:{"index.html":"<!doctype html>...",
 "styles.css":"...","motion.js":"..."},assets:{"assets/photo.png":"exact/input.png"}}.
 All fields required. files maps project-relative names to exact UTF-8 source text;
@@ -26,15 +27,16 @@ cards, characters, transitions, SVG/canvas/WebGL and seekable animation. Follow 
 user's guides and selected storyboard. Never substitute the media.compose template.
 Use inline styles/scripts or separate local files. index.html is the entrypoint.
 Give its single root data-composition-id, matching data-width/data-height/data-duration.
-Register a paused seekable timeline, or use paused WAAPI plus data-no-timeline.
-For the pinned HyperFrames checker, timeline registration must appear in an inline
-script in index.html: window.__timelines["ROOT_ID"] = timeline. Registration only
-in an external JavaScript file is not recognized by its static check. Alternatively,
-use the root data-no-timeline attribute with paused WAAPI animations. Do not invent
+Declare animation_runtime as "gsap" or "waapi". Relay supplies pinned local GSAP
+3.15.0, loads it before authored scripts and creates/registers window.relayTimeline
+as a paused timeline. Add motion with relayTimeline.to/from/set after your elements
+exist (a body script or DOMContentLoaded). Do not load GSAP, choose its version,
+create a replacement timeline or write window.__timelines yourself. For "waapi",
+use the root data-no-timeline attribute and paused browser animations. Do not invent
 a playback controller or manually change timed clip visibility; the framework owns it.
 Give every editable text element a stable id, and load the supplied local font with
 @font-face instead of relying on a system font name.
-Use local declared libraries (including GSAP) and media; no CDN, package installation,
+Use local declared media and authored source; no CDN, package installation,
 Node programs, package.json, hyperframes.json, server code or shell commands. The
 framework controls timed clip visibility and audio/video playback. No wall-clock,
 unseeded randomness or remote services. Fonts may use the supplied assets/relay-font.ttf.
@@ -71,9 +73,13 @@ def path(value):
 
 
 def validate(value,inputs=None):
-    if not isinstance(value,dict) or set(value)!={'version','width','height','fps','duration','audio','samples','files','assets'}:
+    fields={'version','width','height','fps','duration','audio','samples','files','assets'}
+    if isinstance(value,dict) and value.get('version')==2:fields.add('animation_runtime')
+    if not isinstance(value,dict) or set(value)!=fields:
         raise ValueError('Use the exact HyperFrames project fields in project_schema')
-    if type(value['version']) is not int or value['version']!=1:raise ValueError('Unsupported HyperFrames project version')
+    if type(value['version']) is not int or value['version'] not in (1,2):raise ValueError('Unsupported HyperFrames project version')
+    managed=value['version']==2
+    if managed and value['animation_runtime'] not in ('gsap','waapi'):raise ValueError('Choose a registered animation runtime: gsap or waapi')
     if any(type(value[k]) is not int or not 320<=value[k]<=1920 or value[k]%2 for k in ('width','height')) or value['width']*value['height']>2073600:
         raise ValueError('Invalid canvas dimensions')
     if type(value['fps']) is not int or value['fps'] not in (15,24,30):raise ValueError('Invalid project FPS')
@@ -90,6 +96,7 @@ def validate(value,inputs=None):
     seen=set();total=0
     for name,content in files.items():
         path(name)
+        if managed and name.split('/')[0].lower()=='relay-runtime':raise ValueError('Relay owns animation runtime files')
         if PurePosixPath(name).suffix.lower() not in TEXT_SUFFIXES or not isinstance(content,str):raise ValueError('Only UTF-8 front-end source files are supported')
         total+=len(content.encode('utf-8'))
         if not content.strip() or '\x00' in content:raise ValueError('Empty or NUL-containing project source')
@@ -97,6 +104,8 @@ def validate(value,inputs=None):
     if len(seen)!=len(files) or total>2000000:raise ValueError('Project source exceeds bounds or duplicates a case-insensitive path')
     for name,source in assets.items():
         path(name);path(source)
+        if managed and name.split('/')[0].lower()=='relay-runtime':raise ValueError('Relay owns animation runtime files')
+        if managed and PurePosixPath(name).suffix.lower() in ('.js','.mjs'):raise ValueError('Declare animation_runtime; Relay supplies libraries, not project assets')
         if name.casefold() in seen or PurePosixPath(name).suffix.lower() not in ASSET_SUFFIXES:raise ValueError('Invalid or colliding asset destination')
         seen.add(name.casefold())
         if inputs is not None and inputs.get(source) not in ASSET_TYPES:raise ValueError('Asset must name an exact declared compatible input: '+source)
@@ -109,9 +118,17 @@ def validate(value,inputs=None):
         def handle_starttag(self,tag,attrs):
             a=dict(attrs)
             if 'data-composition-id' in a:self.roots.append(a)
+            if tag=='script' and a.get('src'):
+                src=a['src'].strip()
+                if src.startswith('//') or re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:',src):
+                    raise ValueError('Remote script dependencies are unsupported; declare animation_runtime for Relay-managed GSAP')
+                if managed and 'gsap' in PurePosixPath(src).name.lower():raise ValueError('Relay supplies GSAP; remove the authored library script reference')
     parsed=Root();parsed.feed(files['index.html'])
     if len(parsed.roots)!=1:raise ValueError('index.html needs one explicit composition root; put sub-compositions in separate files')
     root=parsed.roots[0]
+    if managed:
+        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}',root.get('data-composition-id','')):raise ValueError('Use a plain named composition root')
+        if (value['animation_runtime']=='waapi')!=('data-no-timeline' in root):raise ValueError('Use data-no-timeline only with the waapi animation runtime')
     try:matching=all(float(root['data-'+k])==value[k] for k in ('width','height','duration'))
     except (KeyError,ValueError,TypeError):matching=False
     if not matching:raise ValueError('Composition root dimensions/duration must match the project manifest')

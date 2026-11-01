@@ -28,6 +28,17 @@ class Host:
         # O10's neutral default remains stable; installers may supply overrides.
         return Path.home()/'.task-relay'
 
+    def agent_skill_roots(self):
+        home = Path.home()
+        roots = [home / '.agents/skills']
+        configured = Path(os.environ.get('CODEX_HOME', str(home / '.codex'))).expanduser()
+        if configured.is_absolute():
+            roots.append(configured / 'skills')
+        legacy = home / '.codex/skills'
+        if legacy not in roots:
+            roots.append(legacy)
+        return roots
+
     def environment_python(self, environment):
         return Path(environment)/('Scripts/python.exe' if self.platform=='win32' else 'bin/python')
 

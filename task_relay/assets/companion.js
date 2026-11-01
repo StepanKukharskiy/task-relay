@@ -9,6 +9,7 @@ let cleanupManifest = null;
 let handoff = null;
 let firstRead = true;
 let readFailed = false;
+let automaticStartAttempted = false;
 const submittedDecisions = new Set();
 let activeRevision = null;
 const revisionRequests = new Map();
@@ -133,7 +134,8 @@ function openSettings(section) {
 }
 function providerFields() {
   const name = $('provider-name').value;
-  $('provider-credentials').hidden = name === 'later';
+  $('provider-credentials').hidden = name === 'later' || name === 'codex';
+  $('codex-chat-help').hidden = name !== 'codex';
   $('provider-key-link').href = keyURLs[name] || keyURLs.gemini;
   $('endpoint-field').hidden = name !== 'qwen';
 }
@@ -227,7 +229,7 @@ function render(info) {
   text('provider-summary', connected.join(', ') || (setup.selected_provider === 'later' ? 'Existing agents' : 'Not connected'));
   if (firstRead && setup.selected_provider) $('provider-name').value = setup.selected_provider;
   providerFields();
-  text('telegram-summary', setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
+  text('telegram-summary', setup.telegram.error ? 'Needs attention: ' + setup.telegram.error : setup.telegram.paired ? 'Paired' : setup.telegram.configured ? 'Pairing pending' : 'Not connected');
   renderAppAccess(info.app_access);
   const browser = info.browser || {};
   text('browser-installation', browser.executable ? `Google Chrome ${browser.version || ''}\n${browser.executable}` : 'Google Chrome not detected');
@@ -284,6 +286,23 @@ function render(info) {
   renderSetup(info);
   firstRead = false;
 }
+async function installAgentSkills() {
+  $('agent-skills-retry').disabled = true;
+  try {
+    const result = await request('agent-skills-sync');
+    text('agent-skills-summary', result.message);
+    const list = $('agent-skills-results'); list.replaceChildren();
+    for (const item of result.skills || []) {
+      const row = document.createElement('li');
+      row.textContent = `${item.name}: ${item.status === 'ready' ? 'Ready' : item.message} — ${item.path}${item.warning ? '. ' + item.warning : ''}`;
+      list.append(row);
+    }
+  } catch (_) {
+    text('agent-skills-summary', 'Skills could not be installed. Check folder access, then retry. Relay can still run locally.');
+  } finally { $('agent-skills-retry').disabled = false; }
+}
+$('agent-skills-retry').onclick = installAgentSkills;
+installAgentSkills();
 async function refresh() {
   if (refreshing || mutating) return;
   refreshing = true;
@@ -319,6 +338,10 @@ async function refresh() {
     $('grant-data-access').hidden = false;
     message(String(error), true);
   } finally { refreshing = false; $('refresh').disabled = false; }
+  if (snapshot && !automaticStartAttempted && window.RelaySetup?.shouldAutoStart(snapshot)) {
+    automaticStartAttempted = true;
+    await change('service-auto-start');
+  }
 }
 function savedWorkError(card, detail) {
   card.querySelector('.saved-work-error')?.remove();
@@ -813,7 +836,7 @@ $('proactive-destination').onchange = () => updateChannels({proactive: $('proact
 $('provider-form').onsubmit = async event => {
   event.preventDefault();
   const values = {name: $('provider-name').value, key: $('provider-key').value, model: $('provider-model').value, endpoint: $('provider-endpoint').value};
-  if (values.name === 'later') values.key = values.model = values.endpoint = '';
+  if (values.name === 'later' || values.name === 'codex') values.key = values.model = values.endpoint = '';
   const result = await change('provider', values, event.submitter);
   $('provider-key').value = '';
   if (result && snapshot) renderSetup(snapshot);

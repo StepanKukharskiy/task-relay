@@ -54,7 +54,7 @@ transport, not a layout or scene template:
 
 ```json
 {
-  "version": 1, "width": 1080, "height": 1920, "fps": 30,
+  "version": 2, "animation_runtime": "gsap", "width": 1080, "height": 1920, "fps": 30,
   "duration": 14, "audio": false, "samples": [0.8, 3, 7, 13.8],
   "files": {
     "index.html": "<!doctype html>...full authored composition...",
@@ -67,11 +67,24 @@ transport, not a layout or scene template:
 
 The entrypoint is `index.html`; its composition root must declare matching width,
 height and duration. Authors control typography, independent layers, transitions,
-SVG/canvas/WebGL, local libraries and media timing. Initialize DOM-dependent code
-when the DOM is ready. Use a paused registered timeline or paused browser-native
-animations with `data-no-timeline`. Stage libraries such as GSAP as declared assets;
-do not assume a CDN or package installation. A local font is supplied as
-`assets/relay-font.ttf`. Sample scene interiors and transition boundaries.
+SVG/canvas/WebGL and media timing. `animation_runtime` selects `gsap` or `waapi`.
+Relay supplies bundled **GSAP 3.15.0**, loads it before authored scripts, creates a
+paused `window.relayTimeline` and registers it with HyperFrames. Author code adds
+motion to that timeline after its elements exist, for example in a body script:
+
+```js
+relayTimeline.from('#title', {opacity: 0, y: 24, duration: 0.6}, 0);
+```
+
+The author does not choose dependency versions, add a GSAP script reference, create
+a replacement timeline or register it. Browser-native (`waapi`) projects instead
+use paused browser animations and `data-no-timeline` on the composition root.
+Relay reserves `relay-runtime/`, rejects remote script dependencies and includes
+managed library hashes in both the immutable preview ZIP and verification receipt.
+Render checks those exact bytes against the pinned runtime. Legacy version 1
+projects keep their explicit local-library contract; saved source is not rewritten.
+A local font is supplied as `assets/relay-font.ttf`. Sample scene interiors and
+transition boundaries.
 
 Bounds are 30 source files / 2 MB source, 50 assets, even dimensions between 320 and
 1920 with at most 2,073,600 pixels, 15/24/30 FPS, 0.5–120 frame-aligned seconds, and
@@ -94,13 +107,24 @@ Save private absolute paths for `node`, `hyperframes` (the package's
 python3 scripts/qualify_hyperframes.py --paths private/media-paths.json --output outputs/hyperframes-qualification-01
 ```
 
+The default qualification exercises both managed GSAP and browser-native WAAPI
+through preview, exact ZIP restoration and MP4 export, checking distinct sampled
+frames. It records both engines, library hashes, CLI/browser identity and wrapper
+implementation. `--gsap /absolute/path/to/gsap.min.js` additionally tests a legacy
+version 1 project with an explicitly supplied local library. Requalify when the
+runtime or wrapper changes; old qualification is not evidence for a new dependency.
+
 Use a fresh directory. This creates a controlled three-layer authored fixture,
 checks it, captures preview frames, restores the exact ZIP, renders it and verifies
 encoded properties. Success records runtime and implementation hashes in private
 `media-runtime.json`; changes invalidate qualification. It makes no provider calls
 and does not approve user content.
 
-The adapter constructs fixed argument arrays with a clean environment. Front-end
+The adapter constructs fixed argument arrays with a clean environment. Its resource
+policy is inserted first inside the HTML head, preserving the document's doctype
+and dependency order. Fragments receive a valid document wrapper; ambiguous author
+content before an explicit head fails closed. Delivered sources remain unchanged.
+Front-end
 JavaScript executes in Chromium; arbitrary Node/server/shell programs and project
 runtime configuration are not accepted. A disposable runtime copy adds a resource
 policy while delivered source stays unchanged. macOS Seatbelt restricts file data

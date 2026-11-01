@@ -52,10 +52,13 @@ def install_skill(destination, *, source=SKILL):
 
 
 def execute(args):
+    if args.action == 'skills-sync':
+        from .agent_skills import sync
+        return sync()
     if args.action == 'skill-install':
         return install_skill(args.destination)
     if args.action == 'skill':
-        return dict(name='relay-manage', path=str(SKILL), auto_installed=False)
+        return dict(name='relay-manage', path=str(SKILL), installation='Installed automatically when the desktop app opens; use manage skills-sync to check or repair.')
     selected = paths()
     if args.action == 'discover':
         applications = []
@@ -98,7 +101,7 @@ def main(argv=None):
         parser = Arguments(description=__doc__)
         parser.add_argument('--app', help='Exact app path when using its retained recovery helper')
         commands = parser.add_subparsers(dest='action', required=True, parser_class=Arguments)
-        for name in ('discover', 'diagnose', 'skill', 'update-status'):
+        for name in ('discover', 'diagnose', 'skill', 'skills-sync', 'update-status'):
             commands.add_parser(name)
         commands.add_parser('skill-install').add_argument('--destination', required=True)
         commands.add_parser('update-check').add_argument('--beta', action='store_true')

@@ -143,3 +143,31 @@ assert.equal(walk(runningUnknown,'canvas-node-run')[0].disabled,true);
  assert.equal(walk(pathHost,'canvas-output-open').length,1,'legacy exact paths stay usable');
  console.log('Quick-open exact ports, ambiguity, unavailable files, selection and history checks passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+// Collection entries retain separate port identities and source-card bindings.
+const imported={name:'imported-images',canvas_document:{},input_sources:[
+ {artifact:'photo-a',sha256:'sha-a',name:'courtyard.png',path:'inputs/a.bin',media_type:'image/png'},
+ {artifact:'photo-b',sha256:'sha-b',name:'timber.png',path:'inputs/b.bin',media_type:'image/png'}],tasks:[
+ {id:'reel',operation:'hyperframes.preview',objective:'Preview reel',status:'draft',planned_inputs:[
+  {path:'files',artifact:'photo-a',source_name:'courtyard.png'},
+  {path:'files',artifact:'photo-b',source_name:'timber.png'}],planned_outputs:[],dependencies:[]}],latest_outputs:[]};
+const untouched=JSON.stringify(imported),projectedImports=root.RelayWorkflow.withCompletedSources(imported);
+const ports=root.RelayWorkflow.taskPorts(projectedImports.tasks.at(-1));
+assert.equal(new Set(ports.inputs.map(p=>p.id)).size,2);
+assert.deepEqual([...ports.inputs.map(p=>p.label)],['courtyard.png','timber.png']);
+const importedEdges=root.RelayWorkflow.canvasEdges(projectedImports.tasks);
+assert.equal(importedEdges.length,2);assert.equal(new Set(importedEdges.map(e=>e.input)).size,2);
+assert.deepEqual([...importedEdges.map(e=>e.from)],['input:photo-a','input:photo-b']);
+const imageHost=node('main'),shown=[];
+const imageDispose=root.RelayWorkflow.mount(imageHost,imported,{...options,outputThumbnail:f=>{shown.push(f);return node('img');}});
+assert.equal(walk(imageHost,'workflow-node').length,3);assert.equal(walk(imageHost,'canvas-image-strip').length,2);
+assert.deepEqual(shown.map(f=>[f.id,f.sha256]),[['photo-a','sha-a'],['photo-b','sha-b']]);
+const consumer=walk(imageHost,'workflow-node').at(-1);
+walk(consumer,'canvas-port').forEach((row,i)=>row.offsetTop=100+i*30);
+frames.splice(0).forEach(f=>f());
+const paths=walk(imageHost,'workflow-lines')[0].children.map(p=>p.attributes.d);
+assert.notEqual(paths[0].split(',').at(-1),paths[1].split(',').at(-1),'each wire reaches its own input row');
+assert.equal(JSON.stringify(imported),untouched);imageDispose();
+console.log('PASS: imported thumbnail cards, exact named outputs and separate collection wire endpoints.');
+
+assert.deepEqual([...root.RelayWorkflow.taskPorts({planned_outputs:[{path:"project.json",purpose:"Project"},{path:"project.zip",purpose:"Project"}]}).outputs.map(p=>p.label)],["Project · project.json","Project · project.zip"]);

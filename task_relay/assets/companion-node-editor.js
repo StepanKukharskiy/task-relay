@@ -3,7 +3,7 @@
   const copy=v=>JSON.parse(JSON.stringify(v));
   function mount(container,o){
     const {node,button,request,saved,stateLabel}=o;
-    let display=o.record?.display,runTimer=null,tracking=false,renderPending=false,disposeInspector=()=>{};
+    let display=o.record?.display,runTimer=null,tracking=false,renderPending=false,statusError=null,disposeInspector=()=>{};
     const canvasIdentity=o.record?.canvas || 'editor:'+(o.record?.id || crypto.randomUUID());
     const inspectorTabs=new Map();
     let record=o.record,document=copy(record?.workflow || {schema_version:1,kind:'workflow',inputs:{},tasks:[]});
@@ -369,7 +369,7 @@
     function definition(task){return rows.find(r=>r.id===task.operation);}
     function outputs(task){return task.operation==='model'?Object.fromEntries(task.outputs.map(p=>[p.name,{...p,label:p.purpose}])):(definition(task)?.outputs || {});}
     function inputs(task){return task.operation==='model'?Object.fromEntries(Object.entries(task.input_definitions).map(([k,v])=>[k,{...v,kind:v.type==='artifact'?'artifact':'value',schema:v}])):(definition(task)?.inputs || {});}
-    function rawRefs(binding){if(binding?.task || binding?.artifact)return [binding];if(Array.isArray(binding?.value))return binding.value.filter(v=>v?.task || v?.artifact);if(binding?.value?.artifact)return [binding.value];return [];}
+    function rawRefs(binding){if(Array.isArray(binding))return binding.flatMap(rawRefs);if(binding?.workflow)return rawRefs(record?.values?.[binding.workflow] ?? document.inputs?.[binding.workflow]?.default);if(binding?.task || binding?.artifact)return [binding];if(Array.isArray(binding?.value))return binding.value.filter(v=>v?.task || v?.artifact);if(binding?.value?.artifact)return [binding.value];return [];}
     function sources(){return (record?.completed_sources || []).filter(s=>document.tasks.some(t=>Object.values(t.inputs).flatMap(rawRefs).some(r=>r.artifact===s.file.id)));}
     function refs(binding){return rawRefs(binding).flatMap(r=>{
       if(r.task)return [r];const s=sources().find(s=>s.file.id===r.artifact);
@@ -382,12 +382,12 @@
           prompt:typeof task.inputs.prompt?.value==='string'?task.inputs.prompt.value:undefined,
           backend:task.model?{type:task.model.provider+'-agent',model:task.model.id}:typeof task.inputs.model?.value==='string'?{model:task.inputs.model.value}:undefined,
           planned_inputs:Object.entries(inputs(task)).filter(([name,p])=>p.kind==='artifact'||p.kind==='artifacts'||refs(task.inputs[name]).length).flatMap(([name,p])=>{
-            const links=refs(task.inputs[name]);return links.length?links.map(r=>({path:name,purpose:p.label,from_task:r.task,output:r.output})):[{path:name,purpose:p.label}];}),
+            const links=rawRefs(task.inputs[name]);return links.length?links.map(r=>{const source=r.task?r:refs({artifact:r.artifact})[0] || r;return {path:name,purpose:p.label,from_task:source.task,output:source.output,artifact:r.artifact,source_name:localFiles.find(f=>f.artifact===r.artifact)?.name};}):[{path:name,purpose:p.label}];}),
           planned_outputs:Object.entries(outputs(task)).map(([name,p])=>({path:name,output_port:name,purpose:p.label})),
           dependencies:[...new Set(Object.values(task.inputs).flatMap(refs).map(r=>r.task))].map(task=>({task}))};
       });
       return {...display,name:canvasIdentity+':'+JSON.stringify(document.tasks.map(t=>[t.id,Object.values(t.inputs).flatMap(refs)])),
-        tasks:[...sources().map(s=>s.node),...tasks],executing_runs:display?.executing_runs || [],latest_outputs:display?.latest_outputs || sources().map(s=>s.file)};
+        tasks:[...sources().map(s=>s.node),...tasks],input_sources:localFiles,executing_runs:display?.executing_runs || [],latest_outputs:display?.latest_outputs || sources().map(s=>s.file)};
     }
     async function trackExecution(run){
       if(tracking || closed)return;tracking=true;if(runTimer)clearTimeout(runTimer);
@@ -397,14 +397,18 @@
         const previous=window.RelayWorkflow.renderKey(display);display=view;
         const done=completedResult(view);
         if(done && done.key!==completionSeen){selected=done.task;inspectorTabs.set(selected,'results');completionSeen=done.key;renderPending=true;}
-        record={...view.canvas_document};saveChatScope();o.onSaved?.(record);
+        if(!dirty && !pending && !canvas.querySelector('input:focus,textarea:focus,select:focus')){
+          record={...view.canvas_document};document=copy(record.workflow);title.value=record.title;committedTitle=record.title;saveChatScope();o.onSaved?.(record);
+          loadSelectedFiles();
+        }
+        if(statusError && notice.firstChild===statusError){notice.replaceChildren();statusError=null;}
         status.textContent=stateLabel(view.status);runButton.disabled=!!view.executing_runs?.length;
         renderPending ||= previous!==window.RelayWorkflow.renderKey(view);
         if(renderPending && !canvas.querySelector('input:focus,textarea:focus,select:focus')){render();renderPending=false;}
       };
       try{paint(await o.trackRun(run,paint,()=>!closed));}
-      catch(e){notice.replaceChildren(node('span','Run started, but its status could not be refreshed: '+String(e)),button('Refresh status',()=>trackExecution(run),'quiet'));}
-      finally{tracking=false;if(!closed && (renderPending || display?.executing_runs?.length || ['active','settling'].includes(display?.status) || display?.canvas_pending))runTimer=setTimeout(()=>trackExecution(run),2000);}
+      catch(e){if(!closed){statusError=node('span','Run status could not be refreshed: '+String(e));notice.replaceChildren(statusError,button('Refresh status',()=>trackExecution(run),'quiet'));}}
+      finally{tracking=false;if(!closed)runTimer=setTimeout(()=>trackExecution(run),display?.executing_runs?.length || ['active','settling'].includes(display?.status)?2000:5000);}
     }
     function completedResult(view){
       if(view?.status!=='completed' || view.executing_runs?.length)return null;
@@ -435,6 +439,12 @@
     function inspectInputs(projected,panel){
       if(projected.reused_source){
         selected=projected.id;
+        if(projected.operation==='input.file'){
+          const file=localFiles.find(f=>'input:'+f.artifact===projected.id);
+          panel.append(node('p','Imported file · exact saved version.','hint'));
+          if(file && o.openOutput)panel.append(button('Open '+file.name,()=>o.openOutput({...file,id:file.artifact,path:file.name}),'quiet'));
+          return;
+        }
         panel.append(node('p','Completed source · exact saved result. This node will not run again.','hint'));
         if(projected.prompt)panel.append(node('h4','Original prompt'),node('p',projected.prompt));
         panel.append(button('Open original run',()=>o.onRun(projected.run),'quiet'));
@@ -645,8 +655,14 @@
         search.oninput=draw;draw();search.focus();
       }catch(e){library.replaceChildren(node('p',String(e)));}
     }
-    request('node-files',{}).then(result=>{localFiles=result.files || [];}).catch(()=>{});
-    request('node-catalog',{include_legacy:false}).then(result=>{if(closed)return;rows=result.operations.filter(r=>!r.legacy);render();if(o.picker)openLibrary();if(o.runScope)showRun(o.runScope);else if(o.trackRun && record?.canvas && (display?.executing_runs?.length || ['active','settling'].includes(display?.status) || display?.canvas_pending))trackExecution(record.canvas);}).catch(e=>{notice.textContent=String(e);});
+    let selectedFilesKey=null;
+    function loadSelectedFiles(){
+      const artifacts=[...new Set(document.tasks.flatMap(t=>Object.values(t.inputs).flatMap(rawRefs).map(r=>r.artifact)).filter(Boolean))].sort(),key=JSON.stringify(artifacts);
+      if(selectedFilesKey===key)return;selectedFilesKey=key;
+      request('node-files',{artifacts}).then(result=>{if(closed || selectedFilesKey!==key)return;localFiles=[...new Map([...localFiles,...result.files].map(f=>[f.artifact,f])).values()];if(canvas.querySelector('input:focus,textarea:focus,select:focus'))renderPending=true;else render();}).catch(()=>{if(selectedFilesKey===key)selectedFilesKey=null;});
+    }
+    request('node-files',{}).then(result=>{if(closed)return;localFiles=[...new Map([...result.files,...localFiles].map(f=>[f.artifact,f])).values()];if(canvas.querySelector('input:focus,textarea:focus,select:focus'))renderPending=true;else render();}).catch(()=>{});
+    request('node-catalog',{include_legacy:false}).then(result=>{if(closed)return;rows=result.operations.filter(r=>!r.legacy);loadSelectedFiles();render();if(o.picker)openLibrary();if(o.runScope)showRun(o.runScope);else if(o.trackRun && record?.canvas)trackExecution(record.canvas);}).catch(e=>{notice.textContent=String(e);});
     return ()=>{closed=true;if(window.RelayNodeEditor.updateChatDefaults===receiveChatDefaults)delete window.RelayNodeEditor.updateChatDefaults;window.removeEventListener('keydown',historyKeydown);if(window.RelayNodeEditor.history===nativeHistory)delete window.RelayNodeEditor.history;if(chatTimer)clearTimeout(chatTimer);if(runTimer)clearTimeout(runTimer);undoStack.length=0;redoStack.length=0;disposeInspector();dispose();};
   }
   window.RelayNodeEditor={mount};

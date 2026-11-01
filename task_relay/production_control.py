@@ -119,7 +119,7 @@ def upload_path(state, row):
     return safe_file(root(state).parent/'production-guides',relative_path(state,row))
 
 
-def inspect(state, focus=None, include_files=True, *, exact=False):
+def inspect(state, focus=None, include_files=True, *, exact=False, include_context=True):
     from orchestrator.storage import transaction
     db = state.db
     with transaction(db,write=False):
@@ -214,7 +214,7 @@ def inspect(state, focus=None, include_files=True, *, exact=False):
                 FROM production_decisions d JOIN production_artifacts a ON a.id=d.artifact WHERE d.run=?''',(row['id'],))]
             if row['id'] == focus and include_files:
                 from orchestrator.artifact_dependencies import run_lineage
-                view['artifact_lineage'] = run_lineage(db, row['id'], limit=40)
+                if include_context:view['artifact_lineage'] = run_lineage(db, row['id'], limit=40)
                 artifacts = [dict(a) for a in db.execute('SELECT * FROM production_artifacts WHERE run=? AND attempt IS NULL ORDER BY path', (row['id'],))]
                 view['registered_files'] = [{k: a[k] for k in ('id', 'path', 'purpose', 'sha256', 'bytes')} for a in artifacts]
                 view['reference_texts'] = []
@@ -251,7 +251,7 @@ def inspect(state, focus=None, include_files=True, *, exact=False):
                     path=a['path']
                     return (0 if path.startswith('continuation/') else 1 if path.startswith('request/') else
                             3 if path.startswith(('continuation-history/','previous-stage/')) else 2,path)
-                for a in sorted(artifacts,key=priority) + outputs:
+                for a in (sorted(artifacts,key=priority) + outputs if include_context else []):
                     if not a['path'].endswith(('.md', '.json', '.txt')) or (a in artifacts and not a['path'].endswith('.md') and a['path'] not in ('continuation/REQUEST.txt','continuation/USER_FEEDBACK.json')):
                         continue
                     is_output = a in outputs

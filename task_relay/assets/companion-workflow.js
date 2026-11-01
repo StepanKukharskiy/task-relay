@@ -174,19 +174,20 @@
     return short.charAt(0).toUpperCase()+short.slice(1);
   }
   const portName=path=>String(path || '').split('/').pop();
+  const inputKey=(task,p,i)=>(task.planned_inputs || []).filter(x=>x.path===p.path).length>1?JSON.stringify([p.path,i]):p.path || String(i);
   function taskPorts(task){
     const imageOperation=(task.execution?.capability || task.operation || '').endsWith('.image');
     const image=p=>p.media_type?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(p.path || '');
-    return {inputs:(task.planned_inputs || []).map((p,i)=>({id:p.path || String(i),label:p.name || (imageOperation && (image(p) || ['files','result'].includes(p.path))?'Reference image':p.purpose || portName(p.path) || 'Input')})),
-      outputs:(task.planned_outputs || []).map((p,i)=>({output_port:p.output_port,id:p.path || String(i),label:p.label || p.name || (image(p) || imageOperation?'Generated image':p.purpose || portName(p.path) || 'Output')}))};
+    return {inputs:(task.planned_inputs || []).map((p,i)=>({id:inputKey(task,p,i),label:p.name || ((task.planned_inputs || []).filter(x=>x.path===p.path).length>1?portName(p.output || p.source_name || p.artifact) || `${p.purpose || p.path} ${i+1}`:null) || (imageOperation && (image(p) || ['files','result'].includes(p.path))?'Reference image':p.purpose || portName(p.path) || 'Input')})),
+      outputs:(task.planned_outputs || []).map((p,i)=>({output_port:p.output_port,id:p.path || String(i),label:p.label || p.name || (image(p) || imageOperation?'Generated image':p.purpose || portName(p.path) || 'Output')})).map((p,_,all)=>({...p,label:all.filter(x=>x.label===p.label).length>1?p.label+' · '+portName(p.id):p.label}))};
   }
   function canvasEdges(tasks){
     const byId=new Map(tasks.map(t=>[t.id,t])),edges=[],seen=new Set(),pairs=new Set();
-    for(const task of tasks)for(const input of task.planned_inputs || []){
+    for(const task of tasks)for(const [index,input] of (task.planned_inputs || []).entries()){
       const from=byId.get(input.from_task);
       if(!from || !input.output || !(from.planned_outputs || []).some(o=>o.path===input.output))continue;
-      const key=JSON.stringify([from.id,task.id,input.output,input.path]);if(seen.has(key))continue;seen.add(key);pairs.add(JSON.stringify([from.id,task.id]));
-      edges.push({from:from.id,to:task.id,output:input.output,input:input.path,kind:'binding'});
+      const port=inputKey(task,input,index),key=JSON.stringify([from.id,task.id,input.output,port]);if(seen.has(key))continue;seen.add(key);pairs.add(JSON.stringify([from.id,task.id]));
+      edges.push({from:from.id,to:task.id,output:input.output,input:port,kind:'binding'});
     }
     for(const edge of layout(tasks).edges)if(!pairs.has(JSON.stringify([edge.from,edge.to])))edges.push({...edge,kind:'dependency'});
     return edges;
@@ -222,12 +223,19 @@
     return {name:'pipeline:'+view.id,tasks,latest_outputs,historical_outputs,missing};
   }
   function withCompletedSources(view){
-    const sources=view.completed_sources || [];
+    const sources=[...(view.completed_sources || [])];
+    const wanted=new Set((view.tasks || []).flatMap(t=>(t.planned_inputs || []).map(p=>p.artifact)).filter(Boolean));
+    for(const item of view.input_sources || []){
+      if(!wanted.has(item.artifact) || sources.some(s=>s.file.id===item.artifact))continue;
+      const id='input:'+item.artifact,name=item.name || portName(item.path);
+      sources.push({node:{id,objective:name,operation:'input.file',reused_source:true,status:'completed',dependencies:[],planned_inputs:[],planned_outputs:[{path:name,label:name,media_type:item.media_type}]},
+        file:{...item,id:item.artifact,task:id,path:name,display_name:name}});
+    }
     const files=[...(view.latest_outputs || []),...sources.map(s=>s.file)];
     const tasks=[...sources.map(s=>s.node),...(view.tasks || []).map(t=>({...t,
       dependencies:[...(t.dependencies || [])],
       planned_inputs:(t.planned_inputs || []).map(input=>{
-        if(view.canvas_document)return input;
+        if(view.canvas_document && input.from_task)return input;
         const exact=(t.recorded_inputs || []).find(r=>r.path===input.path) || input;
         const file=files.find(f=>f.task!==t.id && f.id===exact.artifact && (!exact.sha256 || f.sha256===exact.sha256));
         return file?{...input,from_task:file.task,output:file.path}:input;
@@ -258,7 +266,7 @@
     const positions=new Map(), portRows=new Map();
     let wireStyle=remembered?.wireStyle || 'bezier';
     let selected=tasks.find(t=>t.id===selection) || null, camera={x:50,y:90,scale:1}, disposed=false, dragging=null, suppressClick=false, fitted=!!remembered;
-    const pictures=task=>(view.latest_outputs || []).filter(f=>f.task===task.id && f.id && f.sha256 && /\.(png|jpe?g|webp|gif)$/i.test(f.path));
+    const pictures=task=>(view.latest_outputs || []).filter(f=>f.task===task.id && f.id && f.sha256 && (f.media_type?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(f.path)));
     function arrange(savedPositions={}){graph.layers.forEach((layer,x)=>{let y=0;for(const task of layer){positions.set(task.id,savedPositions[task.id] || {x:x*270,y});const ports=taskPorts(task);y+=240+24*(ports.inputs.length+ports.outputs.length)+(options.outputThumbnail && pictures(task).length?130:0);}});}
     arrange(remembered?.positions);
     if(remembered)camera={...remembered.camera};
@@ -395,7 +403,7 @@
       }
       if(modelLabel(task))card.append(node('div',modelLabel(task),'canvas-model'));
       if(task.outdated)card.append(node('div','Result from an earlier prompt or input','canvas-attempts'));
-      if(task.reused_source)card.append(node('div','Saved result · will not rerun','canvas-attempts'));
+      if(task.reused_source)card.append(node('div',task.operation==='input.file'?'Imported file':'Saved result · will not rerun','canvas-attempts'));
       if(Number.isInteger(task.attempts))card.append(node('div',`${task.attempts}/${task.max_attempts ?? '—'} attempts`,'canvas-attempts'));
       if(promptValue(task)){
         const prompt=node('div',undefined,'canvas-prompt');prompt.title=promptValue(task);
