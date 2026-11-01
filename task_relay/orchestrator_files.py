@@ -142,6 +142,10 @@ def run(name, client, endpoint, request, roots, receipt, web=None, context=None,
     specs = definitions(roots, web, context)
     if response_definition:
         specs.append(copy.deepcopy(response_definition))
+    if name == 'codex':
+        # Freeze the finite conversation lifecycle surface before the thread.
+        # Phase checks below still enforce intake, reads and final-only routing.
+        client.set_tools(specs + ([intake_definition] if intake_definition else []))
     def set_tools():
         request.pop('tool_choice',None);request.pop('toolConfig',None)
         if not specs:request.pop('tools',None)

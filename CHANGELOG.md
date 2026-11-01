@@ -1,3 +1,71 @@
+## 0.13.327 — Automatic local startup and bundled agent skills (2026-11-01)
+
+Release candidate: source implementation complete; qualification pending. Opening the desktop
+app after provider setup (including Later) attempts local startup once. Explicit
+Stop pauses app-open and login startup until Start; older stop receipts remain
+respected. Failed or interrupted starts require an explicit retry, and loaded
+unhealthy or externally owned services remain subject to diagnostics/handoff.
+Completed handoff and startup are separate actions; incomplete handoffs block
+automatic startup.
+
+Unreadable Telegram credentials no longer prevent the local worker from starting.
+Their saved bytes remain untouched; Settings reports the channel error separately.
+An unavailable transport holds remote text, attachments and uncertain receipts
+without creating delivery attempts, while local desktop routing continues.
+Focused controlled startup, handoff, delivery and UI checks are recorded privately;
+these are not installed or live Telegram qualification.
+
+The desktop app automatically installs bundled `relay-manage` and `relay-author`
+skills into the user's local agent skill directory on opening. Existing exact
+copies in legacy Codex locations are reused without duplicate names. Subsequent
+updates replace only recorded, unchanged content; personal edits, links and
+unrecognized files are preserved. Settings shows installation results and retry.
+This works offline and independently of Telegram, provider credentials and the
+Relay background worker. Agent discovery and permissions remain host-controlled.
+
+Codex is an explicit conversation provider using existing ChatGPT sign-in, without
+API-key billing or credential extraction. It reuses the qualified Codex transport
+and bounded intake/read/response loop. Selection requires an exact qualified local
+runtime; the stock desktop app alone is insufficient. Subscription limits apply;
+media-provider credentials remain separate. Missing replies are retained without
+replay and existing queued chats keep their original provider/model.
+
+## 0.13.326 — Live canvas refresh and managed animation runtimes (2026-10-31)
+
+Open saved canvases keep refreshing after completion and transient read failures,
+so externally started nodes appear without reopening the job. A successful read
+clears its timeout notice while preserving unsaved edits. History projection skips
+unused per-version context panels, attachment discovery and text reads, retaining
+exact attempts and output identities.
+
+Imported image inputs appear as thumbnail cards with filename outputs and exact
+artifact connections, including files outside the recent picker list. Collection
+input rows have distinct port identities and source names; wires reach their own
+rows. Repeated output labels include their filename or port name.
+
+New HyperFrames projects declare `gsap` or `waapi`. Relay supplies pinned GSAP
+3.15.0, dependency hashes, loading order and paused timeline registration. Preview
+bundles retain the managed files; render validates them against the pinned runtime.
+Legacy local-library projects remain supported. Qualification now exercises both
+managed runtimes through actual preview and export with distinct sampled frames.
+Focused synthetic UI, history and artifact-binding checks remain separate from
+installed verification and user-content acceptance. No user job is retried.
+
+## 0.13.325 — Preserve local animation dependency loading (2026-10-31)
+
+The authored-media wrapper now places its resource policy first inside the HTML
+head instead of prepending a second document declaration. The previous malformed
+wrapper caused HyperFrames to run authored animation code before its local GSAP
+dependency. Source bundles and the restrictive policy remain unchanged; fragments
+receive valid wrappers, and ambiguous pre-head content fails closed.
+
+Focused tests cover document parsing, dependency order, immutable source bundles,
+preview/render bindings and failed-operation receipts. Media qualification can now
+exercise an actual local GSAP dependency and registered timeline through preview
+and export, recording its hash separately from the browser-native fixture.
+Installed and live reel outcomes are recorded in private execution notes; source
+checks alone do not establish delivery. Prior failed runs are preserved.
+
 ## 0.13.324 — Explicit replacement of stopped Python authors (2026-10-30)
 
 A selected Codex node using Files or isolated Local Python can admit an explicitly

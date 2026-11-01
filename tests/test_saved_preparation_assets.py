@@ -20,7 +20,7 @@ class SavedAssets(unittest.TestCase):
         frozen=dict(inputs=[dict(i,sha256=self.artifacts[i['artifact']]['sha256']) for i in assets],
             operation_contract=dict(id='operation.preparation',version=1,output='outputs/project.json',parameters=dict(target=target)))
         if target=='hyperframes.preview':
-            doc=dict(version=1,width=320,height=568,fps=30,duration=2,audio=True,samples=[1],files={'index.html':'<main data-composition-id="main" data-width="320" data-height="568" data-duration="2"></main>'},assets={'assets/image.png':assets[0]['path'],'assets/audio.wav':assets[1]['path']})
+            doc=dict(version=2,animation_runtime="gsap",width=320,height=568,fps=30,duration=2,audio=True,samples=[1],files={'index.html':'<main data-composition-id="main" data-width="320" data-height="568" data-duration="2"></main>'},assets={'assets/image.png':assets[0]['path'],'assets/audio.wav':assets[1]['path']})
         else:
             doc=dict(version=1,width=320,height=568,fps=30,background='#ffffff',foreground='#000000',accent='#555555',audio=assets[1]['path'],scenes=[dict(duration=2,title='Fixture',body='',image=assets[0]['path'],entrance='fade',narration='')])
         self.put('project',json.dumps(doc).encode(),attempt='producer',run='run',task='author',path='outputs/project.json')

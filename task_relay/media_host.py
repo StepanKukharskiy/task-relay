@@ -54,14 +54,17 @@ def available(feature='template'):
             raise ValueError('Media runtime changed or is not qualified; run the local media qualification again.')
         if feature=='project' and saved.get('project_qualified') is not True:
             raise ValueError('Full HyperFrames project execution needs its separate preview/render qualification.')
+        if feature=='project' and saved.get('animation_runtimes')!=['gsap','waapi']:
+            raise ValueError('Managed GSAP and WAAPI need preview/render qualification; run the local media qualification again.')
         return current
     except (OSError,KeyError,TypeError,json.JSONDecodeError) as exc:
         raise ValueError('Local reel renderer is not configured and qualified; see docs/reels.md.') from exc
 
 
 def implementation():
-    from orchestrator import reel_document,reel_contract,hyperframes_project,hyperframes_contract
-    return {Path(m.__file__).name:digest(m.__file__) for m in (sys.modules[__name__],reel_document,reel_contract,hyperframes_project,hyperframes_contract)}
+    from orchestrator import reel_document,reel_contract,hyperframes_project,hyperframes_contract,animation_runtime
+    return {**{Path(m.__file__).name:digest(m.__file__) for m in (sys.modules[__name__],reel_document,reel_contract,hyperframes_project,hyperframes_contract,animation_runtime)},
+            **animation_runtime.identity()}
 
 
 def environment(runtime,folder):

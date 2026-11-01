@@ -376,7 +376,7 @@ def _project_canvas(state,rt,view,paths):
     def execution(identity):
         other=identity['run']
         if other==run:return originals.get(identity['task']),[f for f in view.get('latest_outputs',[]) if f['task']==identity['task']]
-        if other not in cache:cache[other]=_view(state,other,paths,project_canvas=False)
+        if other not in cache:cache[other]=_view(state,other,paths,project_canvas=False,summary=True)
         child=cache[other]
         return next((t for t in child['tasks'] if t['id']==identity['task']),None),[f for f in child.get('latest_outputs',[]) if f['task']==identity['task']]
     for node in resolved['tasks']:
@@ -463,10 +463,10 @@ def _result_presentation(db, file):
                 open_with=display.get('open_with'),output_port=display.get('output_port'))
 
 
-def _view(state, run, paths=PATHS, *, project_canvas=True):
+def _view(state, run, paths=PATHS, *, project_canvas=True, summary=False):
     from . import production_control as pc
     from orchestrator.runtime import Runtime
-    view = next(iter(pc.inspect(state, run, exact=True)), None)
+    view = next(iter(pc.inspect(state, run, exact=True,include_context=not summary)), None)
     if not view:
         raise DesktopPlanError('That saved job is unavailable.')
     rt = Runtime(pc.root(state), connection=state.db, read_only=True)
@@ -476,7 +476,7 @@ def _view(state, run, paths=PATHS, *, project_canvas=True):
     if state.db.execute("SELECT 1 FROM sqlite_master WHERE name='desktop_node_runs'").fetchone():
         view['canvas_run']=bool(state.db.execute('SELECT 1 FROM desktop_node_runs WHERE run=?',(run,)).fetchone())
         view['canvas_pending']=view['canvas_run'] and bool(state.db.execute("SELECT 1 FROM production_attempts WHERE run=? AND state IN ('launching','running','cancelling')",(run,)).fetchone())
-        if view['canvas_run']:
+        if view['canvas_run'] and not summary:
             from .desktop_node_runs import result_chats
             view['result_chats']=result_chats(state.db,run)
     if plan.get('job_owner', {}).get('node_contract'):
@@ -502,6 +502,9 @@ def _view(state, run, paths=PATHS, *, project_canvas=True):
             registered = state.db.execute('SELECT id,path,bytes,sha256 FROM production_artifacts WHERE id=?', (item.get('artifact'),)).fetchone()
             value['file'] = dict(registered) if registered and registered['sha256'] == item.get('sha256') else None
             task['recorded_inputs'].append(value)
+    # Historical versions need task state and exact outputs, not unrelated
+    # control panels, attachment discovery, source research or conversation text.
+    if summary:return view
     if view.get('canvas_run') and project_canvas and not state.db.execute("SELECT 1 FROM production_events WHERE run=? AND kind='canvas_node_version'",(run,)).fetchone():
         _project_canvas(state,rt,view,paths)
     if project_canvas and not view.get('canvas_document') and state.db.execute(

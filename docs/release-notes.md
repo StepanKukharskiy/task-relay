@@ -1,33 +1,21 @@
-# Task Relay 0.13.324
+# Task Relay 0.13.327
 
-Mac beta fixing explicit replacement of stopped Codex nodes using isolated Local Python. Includes the current UI, canvas, nodes, both templates and the retained-reply updater fix.
+## Start locally, with agent skills included
 
-## Stopped Python author recovery
+- Opening Relay starts its local worker after provider setup (or Later). Telegram is optional; an unreadable saved bot credential no longer blocks local startup.
+- Stop Relay pauses automatic startup until Start is chosen again. Failed starts and incomplete handoffs require inspection; existing installations are not silently replaced.
+- `relay-manage` and `relay-author` install automatically for local ChatGPT Desktop / Codex when Relay opens, without a separate download. Managed unchanged copies update with Relay; personal edits remain intact. Settings shows skill readiness. Start a new agent chat; restart the agent if needed. Local permissions still apply.
+- The handoff review is clearly separate from a completed start. Previously held replies and uncertain delivery receipts remain preserved without resending.
 
-- Run an eligible stopped Codex node separately to confirm a fresh attempt, including nodes using isolated Local Python.
-- The old receipt must prove the worker stopped and contain no unfinished Python or native effect. Unknown model replies remain unknown; their calls are never replayed.
-- Previous assignments, files and uncertain history remain unchanged. Missing stop evidence, broader tool authority and whole-job replacement still block admission.
-- Installation does not start or retry any job.
+## Codex chat without an API key
 
-## Local job authoring
+Settings → AI connection now offers **Codex · ChatGPT sign-in**. It uses the existing Codex ChatGPT login and account allowance. Relay requires its separately qualified Codex tool runtime (see `docs/codex-tool-gate.md`); installing ChatGPT Desktop alone does not supply that runtime. No API-key fallback or credential copying is used. Image/video providers keep their separate connections. This adapter is qualified with offline protocol fixtures; no live subscription request is implied.
 
-- `relay author` discovers saved jobs and selected operation contracts, including Blender preparation schemas and runtime guidance, without reading implementation files.
-- Preview and save edits against the exact revision. Saves retain the original request and prior version, reject changed contracts or stale edits, and never authorize execution.
-- Explicit run previews and starts reuse the existing canvas controller for one selected node or the whole job. Paid tools, host code and uncertain prior attempts keep their existing approval boundaries.
-- Install the bundled relay-author skill with `relay author skill-install --destination PATH`. Existing edited skills are preserved. Portable ZIP templates are imported through the app before editing their saved drafts.
-- Read the [job authoring guide](https://github.com/StepanKukharskiy/task-relay/blob/v0.13.324/docs/job-authoring.md). A separate skill ZIP is included.
+## Canvas and animation fixes
 
-## Local management
-
-- A bundled launcher provides JSON discovery, local diagnostics, update status/check/download/install, receipt inspection and exact-attempt recovery. No source checkout or system Python is needed for the Mac app.
-- The interface uses the existing updater. Signed-package checks, database compatibility probes, backups, service ownership and no-replay safeguards remain unchanged.
-- Retained helpers support recovery when the main app UI cannot open, and reject mismatched attempts or data bindings. New updates must use the installed app.
-- The bundled relay-manage skill guides local coding agents through these operations. Explicit skill installation preserves edited copies and does not register an MCP server or change unrelated agent settings. A separate skill ZIP is included.
-- Read the [local management guide](https://github.com/StepanKukharskiy/task-relay/blob/v0.13.324/docs/local-management.md). Local access remains subject to the user's permissions.
-
-## Retained replies
-
-Historical held or uncertain replies no longer block app updates. Their contents, flags, attempts and receipts remain unchanged; updates never resend them. Active work and deliverable pending replies still block installation. Older already-blocked updaters need one reviewed maintenance installation to acquire that fix.
+- Open canvases refresh running nodes without reopening the job, recover from transient read errors, and preserve unsaved edits.
+- Imported image cards show thumbnails and named outputs with visible exact connections. Collection inputs have distinct wire endpoints and source names.
+- HyperFrames projects declare their animation runtime. Relay provisions pinned GSAP 3.15.0 or browser-native WAAPI and owns loading, initialization and dependency validation. The local GSAP wrapper loading fix is included.
 
 ## Templates
 
@@ -46,7 +34,7 @@ Historical held or uncertain replies no longer block app updates. Their contents
 
 ## Install or upgrade
 
-Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.324-arm64.dmg.
+Apple Silicon Macs, macOS 14 or later: download Task-Relay-0.13.327-arm64.dmg.
 Existing compatible apps can use Settings → App updates → Include beta releases → Check for updates, then download and install. The update ZIP and manifest include the desktop UI and runtime; a Python wheel alone does not update the app.
 
 This is a locally signed beta without Apple Developer ID notarization. Provider accounts, native applications and the local media/Python runtimes require their own setup. Windows and Intel Mac installers are not included. Existing jobs, artifact versions and uncertain attempts remain in the selected data folder.

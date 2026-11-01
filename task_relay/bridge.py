@@ -792,7 +792,7 @@ class Bridge:
             self.state.put('health:messages-routing', {'version': 1, 'last_success': time.time()})
             for row in relay_channels.pending(self.state, 'desktop', limit=50):
                 self.state.db.execute('UPDATE outbox SET sent=1 WHERE id=?', (row['id'],))
-        if self.state.get('chat_id') is None:
+        if isinstance(self.telegram, UnconnectedTelegram) or self.state.get('chat_id') is None:
             return
         if not channel_policy.outgoing(self.state.db, 'telegram'):
             return
@@ -843,6 +843,8 @@ class Bridge:
 
     def flush_media(self):
         from . import delivery_effects
+        if isinstance(self.telegram, UnconnectedTelegram):
+            return
         if not channel_policy.outgoing(self.state.db, 'telegram'):
             return
         if self.state.get('chat_id') is None:
@@ -1649,9 +1651,14 @@ class UnconnectedTelegram:
 
 
 def service_config():
-    # A missing connection permits local work. An unreadable saved credential
-    # remains an error rather than silently replacing an existing installation.
-    return read_config() if (DATA / 'config.json').exists() else {'token': None}
+    # Messenger credentials cannot gate the local worker. Keep the original
+    # configuration untouched and hold remote work until deliberately repaired.
+    if not (DATA / 'config.json').exists():
+        return {'token': None}
+    try:
+        return read_config()
+    except BridgeError as exc:
+        return {'token': None, 'telegram_error': str(exc)}
 
 
 def service_transport(config, pacer, factory=Telegram):

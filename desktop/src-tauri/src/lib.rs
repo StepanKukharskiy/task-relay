@@ -8,14 +8,14 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
-const ACTIONS: &[&str] = &["app-update-status", "app-update-check", "app-update-download", "app-update-install", "app-update-recover",
+const ACTIONS: &[&str] = &["agent-skills-sync", "app-update-status", "app-update-check", "app-update-download", "app-update-install", "app-update-recover",
     "status", "project", "provider", "telegram", "update-check", "node-compose", "node-compose-preview", "node-compose-result", "node-validate", "node-catalog", "node-templates", "node-template", "node-drafts", "node-draft", "node-draft-save", "node-setup", "node-files", "node-file-import", "node-codex-runtime", "node-connect", "node-model-verify", "node-run-preview", "node-run-start", "node-run-advance", "node-result-draft", "node-result-chat", "node-prompt-save", "node-canvas", "node-canvas-save", "workflow-export", "workflow-import-preview", "workflow-import",
     "browser-configure", "browser-open", "browser-sign-in-done", "model-default", "media-provider", "image-model-refresh", "rhino-preference",
     "code-runtime-configure", "worker-verify", "app-access-update",
     "channel-update", "channel-status",
     "companion-status", "conversation", "approval-detail", "messages-start", "messages-stop",
     "handoff-prepare", "handoff-apply", "handoff-status", "handoff-restore",
-    "service-status", "service-start", "service-stop", "service-connect", "service-disconnect",
+    "service-status", "service-start", "service-auto-start", "service-stop", "service-connect", "service-disconnect",
     "tasks", "task-detail", "task-create", "task-send", "task-send-file", "task-stop", "task-approval-decide",
     "plans", "plan-create", "plan-detail", "plan-prepare", "plan-decide", "workspace-chat", "workspace-chat-source", "conversation-followup",
     "workspace-jobs", "workspace-job-visibility", "workspace-job-delete-preview", "workspace-detail", "workspace-decide", "workspace-artifact", "workspace-artifact-link", "workspace-open-artifact", "workspace-request", "workspace-plan", "workspace-source-changes", "workspace-compare", "workspace-source",
@@ -98,7 +98,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
     let seconds = if matches!(path, "app-update-download" | "app-update-install" | "app-update-recover") { 240 }
         else if path == "app-update-check" { 120 }
         else if matches!(path, "code-runtime-configure" | "worker-verify" | "node-model-verify" | "node-run-start" | "node-compose" | "node-compose-preview" | "node-run-advance" | "computer-setup-status" | "computer-request-permissions") { 45 }
-        else if matches!(path, "service-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 }
+        else if matches!(path, "service-start" | "service-auto-start" | "messages-start" | "messages-stop" | "service-stop" | "handoff-apply" | "handoff-restore") { 90 }
         else { 15 };
     let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
@@ -116,7 +116,7 @@ fn run_bridge(mut command: Command, path: &str, body: &[u8]) -> Result<Value, St
             } else if seconds > 15 {
                 "The service action did not confirm completion. Inspect the handoff receipt and service status before another action; it will not be replayed."
             } else {
-                "Task Relay could not read its local data in time. Check this app’s access to the selected data folder, then refresh status."
+                "Status loading exceeded 15 seconds. The job may still be running. Refresh status to check its saved progress."
             }.into());
         }
         std::thread::sleep(Duration::from_millis(50));

@@ -8,12 +8,15 @@ Only one companion instance is allowed. It does not yet install itself as a logi
 item; the existing service definitions retain their own login behavior.
 
 The app bundles Python and Relay. First launch opens the next required connection
-step: AI provider, Telegram pairing, then service startup. A default folder is
-optional and lives in settings. BotFather/token setup remains required for the
-current dedicated Telegram bot. No provider generation or message is triggered
-by opening the window. If reading an existing data folder times out, Grant folder
+step: AI provider (or Later), then automatic local service startup. A default folder is
+optional and lives in settings. Telegram is optional; BotFather/token setup is needed only for the dedicated bot. Opening the window does not submit a new job or replay held replies. If reading an existing data folder times out, Grant folder
 access opens a native chooser for that same saved folder; it does not rebind data.
 Automatic status polling stops after a read failure until a deliberate retry. The source installer retains its separate loopback guide.
+
+Opening the app also installs its bundled `relay-manage` and `relay-author` skills
+for local ChatGPT Desktop / Codex discovery, without a download or Telegram setup.
+Settings → ChatGPT / Codex skills shows readiness or preserved-copy conflicts.
+Managed unchanged copies follow app updates; personal edits remain untouched.
 
 After setup the window shows connection status, Open Telegram and the available
 service control. Channels contains Telegram and optional Apple Messages connection
@@ -87,7 +90,9 @@ Use existing installation connects to its saved paths without moving data or
 restarting services. A separate Review service handoff prepares exact old/new
 service definitions and a runtime identity. Apply checks those identities again,
 refuses in-flight work, unloads the old owner before switching, and requires a fresh
-heartbeat from a newly started service. A service that was stopped stays stopped.
+heartbeat from a newly started service. Handoff preserves stopped state; the
+separate app-open startup step can then start the owned service after setup.
+Explicit Stop pauses app-open and login startup until Start is chosen again.
 
 Failure restores the old definition and previous loaded/stopped state when that
 can be established. Interrupted or uncertain transitions are never applied again.

@@ -56,11 +56,18 @@ def set_project(value):
 
 def set_provider(name, key='', model='', endpoint=''):
     _require_host('Provider setup')
-    if name not in ('gemini', *api_providers.SPECS, 'later'):
+    if name not in ('gemini', *api_providers.SPECS, 'codex', 'later'):
         raise LauncherError('Choose one of the listed providers or Later.')
     if any(not isinstance(x, str) for x in (key, model, endpoint)):
         raise LauncherError('Provider fields must be text.')
     with onboarding.setup_lock():
+        if name == 'codex':
+            from .codex_chat import select
+            if key.strip() or endpoint.strip():
+                raise LauncherError('Codex uses ChatGPT sign-in. Leave API key and endpoint empty.')
+            result = select(model, PATHS)
+            _save_settings(provider=name)
+            return {'provider': name, **result}
         if name != 'later':
             if (PATHS.data / (name + '.json')).exists() and any(field.strip() for field in (key, model, endpoint)):
                 raise LauncherError('This provider is already configured. New settings were not saved; use the CLI or /providers to change them.')
@@ -147,10 +154,14 @@ def status():
             pass
     providers = {name: credentials.status(PATHS.data / (name + '.json'))['available']
                  for name in ('gemini', *api_providers.SPECS)}
+    from .codex_chat import read_config
+    try: providers['codex'] = bool(read_config(PATHS))
+    except ValueError: providers['codex'] = False
     selected = settings.get('provider')
     first_task = (f'/new {selected} {shlex.quote(project)} First task'
-                  if selected in providers and providers[selected] and project_info['available'] else None)
-    telegram = credentials.status(PATHS.data / 'config.json', 'token')['available']
+                  if (selected in api_providers.SPECS or selected == 'gemini') and project_info['available'] else None)
+    if not project_info['available'] or not providers.get(selected): first_task = None
+    telegram = credentials.status(PATHS.data / 'config.json', 'token')
     try:
         paired = diagnostics.pairing(PATHS.state)
     except Exception:
@@ -168,7 +179,8 @@ def status():
             'setup_error': saved_error, 'project': project_info,
             'selected_provider': selected, 'providers': providers,
             'first_task_command': first_task,
-            'telegram': {'configured': telegram, 'paired': paired},
+            'telegram': {'configured': telegram['available'], 'paired': paired,
+                         'error': telegram.get('blocker') if (PATHS.data / 'config.json').exists() else None},
             'update': {'checked': cache.get('checked'), 'latest': (cache.get('release') or {}).get('version'),
                        'url': (cache.get('release') or {}).get('url'), 'error': cache.get('error')},
             'tools': host_apps.launcher_tools(HOST),

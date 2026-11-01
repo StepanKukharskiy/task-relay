@@ -88,6 +88,19 @@ class LauncherTests(unittest.TestCase):
         self.assertFalse(self.paths.data.exists())
         self.assertEqual(self.request('GET', 'launcher.js')[0], 200)
 
+    def test_telegram_error_is_reported_without_failing_local_status(self):
+        path = self.paths.data / 'config.json'
+        path.parent.mkdir()
+        path.write_text('{unreadable saved credential')
+        path.chmod(0o600)
+        code, raw, _ = self.request('GET', 'api/status')
+        self.assertEqual(code, 200)
+        telegram = json.loads(raw)['telegram']
+        self.assertFalse(telegram['configured'])
+        self.assertTrue(telegram['error'])
+        self.assertNotIn('unreadable saved credential', telegram['error'])
+        self.assertEqual(path.read_text(), '{unreadable saved credential')
+
     def test_project_save_recovers_and_preserves_previous_setup(self):
         code, raw, _ = self.request('POST', 'api/provider', {'name': 'later'})
         self.assertEqual(code, 200, raw)

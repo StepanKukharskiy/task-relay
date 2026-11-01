@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from task_relay import api_providers as api
-from task_relay import gemini
+from task_relay import gemini, codex_chat
 from task_relay import workflows
 from task_relay import production_control
 from task_relay import production_folders
@@ -459,13 +459,13 @@ def initialize(db):
 
 def provider(state):
     chosen = state.get('orchestrator_provider')
-    for name in ([chosen] if chosen else ['gemini', *api.SPECS]):
-        config = gemini.read_config() if name == 'gemini' else api.read_config(name)
+    for name in ([chosen] if chosen else ['gemini', *api.SPECS, 'codex']):
+        config = codex_chat.read_config() if name == 'codex' else gemini.read_config() if name == 'gemini' else api.read_config(name)
         if config:
             model = (config.get('models', {}).get('text', gemini.DEFAULT_MODELS['text'])
-                     if name == 'gemini' else config.get('model', api.SPECS[name]['model']))
+                     if name == 'gemini' else config['model'] if name == 'codex' else config.get('model', api.SPECS[name]['model']))
             return name, model
-    raise ValueError('Connect a text API provider through /providers first. Then use /orchestrator again.')
+    raise ValueError('Choose Codex with ChatGPT sign-in in Relay Settings, or connect a text API provider through /providers first.')
 
 
 def queue_notice(state, key, text):
@@ -588,10 +588,10 @@ def handle(bridge, message, text, update_id):
             return True
         if arg.startswith('provider '):
             name = arg.split()[-1]
-            if name not in ('gemini', *api.SPECS) or len(arg.split()) != 2:
-                bridge.send('Use /orchestrator provider gemini|openai|qwen|deepseek|openrouter.')
+            if name not in ('gemini', *api.SPECS, 'codex') or len(arg.split()) != 2:
+                bridge.send('Use /orchestrator provider codex|gemini|openai|qwen|deepseek|openrouter.')
                 return True
-            config = gemini.read_config() if name == 'gemini' else api.read_config(name)
+            config = codex_chat.read_config() if name == 'codex' else gemini.read_config() if name == 'gemini' else api.read_config(name)
             if not config:
                 bridge.send('Connect that provider through /providers first.')
                 return True
@@ -986,7 +986,7 @@ def generate(job, payload):
     receipt = gemini.DATA / 'orchestrator-reads' / (hashlib.sha256(str(job['id']).encode()).hexdigest() +
                                                  ('-source-correction' if correcting_sources else '-workflow-correction' if correcting_workflow else '') + '.json')
     web = (None if research_mode == 'none' else
-           orchestrator_web.Session(receipt,gemini.read_config(),durable=True,rendered=True))
+           orchestrator_web.Session(receipt,None if job['provider'] == 'codex' else gemini.read_config(),durable=True,rendered=True))
     if correcting_workflow:roots=[];web=None;context=None
     system += '\n' + orchestrator_web.INSTRUCTIONS
     # Scope direct-tool limits after all tool-specific instructions, so they do
@@ -1011,7 +1011,7 @@ def generate(job, payload):
         advice_properties['requirement']['enum']=['required']
         system+='\nThis is a selected public-source research follow-up. Use bounded web_search/web_fetch reads and return a source-linked answer with remaining gaps. Do not propose an executing action or another production plan. action_json must be null. The original question and frozen attachments are context, not permission for implementation.'
     name = job['provider']
-    config = gemini.read_config() if name == 'gemini' else api.read_config(name)
+    config = codex_chat.read_config() if name == 'codex' else gemini.read_config() if name == 'gemini' else api.read_config(name)
     if not config:
         raise ValueError('The conversation provider is disconnected. Open /providers.')
     if name == 'gemini':
@@ -1022,13 +1022,16 @@ def generate(job, payload):
             'contents': [{'role': 'user', 'parts': [{'text': json.dumps(payload, ensure_ascii=False)}]}],
             'generationConfig': {'responseMimeType': 'application/json', 'maxOutputTokens': orchestrator_files.MAX_RESPONSE_TOKENS}}
         return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources,pipeline_stage=pipeline_stage,research_mode=research_mode),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
-    client = api.Client(name, config['api_key'], config.get('base_url'))
+    from contextlib import nullcontext
+    client_context = (codex_chat.client(job['model'], receipt) if name == 'codex' else
+                      nullcontext(api.Client(name, config['api_key'], config.get('base_url'))))
     messages = [{'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}]
     request = ({'model': job['model'], 'instructions': system, 'input': messages, 'store': False, 'max_output_tokens': orchestrator_files.MAX_RESPONSE_TOKENS}
                if name == 'openai' else {'model': job['model'], 'messages': [{'role': 'system', 'content': system}] + messages,
                                         'stream': False, 'max_tokens': orchestrator_files.MAX_RESPONSE_TOKENS})
     endpoint = 'responses' if name == 'openai' else 'chat/completions'
-    return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources,pipeline_stage=pipeline_stage,research_mode=research_mode),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
+    with client_context as client:
+        return orchestrator_advice.validate(orchestrator_files.run(name,client,endpoint,request,roots,receipt,web,context,response_definition=response_definition,intake_definition=None if frozen_intake is not None else request_contract.definition(),frozen_intake=frozen_intake,route_patch=correcting_sources,pipeline_stage=pipeline_stage,research_mode=research_mode),payload.get('user_message'), offered_tools, orchestrator_advice.disclosure(gemini.DATA,job['id']), research_mode)
 
 
 def clock_context(now=None):
@@ -1338,7 +1341,9 @@ class Worker:
                           'invalid-response':'The conversation provider returned an unreadable response.'}[exc.transport_failure_kind]
                 message = reason + (' The provider request outcome remains unknown.' if exc.uncertain else '')
                 message += ' Your request is saved. No workflow action was dispatched and no automatic retry was made.'
-            if isinstance(exc, capabilities.CapabilityError):
+            if isinstance(exc, codex_chat.SetupError):
+                message = str(exc) + ' Your request is saved. No workflow action was dispatched and no automatic retry was made.'
+            elif isinstance(exc, capabilities.CapabilityError):
                 message = str(exc) + ' No new job was queued. Your request is saved.'
             elif isinstance(exc,ValueError) and phase!='interpretation' and action and action.get('kind')=='pipeline_control':
                 message = 'Workflow control could not complete: '+str(exc)+' Your request is saved; no new work was queued.'

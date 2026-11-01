@@ -241,7 +241,7 @@ class Tests(unittest.TestCase):
         from tests.test_sketchup_operations import checks as sketchup_checks
         from tests.test_grasshopper import checks as grasshopper_checks
         from tests.test_rhino3dm import fixture as geometry
-        from scripts.qualify_hyperframes import fixture as frontend
+        from scripts.qualify_hyperframes import managed_fixture as frontend
         baseline=b'Synthetic exact native file bytes';digest=hashlib.sha256(baseline).hexdigest()
         documents={
             'web.sources.prepared':dict(version=1,targets=[dict(id='part',queries=['exact part'],required_options=1)]),

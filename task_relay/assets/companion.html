@@ -144,7 +144,8 @@
       <summary>Settings</summary>
       <details id="provider-settings"><summary><span>AI connection</span><span id="provider-summary" class="muted">Checking…</span></summary>
         <form id="provider-form">
-          <label for="provider-name">Provider</label><select id="provider-name"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="later">Use existing agent tasks</option></select>
+          <label for="provider-name">Provider</label><select id="provider-name"><option value="gemini">Gemini</option><option value="openai">OpenAI</option><option value="qwen">Qwen</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="codex">Codex · ChatGPT sign-in (no API key)</option><option value="later">Use existing agent tasks</option></select>
+          <p id="codex-chat-help" class="hint" hidden>Uses your Codex ChatGPT sign-in and account allowance. Requires Relay’s qualified Codex runtime, configured in Apps and tools. No API key or API billing. Media providers remain separate.</p>
           <div id="provider-credentials"><label for="provider-key">API key</label><input id="provider-key" type="password" autocomplete="new-password"><a id="provider-key-link" href="https://aistudio.google.com/apikey">Get an API key ↗</a>
           <details><summary>Advanced</summary><label for="provider-model">Model ID (optional)</label><input id="provider-model"><div id="endpoint-field" hidden><label for="provider-endpoint">Qwen HTTPS endpoint (optional)</label><input id="provider-endpoint" type="url"></div></details></div>
           <p class="hint">Saved connections are retained. Manage an existing provider through /providers in Telegram.</p><button type="submit" class="primary">Save connection</button>
@@ -219,6 +220,11 @@
         <button id="app-update-download" hidden>Download update</button>
         <button id="app-update-install" class="primary" hidden>Install and restart</button>
         <button id="app-update-recover" class="quiet" hidden>Recover previous app</button></div>
+      </details>
+      <details id="agent-skills-settings"><summary>ChatGPT / Codex skills</summary>
+        <p id="agent-skills-summary" class="muted">Installing bundled Relay skills…</p>
+        <ul id="agent-skills-results"></ul>
+        <button id="agent-skills-retry">Check skill installation</button>
       </details>
       <details id="advanced-settings"><summary>Troubleshooting</summary>
         <p id="data-location" class="path"></p><p id="ownership-detail"></p><div class="actions"><button id="connect-existing" hidden>Use existing installation</button><button id="service-handoff" hidden>Review service handoff</button></div>

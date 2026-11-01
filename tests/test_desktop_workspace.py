@@ -123,9 +123,9 @@ class WorkspaceTests(unittest.TestCase):
                 aid=self.rt.task(run,'owner')['latest'];session=self.factory.sessions[aid]
                 control=Path(session['session']['control']);control.mkdir(parents=True,exist_ok=True)
                 atomic(control/'launch.json',dict(credential_fingerprint=executors.fingerprint(CONFIG,BACKEND)))
-                batch=[dict(id='author',objective='Write report',instruction='Use the exact request',inputs=[],
-                    outputs=[dict(path='report.txt',purpose='Report',media_type='text/plain')],dependencies=[],worker=dict(requires=['files.text']))]
-                execute(session['frozen'],control,Script([('job_delegate',dict(request_id='add',batch_json=c.encoded(batch)))]),lambda:(CONFIG,BACKEND))
+                batch=[dict(id='author',objective='Write report',
+                    outputs=[dict(name='report',purpose='Report',media_type='text/plain')])]
+                execute(session['frozen'],control,Script([('node_run',dict(tasks=batch))]),lambda:(CONFIG,BACKEND))
                 session['status']=dict(status='finished',exit_code=0,external_outcome='no_pending_response',pending_requests=[])
                 committed.append(True)
             return snapshot
@@ -362,6 +362,22 @@ class WorkspaceTests(unittest.TestCase):
             tasks.assert_called_once_with(bridge);plans.assert_called_once_with(self.state)
         with patch('task_relay.bridge.DATA',self.root/'no-config'),patch('task_relay.bridge.read_config',side_effect=AssertionError('Remote credential read')):
             self.assertIsNone(service_config()['token'])
+
+    def test_broken_saved_telegram_still_permits_local_worker(self):
+        config_path = self.paths.data / 'config.json'
+        config_path.write_text('{broken saved config')
+        config_path.chmod(0o600)
+        with patch('task_relay.bridge.DATA', self.paths.data):
+            config = service_config()
+        self.assertIsNone(config['token'])
+        self.assertTrue(config['telegram_error'])
+        transport = service_transport(config, None, lambda *_: self.fail('Remote transport constructed'))
+        with patch('task_relay.desktop_tasks.process_commands') as tasks, patch('task_relay.desktop_plans.process_requests') as plans:
+            bridge = Bridge(self.state, transport, config)
+            process_desktop(bridge)
+            tasks.assert_called_once_with(bridge)
+            plans.assert_called_once_with(self.state)
+        self.assertEqual(config_path.read_text(), '{broken saved config')
 
     def test_next_stage_carries_exact_selected_versions_and_waits_for_its_own_start(self):
         view=self.ready();self.choose(view)

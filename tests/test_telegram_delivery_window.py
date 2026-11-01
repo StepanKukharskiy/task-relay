@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from task_relay import channel_policy as policy, relay_channels
-from task_relay.bridge import State, Bridge, Watcher
+from task_relay.bridge import State, Bridge, Watcher, UnconnectedTelegram
 from tests.test_channel_policy import ChannelTests
 from tests.test_bridge import TelegramFake, DesktopFake
 
@@ -50,6 +50,27 @@ class DeliveryWindowTests(unittest.TestCase):
         self.assertEqual(len(self.telegram.sent), 2)
         self.assertEqual(self.telegram.media, [('original', b'Exact saved bytes')])
         self.assertEqual(self.state.db.execute("SELECT status FROM media_outbox WHERE id='old'").fetchone()[0], 'pending')
+
+    def test_unavailable_transport_preserves_remote_receipts_and_routes_desktop(self):
+        self.queue('unknown')
+        self.telegram.send = lambda *a, **kw: (_ for _ in ()).throw(TimeoutError('ambiguous'))
+        with self.assertRaises(TimeoutError):
+            self.bridge.flush()
+        self.activate()
+        self.queue('remote'); self.queue('announced'); self.queue('local', 'desktop')
+        self.media('announced')
+        with self.state.db:
+            self.state.db.execute("UPDATE outbox SET sent=1 WHERE id='announced'")
+        def remote_state():
+            return [[tuple(r) for r in self.state.db.execute(sql)] for sql in (
+                "SELECT * FROM outbox WHERE id!='local' ORDER BY id",
+                'SELECT * FROM outbox_parts', 'SELECT * FROM media_outbox',
+                'SELECT * FROM relay_delivery_effects')]
+        before = remote_state()
+        offline = Bridge(self.state, UnconnectedTelegram(), {'token': None}, DesktopFake)
+        offline.flush(); offline.flush_media()
+        self.assertEqual(remote_state(), before)
+        self.assertEqual(self.state.db.execute("SELECT sent FROM outbox WHERE id='local'").fetchone()[0], 1)
 
     def test_late_discovered_old_and_undated_results_stay_local(self):
         self.activate()

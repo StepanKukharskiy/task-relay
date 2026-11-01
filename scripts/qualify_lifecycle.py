@@ -18,6 +18,7 @@ from scripts import lifecycle_retention as retention
 
 # This is an explicit maintained matrix, not discovery of an optional subset.
 GROUPS={
+    'codex-conversation':['tests.test_codex_chat'],
     'gemini-transport-boundary':['tests.test_gemini_transport_boundary'],
     'canvas-node-admission':['tests.test_job_templates','tests.test_canvas_node_run','tests.test_node_result_actions','tests.test_node_usability','tests.test_codex_gate'],
     'reusable-node-bindings':['tests.test_reusable_nodes'],
@@ -84,7 +85,8 @@ GROUPS={
         'tests.test_worker_factory.Tests.test_startup_grace_survives_controller_restart_without_false_uncertainty_or_replay',
         'tests.test_worker_factory.Tests.test_final_receipt_arriving_during_process_probe_is_collected_without_uncertainty',
         'tests.test_worker_factory.Tests.test_missing_or_foreign_terminal_receipt_cannot_confirm_completion'],
-    'installation-delivery-maintenance':['tests.test_desktop_local_install','tests.test_delivery_effects'],
+    'installation-delivery-maintenance':['tests.test_desktop_local_install','tests.test_delivery_effects',
+        'tests.test_agent_skills','tests.test_desktop_service','tests.test_desktop_handoff','tests.test_telegram_delivery_window'],
     'gate-controls':['tests.test_lifecycle_release_gate','tests.test_lifecycle_retention'],
 }
 

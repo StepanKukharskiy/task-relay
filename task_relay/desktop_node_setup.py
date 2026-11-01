@@ -29,7 +29,7 @@ def snapshot():
     rows=capability_defaults.snapshot()['capabilities']
     text=next(r for r in rows if r['capability']=='text')
     # No model discovery call here. Exact IDs may be entered and verified explicitly.
-    providers=[dict(provider='codex',models=['gpt-6.1-sol','gpt-6-sol'],connected=None,authentication='Existing ChatGPT Codex login')]+text['options']
+    providers=[dict(provider='codex',models=['gpt-6.1-sol','gpt-6-sol'],connected=None,authentication='Existing ChatGPT Codex login')]+[item for item in text['options'] if item['provider'] != 'codex']
     from orchestrator.operation_definition import catalog
     operations={}
     for row in catalog():

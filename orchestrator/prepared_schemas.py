@@ -66,9 +66,9 @@ register('media.compose',dict(width=integer(320,1920),height=integer(320,1920),f
     scenes=array(obj(dict(duration=number(.5,30),title=text(90,1),body=text(300),image=nullable(PATH),
                           entrance=enum('left','right','up','down','fade'),narration=text(1000))),1,20)),
     'orchestrator.reel_contract:validate',assets=True)
-register('hyperframes.preview',dict(width=integer(320,1920),height=integer(320,1920),fps=dict(type='integer',enum=[15,24,30]),
+register('hyperframes.preview',dict(animation_runtime=enum('gsap','waapi'),width=integer(320,1920),height=integer(320,1920),fps=dict(type='integer',enum=[15,24,30]),
     duration=number(.5,120),audio=BOOL,samples=array(number(0,120),1,20),files=mapping(text(15000,1)),assets=mapping(PATH)),
-    'orchestrator.hyperframes_contract:validate',assets=True)
+    'orchestrator.hyperframes_contract:validate',fixed=dict(version=2),assets=True)
 
 base=dict(name=text(100,1),layer=text(100,1))
 point=vector(-10000000,10000000)

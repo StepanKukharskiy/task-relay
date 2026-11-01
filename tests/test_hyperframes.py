@@ -11,7 +11,7 @@ from orchestrator import contracts,execution,corrections,executors,worker_capabi
 from orchestrator import hyperframes_contract as contract,hyperframes_project as project
 from orchestrator.runtime import file_hash
 from task_relay import media_host,production_planning as planning
-from scripts.qualify_hyperframes import fixture
+from scripts.qualify_hyperframes import fixture,managed_fixture
 from tests import test_mixed_execution as mixed,test_production_planning as pf
 from tests.test_orchestrator import plan,pair
 
@@ -38,6 +38,72 @@ def graph():
 
 
 class ContractTests(unittest.TestCase):
+    def test_managed_gsap_bundle_and_initialization_preserve_authored_sources(self):
+        from orchestrator import animation_runtime
+        value=contract.validate(managed_fixture(),{})
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);font=root/'font.ttf';font.write_bytes(b'font fixture')
+            files=project.materialize(value,root,root/'source',{'paths':{'font':str(font)}})
+            self.assertEqual(files['relay-runtime/gsap.min.js'],animation_runtime.GSAP_SHA256)
+            project.envelope(root/'source',root/'runtime')
+            html=(root/'runtime/index.html').read_text()
+            self.assertLess(html.index('Content-Security-Policy'),html.index('relay-runtime/gsap.min.js'))
+            self.assertLess(html.index('relay-runtime/gsap.min.js'),html.index('window.relayTimeline=gsap.timeline'))
+            self.assertLess(html.index('window.__timelines["reel"]'),html.index('const timeline=window.relayTimeline'))
+            self.assertEqual((root/'source/index.html').read_text(),value['files']['index.html'])
+            project.archive(root/'source',root/'project.zip')
+            receipt=dict(capability='hyperframes.preview',passed=True,checks=dict(project_sha256=file_hash(root/'project.zip'),project_files=files))
+            self.assertEqual(project.restore(root/'project.zip',receipt,root/'restored'),value)
+            (root/'source/relay-runtime/gsap.min.js').write_text('tampered library')
+            project.archive(root/'source',root/'tampered.zip')
+            receipt['checks'].update(project_sha256=file_hash(root/'tampered.zip'),project_files=project.inventory(root/'source'))
+            with self.assertRaisesRegex(ValueError,'pinned runtime'):project.restore(root/'tampered.zip',receipt,root/'bad')
+
+    def test_runtime_selection_and_dependency_references_fail_before_execution(self):
+        for change in (dict(animation_runtime='unknown'),dict(version=2)):
+            value=fixture();value.update(change)
+            with self.assertRaises(ValueError):contract.validate(value,{})
+        for tag in ('<script src="https://example.org/gsap.js"></script>',
+                    '<script src="//example.org/gsap.js"></script>',
+                    '<script src="assets/gsap.min.js"></script>'):
+            value=managed_fixture();value['files']['index.html']=value['files']['index.html'].replace('</head>',tag+'</head>')
+            with self.assertRaises(ValueError):contract.validate(value,{})
+        for engine in ('gsap','waapi'):self.assertEqual(contract.validate(managed_fixture(engine),{})['animation_runtime'],engine)
+        value=managed_fixture();value['files']['relay-runtime/custom.js']='1'
+        with self.assertRaisesRegex(ValueError,'Relay owns'):contract.validate(value,{})
+
+    def test_resource_policy_preserves_head_and_dependency_order(self):
+        raw='<!doctype html>\n<HTML lang="en"><HEAD data-note=">">'+\
+            '<script src="assets/library.js"></script></HEAD><body><main></main>'+\
+            '<script>window.__timelines={};</script></body></HTML>'
+        result=project.policy_document(raw,"script-src 'self'")
+        self.assertEqual(result.lower().count('<!doctype'),1)
+        self.assertTrue(result.startswith('<!doctype html>'))
+        self.assertLess(result.index('<HEAD'),result.index('Content-Security-Policy'))
+        self.assertLess(result.index('Content-Security-Policy'),result.index('assets/library.js'))
+        self.assertLess(result.index('assets/library.js'),result.index('window.__timelines'))
+        policy=result[result.index('<meta '):result.index('>',result.index('<meta '))+1]
+        self.assertEqual(result.replace(policy,'',1),raw)
+
+    def test_policy_wraps_fragments_and_handles_missing_head(self):
+        for raw in ('<main>fragment</main>', '<!doctype html><main>fragment</main>',
+                    '<!doctype html><html><body><main>fragment</main></body></html>'):
+            with self.subTest(raw=raw):
+                result=project.policy_document(raw,"script-src 'self'")
+                self.assertEqual(result.lower().count('<!doctype'),1)
+                self.assertLess(result.index('<head>'),result.index('Content-Security-Policy'))
+                self.assertLess(result.index('Content-Security-Policy'),result.index('<main>'))
+
+    def test_fake_head_in_comment_does_not_precede_policy(self):
+        raw='<!doctype html><!-- <head> --><html><head><script>1</script></head></html>'
+        result=project.policy_document(raw,"script-src 'self'")
+        self.assertIn('<html><head><meta http-equiv="Content-Security-Policy"',result)
+        self.assertLess(result.index('Content-Security-Policy'),result.index('<script>'))
+        for raw in ('<html><script>1</script><head></head></html>',
+                    '<script>1</script><html><body></body></html>'):
+            with self.assertRaisesRegex(ValueError,'author content before'):
+                project.policy_document(raw,"script-src 'self'")
+
     def test_full_frontend_is_preserved_and_execution_config_rejected(self):
         original=fixture();self.assertEqual(contract.validate(original,{}),original)
         for name in ('../outside.js','/tmp/source.js','.hidden.js','package.json','hyperframes.json','node_modules/lib.js','relay-project.json'):

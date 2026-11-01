@@ -30,14 +30,14 @@ def package(app, output):
         (root / 'Read me.txt').write_text('Task Relay — Mac beta\n\n'
             'Requires an Apple Silicon Mac running macOS 14 or newer.\n'
             'Drag Task Relay into Applications, eject this disk, then open Task Relay.\n'
-            'The app includes Python. Follow its four setup steps; no Terminal is needed.\n\n'
+            'The app includes Python. Choose an AI provider or Later; Telegram is optional.\n\n'
             'This local beta is not an Apple-notarized public release.\n'
             'If macOS blocks it, follow Apple’s instructions for a trusted app:\n'
             'https://support.apple.com/guide/mac-help/mh40616/mac\n'
             'Privacy & Security → Open Anyway may be needed after trying to open it.\n'
             'Do not disable Gatekeeper. Managed Macs may disallow this beta.\n'
             'Updates can require refreshing existing macOS permission grants.\n\n'
-            'First-time onboarding uses Telegram and your AI access. Messages remains\n'
+            'Opening Relay starts local setup and installs its agent skills. Messages remains\n'
             'an optional pilot with separate setup and permissions. Provider use may cost money.\n'
             'Existing service connections require a reviewed handoff; no silent replacement.\n')
         subprocess.run(['hdiutil', 'create', '-volname', 'Task Relay Beta', '-srcfolder', str(root),
